@@ -1,3 +1,4 @@
+from gestionale_logistica.config import load_config
 import configparser
 import logging
 import sys
@@ -7,13 +8,8 @@ from PySide6.QtWidgets import QApplication
 
 from gestionale_logistica.gui.main_window import MainWindow
 
-CONFIG_PATH = Path("config.ini")
-
-
-def load_config() -> configparser.ConfigParser:
-    config = configparser.ConfigParser()
-    config.read(CONFIG_PATH)
-    return config
+from gestionale_logistica.database.base import Base, engine
+from gestionale_logistica.database import models
 
 
 def setup_logging(config: configparser.ConfigParser) -> None:
@@ -25,6 +21,7 @@ def setup_logging(config: configparser.ConfigParser) -> None:
 
 
 def main() -> None:
+    Base.metadata.create_all(engine)
     config = load_config()
     setup_logging(config)
     logging.getLogger(__name__).info("Avvio Gestionale Logistica")
