@@ -13,3 +13,4 @@ wheels/
 app.log
 gestionale.db
 
+.DS_Store
