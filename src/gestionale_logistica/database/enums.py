@@ -24,12 +24,6 @@ class StatoViaggio(enum.Enum):
     ANNULLATO = "Annullato"
 
 
-class StatoFoglio(enum.Enum):
-    APERTO = "Aperto"
-    IN_CORSO = "InCorso"
-    CHIUSO = "Chiuso"
-
-
 class StatoEsito(enum.Enum):
     COMPLETATO = "Completato"
     FALLITO = "Fallito"

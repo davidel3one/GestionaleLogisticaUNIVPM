@@ -9,7 +9,6 @@ from gestionale_logistica.database.base import Base
 from gestionale_logistica.database.enums import (
     CategoriaConsegna,
     StatoEsito,
-    StatoFoglio,
     StatoOrdine,
     StatoViaggio,
 )
@@ -75,16 +74,6 @@ class ComposizioneSquadra(Base):
     viaggi: Mapped[list["Viaggio"]] = relationship(back_populates="composizione")
 
 
-class FoglioViaggio(Base):
-    __tablename__ = "fogli_viaggio"
-
-    id: Mapped[str] = mapped_column(primary_key=True)
-    data_riferimento: Mapped[datetime] = mapped_column(unique=True)
-    stato_foglio: Mapped[StatoFoglio] = _enum_column(StatoFoglio)
-
-    viaggi: Mapped[list["Viaggio"]] = relationship(back_populates="foglio_viaggio")
-
-
 class Viaggio(Base):
     __tablename__ = "viaggi"
 
@@ -93,10 +82,8 @@ class Viaggio(Base):
     data_arrivo_prevista: Mapped[datetime]
     km_percorsi: Mapped[Optional[float]]
     stato_viaggio: Mapped[StatoViaggio] = _enum_column(StatoViaggio)
-    foglio_viaggio_id: Mapped[str] = mapped_column(ForeignKey("fogli_viaggio.id"))
     composizione_id: Mapped[str] = mapped_column(ForeignKey("composizioni_squadra.id_composizione"))
 
-    foglio_viaggio: Mapped["FoglioViaggio"] = relationship(back_populates="viaggi")
     composizione: Mapped["ComposizioneSquadra"] = relationship(back_populates="viaggi")
     ordini: Mapped[list["Ordine"]] = relationship(back_populates="viaggio")
 

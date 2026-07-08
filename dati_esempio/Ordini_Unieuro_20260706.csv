@@ -1,0 +1,31 @@
+ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume
+UNI-2026-0001;Marco Rossi;Via Verdi 17, Fabriano;BordoStrada;32.1;0.1
+UNI-2026-0002;Andrea Ricci;Corso Garibaldi 93, Ancona;BordoStrada;25.0;0.58
+UNI-2026-0003;Martina Marini;Via Cavour 116, Jesi;BordoStrada;11.5;0.09
+UNI-2026-0004;Luca Verdi;Via Nolfi 75, Fano;Big;122.4;1.26
+UNI-2026-0005;Martina Marini;Via Battisti 52, Urbino;Big;173.1;2.5
+UNI-2026-0006;Silvia Palumbo;Corso XI Settembre 25, Pesaro;Incasso;39.0;0.99
+UNI-2026-0007;Tommaso Colombo;Corso Cavour 36, Macerata;Big;136.7;2.21
+UNI-2026-0008;Giorgio Santoro;Via Trieste 89, Ancona;Big;141.8;1.61
+UNI-2026-0009;Davide Ferri;Via Verdi 59, Fabriano;Big;118.8;2.41
+UNI-2026-0010;Alice Lombardi;Via Podesti 103, Senigallia;InstallazioneSempliceAlPiano;24.4;0.74
+UNI-2026-0011;Davide Ferri;Via Battisti 52, Urbino;InstallazioneSempliceAlPiano;63.2;0.94
+UNI-2026-0012;Tommaso Colombo;Viale Trento 4, Pesaro;Big;134.0;1.93
+UNI-2026-0013;Beatrice Mancini;Via Nolfi 98, Fano;BordoStrada;26.8;0.08
+UNI-2026-0014;Davide Ferri;Corso XI Settembre 97, Pesaro;Big;148.6;1.68
+UNI-2026-0015;Silvia Palumbo;Via San Francesco 101, Osimo;InstallazioneSempliceAlPiano;26.7;0.37
+UNI-2026-0016;Martina Marini;Via Dante 4, Civitanova Marche;Incasso;56.3;0.77
+UNI-2026-0017;Alice Lombardi;Corso XI Settembre 21, Pesaro;InstallazioneSempliceAlPiano;51.9;0.79
+UNI-2026-0018;Paolo Greco;Via San Francesco 82, Osimo;BordoStrada;33.2;0.57
+UNI-2026-0019;Francesca Gallo;Via Trieste 9, Ancona;InstallazioneSempliceAlPiano;61.6;1.17
+UNI-2026-0020;Elena Moretti;Via Colombo 100, Castelfidardo;InstallazioneSempliceAlPiano;44.2;0.7
+UNI-2026-0021;Federica Ferraro;Via Roma 40, Loreto;BordoStrada;25.8;0.44
+UNI-2026-0022;Fabio Gentile;Via Mazzini 94, Fano;InstallazioneSempliceAlPiano;52.7;1.29
+UNI-2026-0023;Beatrice Mancini;Via Colombo 10, Castelfidardo;BordoStrada;6.6;0.15
+UNI-2026-0024;Davide Ferri;Via Crescimbeni 31, Macerata;InstallazioneSempliceAlPiano;44.3;1.19
+UNI-2026-0025;Chiara Costa;Via Roma 71, Loreto;BordoStrada;34.0;0.25
+UNI-2026-0026;Simone Fontana;Corso Matteotti 58, Chiaravalle;BordoStrada;12.9;0.28
+UNI-2026-0027;Federica Ferraro;Via Flaminia 103, Falconara Marittima;BordoStrada;9.7;0.4
+UNI-2026-0028;Fabio Gentile;Via Gramsci 31, Porto Recanati;BordoStrada;18.1;0.09
+UNI-2026-0029;Anna De Luca;Via San Francesco 98, Osimo;InstallazioneSempliceAlPiano;30.5;0.47
+UNI-2026-0030;Alessandro Vitale;Corso Matteotti 18, Chiaravalle;BordoStrada;9.0;0.18
