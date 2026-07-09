@@ -42,7 +42,7 @@ def test_registrazione_con_dati_validi(session_factory):
         utente = gestore.registra_utente(**DATI_VALIDI)
 
         assert utente.id is not None
-        assert utente.email_confermata is False
+        assert utente.flg_confermata is False
         assert email_service.ultimo_destinatario == DATI_VALIDI["email"]
         assert email_service.ultimo_codice is not None
         assert len(session.query(CodiceConferma).all()) == 1
@@ -109,7 +109,7 @@ def test_verifica_codice_corretto_conferma_email(session_factory):
         risultato = gestore.verifica_codice(utente.id, email_service.ultimo_codice)
 
         assert risultato is True
-        assert session.get(Utente, utente.id).email_confermata is True
+        assert session.get(Utente, utente.id).flg_confermata is True
         assert session.query(CodiceConferma).all() == []
 
 
@@ -121,7 +121,7 @@ def test_verifica_codice_errato_non_conferma(session_factory):
         risultato = gestore.verifica_codice(utente.id, "000000")
 
         assert risultato is False
-        assert session.get(Utente, utente.id).email_confermata is False
+        assert session.get(Utente, utente.id).flg_confermata is False
 
 
 def test_verifica_codice_scaduto_non_conferma(session_factory):
@@ -137,7 +137,7 @@ def test_verifica_codice_scaduto_non_conferma(session_factory):
         risultato = gestore.verifica_codice(utente.id, email_service.ultimo_codice)
 
         assert risultato is False
-        assert session.get(Utente, utente.id).email_confermata is False
+        assert session.get(Utente, utente.id).flg_confermata is False
 
 
 def test_cinque_tentativi_falliti_invalidano_il_codice(session_factory):
@@ -152,7 +152,7 @@ def test_cinque_tentativi_falliti_invalidano_il_codice(session_factory):
         risultato = gestore.verifica_codice(utente.id, email_service.ultimo_codice)
 
         assert risultato is False
-        assert session.get(Utente, utente.id).email_confermata is False
+        assert session.get(Utente, utente.id).flg_confermata is False
 
 
 def test_rigenera_codice_prima_del_cooldown_solleva_errore(session_factory):

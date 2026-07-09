@@ -28,8 +28,8 @@ class Dipendente(Base):
     codice_fiscale: Mapped[str] = mapped_column(unique=True)
     data_assunzione: Mapped[datetime]
     data_licenziamento: Mapped[Optional[datetime]]
-    attivo: Mapped[bool]
-    certificazione_gas: Mapped[bool]
+    flg_attivo: Mapped[bool]
+    flg_certificazione_gas: Mapped[bool]
 
 
 class Camion(Base):
@@ -38,17 +38,17 @@ class Camion(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     targa: Mapped[str] = mapped_column(unique=True)
     tipo_mezzo: Mapped[str]
-    sponda_idraulica: Mapped[bool]
+    flg_sponda_idraulica: Mapped[bool]
     data_acquisizione: Mapped[datetime]
     data_dismissione: Mapped[Optional[datetime]]
-    attivo: Mapped[bool]
+    flg_attivo: Mapped[bool]
 
 
 class Squadra(Base):
     __tablename__ = "squadre"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    attiva: Mapped[bool]
+    flg_attiva: Mapped[bool]
     data_creazione: Mapped[datetime]
 
     composizioni: Mapped[list["ComposizioneSquadra"]] = relationship(back_populates="squadra")
@@ -66,7 +66,7 @@ class ComposizioneSquadra(Base):
     dipendente_2_id: Mapped[str] = mapped_column(ForeignKey("dipendenti.id"))
     data_inizio_validita: Mapped[datetime]
     data_fine_validita: Mapped[Optional[datetime]]
-    attiva: Mapped[bool]
+    flg_attiva: Mapped[bool]
 
     squadra: Mapped["Squadra"] = relationship(back_populates="composizioni")
     camion: Mapped["Camion"] = relationship()
@@ -185,7 +185,7 @@ class Utente(Base):
     email: Mapped[str] = mapped_column(unique=True)
     password_hash: Mapped[str]
     ruolo: Mapped[RuoloUtente] = _enum_column(RuoloUtente)
-    email_confermata: Mapped[bool]
+    flg_confermata: Mapped[bool]
     data_registrazione: Mapped[datetime]
 
 

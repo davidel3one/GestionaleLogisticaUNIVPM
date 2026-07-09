@@ -76,7 +76,7 @@ class GestoreAutenticazione:
             email=email,
             password_hash=password_hash,
             ruolo=RuoloUtente.ADMIN,
-            email_confermata=False,
+            flg_confermata=False,
             data_registrazione=datetime.now(),
         )
         self.session.add(utente)
@@ -122,7 +122,7 @@ class GestoreAutenticazione:
             return False
 
         utente = self.session.get(Utente, utente_id)
-        utente.email_confermata = True
+        utente.flg_confermata = True
         self.session.delete(codice_conferma)
         self.session.commit()
         return True
@@ -147,7 +147,7 @@ class GestoreAutenticazione:
         hash_da_verificare = utente.password_hash if utente is not None else _HASH
         password_corretta = bcrypt.checkpw(password.encode(), hash_da_verificare.encode())
 
-        if utente is None or not utente.email or not password_corretta:
+        if utente is None or not utente.flg_confermata or not password_corretta:
             raise CredenzialiNonValideError("Email o password non validi")
 
         sessione = Sessione(

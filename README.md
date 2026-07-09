@@ -85,7 +85,7 @@ Il modello di dominio completo (casi d'uso, diagrammi delle classi, activity, st
 
 Entità principali (SQLAlchemy 2.0, dichiarate in `database/models.py`):
 
-- **`Dipendente`**, **`Camion`** — anagrafiche con soft delete (`attivo`), certificazione gas / sponda idraulica.
+- **`Dipendente`**, **`Camion`** — anagrafiche con soft delete (`flg_attivo`), certificazione gas / sponda idraulica.
 - **`Squadra`** / **`ComposizioneSquadra`** — la composizione (camion + 2 dipendenti) di una squadra è storicizzata con un intervallo di validità (`data_inizio_validita`/`data_fine_validita`); è l'unico modo per risalire ai membri di una squadra in un dato momento.
 - **`Viaggio`** — collegato alla composizione squadra attiva al momento della pianificazione (non direttamente a squadra/camion), con stato (`StatoViaggio`) e gli `Ordine` assegnati.
 - **`Ordine`** — richiesta di consegna/installazione da un negozio partner, con categoria (`CategoriaConsegna`: bordo strada, installazione semplice al piano, incasso, big, certificazione gas) e stato (`StatoOrdine`).
