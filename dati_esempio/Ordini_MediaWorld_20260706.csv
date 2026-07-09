@@ -1,26 +1,26 @@
-ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume
-MW-2026-0001;Federica Ferraro;Lungomare Alighieri 49, Senigallia;InstallazioneSempliceAlPiano;71.7;0.46
-MW-2026-0002;Camilla Martini;Via Crescimbeni 64, Macerata;Big;90.9;1.75
-MW-2026-0003;Alessandro Vitale;Via Mazzini 32, Fano;CertificazioneGas;22.1;0.82
-MW-2026-0004;Roberto Sorrentino;Via Nolfi 1, Fano;CertificazioneGas;58.5;0.42
-MW-2026-0005;Matteo Caruso;Via Dante 102, Civitanova Marche;BordoStrada;19.7;0.09
-MW-2026-0006;Martina Marini;Via Cavour 115, Jesi;InstallazioneSempliceAlPiano;71.2;0.52
-MW-2026-0007;Simone Fontana;Corso XI Settembre 55, Pesaro;InstallazioneSempliceAlPiano;75.9;0.64
-MW-2026-0008;Andrea Ricci;Via Trieste 14, Ancona;BordoStrada;31.5;0.37
-MW-2026-0009;Laura Rinaldi;Corso XI Settembre 49, Pesaro;BordoStrada;12.6;0.27
-MW-2026-0010;Stefano Longo;Viale Trento 56, Pesaro;Big;103.8;2.14
-MW-2026-0011;Roberto Sorrentino;Via Trieste 95, Ancona;Incasso;31.1;0.59
-MW-2026-0012;Valentina Leone;Via delle Grazie 53, Ancona;Incasso;36.5;0.3
-MW-2026-0013;Francesca Gallo;Via Battisti 97, Urbino;Big;93.1;2.13
-MW-2026-0014;Matteo Caruso;Viale della Vittoria 6, Jesi;BordoStrada;38.4;0.08
-MW-2026-0015;Matteo Caruso;Via Trieste 37, Ancona;Big;85.3;1.98
-MW-2026-0016;Nicola Farina;Viale Trento 11, Pesaro;Big;144.2;2.02
-MW-2026-0017;Sara Conti;Viale Trento 59, Pesaro;InstallazioneSempliceAlPiano;40.8;0.9
-MW-2026-0018;Beatrice Mancini;Via San Francesco 56, Osimo;Big;177.8;2.13
-MW-2026-0019;Davide Ferri;Via Gramsci 61, Porto Recanati;InstallazioneSempliceAlPiano;38.7;0.88
-MW-2026-0020;Tommaso Colombo;Via Gramsci 7, Porto Recanati;BordoStrada;37.0;0.15
-MW-2026-0021;Laura Rinaldi;Via San Francesco 20, Osimo;BordoStrada;19.0;0.43
-MW-2026-0022;Valentina Leone;Viale Trento 7, Pesaro;InstallazioneSempliceAlPiano;30.0;1.12
-MW-2026-0023;Fabio Gentile;Viale Matteotti 96, Civitanova Marche;BordoStrada;13.1;0.1
-MW-2026-0024;Giulia Bianchi;Viale Matteotti 12, Civitanova Marche;BordoStrada;13.7;0.54
-MW-2026-0025;Stefano Longo;Via Roma 117, Loreto;InstallazioneSempliceAlPiano;22.0;0.56
+ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia
+MW-2026-0001;Federica Ferraro;Lungomare Alighieri 49, Senigallia;InstallazioneSempliceAlPiano;71.7;0.46;AN
+MW-2026-0002;Camilla Martini;Via Crescimbeni 64, Macerata;Big;90.9;1.75;MC
+MW-2026-0003;Alessandro Vitale;Via Mazzini 32, Fano;CertificazioneGas;22.1;0.82;PU
+MW-2026-0004;Roberto Sorrentino;Via Nolfi 1, Fano;CertificazioneGas;58.5;0.42;PU
+MW-2026-0005;Matteo Caruso;Via Dante 102, Civitanova Marche;BordoStrada;19.7;0.09;MC
+MW-2026-0006;Martina Marini;Via Cavour 115, Jesi;InstallazioneSempliceAlPiano;71.2;0.52;AN
+MW-2026-0007;Simone Fontana;Corso XI Settembre 55, Pesaro;InstallazioneSempliceAlPiano;75.9;0.64;PU
+MW-2026-0008;Andrea Ricci;Via Trieste 14, Ancona;BordoStrada;31.5;0.37;AN
+MW-2026-0009;Laura Rinaldi;Corso XI Settembre 49, Pesaro;BordoStrada;12.6;0.27;PU
+MW-2026-0010;Stefano Longo;Viale Trento 56, Pesaro;Big;103.8;2.14;PU
+MW-2026-0011;Roberto Sorrentino;Via Trieste 95, Ancona;Incasso;31.1;0.59;AN
+MW-2026-0012;Valentina Leone;Via delle Grazie 53, Ancona;Incasso;36.5;0.3;AN
+MW-2026-0013;Francesca Gallo;Via Battisti 97, Urbino;Big;93.1;2.13;PU
+MW-2026-0014;Matteo Caruso;Viale della Vittoria 6, Jesi;BordoStrada;38.4;0.08;AN
+MW-2026-0015;Matteo Caruso;Via Trieste 37, Ancona;Big;85.3;1.98;AN
+MW-2026-0016;Nicola Farina;Viale Trento 11, Pesaro;Big;144.2;2.02;PU
+MW-2026-0017;Sara Conti;Viale Trento 59, Pesaro;InstallazioneSempliceAlPiano;40.8;0.9;PU
+MW-2026-0018;Beatrice Mancini;Via San Francesco 56, Osimo;Big;177.8;2.13;AN
+MW-2026-0019;Davide Ferri;Via Gramsci 61, Porto Recanati;InstallazioneSempliceAlPiano;38.7;0.88;MC
+MW-2026-0020;Tommaso Colombo;Via Gramsci 7, Porto Recanati;BordoStrada;37.0;0.15;MC
+MW-2026-0021;Laura Rinaldi;Via San Francesco 20, Osimo;BordoStrada;19.0;0.43;AN
+MW-2026-0022;Valentina Leone;Viale Trento 7, Pesaro;InstallazioneSempliceAlPiano;30.0;1.12;PU
+MW-2026-0023;Fabio Gentile;Viale Matteotti 96, Civitanova Marche;BordoStrada;13.1;0.1;MC
+MW-2026-0024;Giulia Bianchi;Viale Matteotti 12, Civitanova Marche;BordoStrada;13.7;0.54;MC
+MW-2026-0025;Stefano Longo;Via Roma 117, Loreto;InstallazioneSempliceAlPiano;22.0;0.56;AN
