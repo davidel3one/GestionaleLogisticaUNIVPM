@@ -6,10 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
+from gestionale_logistica.database.crud_base import CRUDBase
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine
-from gestionale_logistica.database.models import Ordine
+from gestionale_logistica.database.models import Ordine, Viaggio
 
 COLONNE_ATTESE = ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume"]
+
+ordine = CRUDBase[Ordine](Ordine)
+viaggio = CRUDBase[Viaggio](Viaggio)
 
 
 @dataclass
