@@ -8,6 +8,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from gestionale_logistica.database.base import Base
 from gestionale_logistica.database.enums import (
     CategoriaConsegna,
+    RuoloUtente,
     StatoEsito,
     StatoOrdine,
     StatoViaggio,
@@ -172,3 +173,37 @@ class ReportConsuntivo(Base):
 
     registro: Mapped["RegistroEsiti"] = relationship()
     ordini: Mapped[list["Ordine"]] = relationship(secondary=report_ordini)
+
+
+class Utente(Base):
+    __tablename__ = "utenti"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nome: Mapped[str]
+    cognome: Mapped[str]
+    telefono: Mapped[str]
+    email: Mapped[str] = mapped_column(unique=True)
+    password_hash: Mapped[str]
+    ruolo: Mapped[RuoloUtente] = _enum_column(RuoloUtente)
+    email_confermata: Mapped[bool]
+    data_registrazione: Mapped[datetime]
+
+
+class CodiceConferma(Base):
+    __tablename__ = "codici_conferma"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    utente_id: Mapped[int] = mapped_column(ForeignKey("utenti.id"))
+    codice: Mapped[str]
+    data_scadenza: Mapped[datetime]
+    tentativi_falliti: Mapped[int]
+
+
+class Sessione(Base):
+    __tablename__ = "sessioni"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    utente_id: Mapped[int] = mapped_column(ForeignKey("utenti.id"))
+    token: Mapped[str] = mapped_column(unique=True)
+    data_creazione: Mapped[datetime]
+    data_scadenza: Mapped[datetime]
