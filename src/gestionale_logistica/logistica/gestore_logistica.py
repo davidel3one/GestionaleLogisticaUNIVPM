@@ -9,8 +9,9 @@ from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine
 from gestionale_logistica.database.models import Ordine, Viaggio
+from gestionale_logistica.logistica.geocoding import geocodifica_comune
 
-COLONNE_ATTESE = ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume"]
+COLONNE_ATTESE = ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume", "Provincia"]
 
 ordine = CRUDBase[Ordine](Ordine)
 viaggio = CRUDBase[Viaggio](Viaggio)
@@ -66,10 +67,25 @@ class GestoreLogistica:
                         risultato.errori.append(ErroreImport(numero_riga, str(errore)))
                         continue
 
+                    parti = [parte.strip() for parte in riga["Indirizzo"].rsplit(",", 1)]
+                    if len(parti) != 2:
+                        risultato.errori.append(
+                            ErroreImport(numero_riga, f"Indirizzo senza comune: '{riga['Indirizzo']}'")
+                        )
+                        continue
+                    indirizzo, comune = parti
+                    provincia = riga["Provincia"].strip()
+                    coordinate = geocodifica_comune(comune, provincia)
+                    lat, lon = coordinate if coordinate is not None else (None, None)
+
                     nuovi_ordini.append(
                         Ordine(
                             id=id_ordine,
-                            destinazione=riga["Indirizzo"],
+                            indirizzo=indirizzo,
+                            comune=comune,
+                            provincia=provincia,
+                            lat=lat,
+                            lon=lon,
                             cliente=riga["Cliente"],
                             peso=peso,
                             volume_cargo=volume,

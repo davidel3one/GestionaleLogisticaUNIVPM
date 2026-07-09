@@ -149,7 +149,7 @@ Le impostazioni runtime sono in `config.ini`:
 
 ```ini
 [database]
-path = gestionale.db
+path = src/gestionale_logistica/data/database/gestionale.db
 
 [logging]
 level = INFO
@@ -176,7 +176,7 @@ Importazione ordini da CSV da riga di comando (RF9):
 uv run python scripts/importa_csv.py dati_esempio/Ordini_Unieuro_20260706.csv
 ```
 
-Il file CSV deve avere separatore `;` e le colonne, in ordine: `ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume`. La categoria deve corrispondere a uno dei valori di `CategoriaConsegna` (`BordoStrada`, `InstallazioneSempliceAlPiano`, `Incasso`, `Big`, `CertificazioneGas`). Righe con ID già presente a database o con campi numerici non validi vengono scartate e riportate come errori, senza interrompere l'importazione delle righe valide; un header non riconosciuto rifiuta invece l'intero file.
+Il file CSV deve avere separatore `;` e le colonne, in ordine: `ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia`. La categoria deve corrispondere a uno dei valori di `CategoriaConsegna` (`BordoStrada`, `InstallazioneSempliceAlPiano`, `Incasso`, `Big`, `CertificazioneGas`). La `Provincia` è la sigla (es. `AN`, `MC`, `PU`) della città di destinazione; viene persistita e usata per la geocodifica offline del comune. Righe con ID già presente a database o con campi numerici non validi vengono scartate e riportate come errori, senza interrompere l'importazione delle righe valide; un header non riconosciuto rifiuta invece l'intero file.
 
 ## Test
 

@@ -93,7 +93,11 @@ class Ordine(Base):
     __tablename__ = "ordini"
 
     id: Mapped[str] = mapped_column(primary_key=True)
-    destinazione: Mapped[str]
+    indirizzo: Mapped[str]
+    comune: Mapped[str]
+    provincia: Mapped[str]
+    lat: Mapped[Optional[float]]
+    lon: Mapped[Optional[float]]
     cliente: Mapped[str]
     peso: Mapped[float]
     volume_cargo: Mapped[float]

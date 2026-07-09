@@ -1,21 +1,21 @@
-ID_Ordine;Cliente;Indirizzo;Categoria;Peso;RequiereSponda;RequiereCertGas
-EXP-2026-0001;Marco Rossi;Via Podesti 103, Senigallia;BordoStrada;28.5;NO;NO
-EXP-2026-0002;Simone Fontana;Via Roma 117, Loreto;BordoStrada;30.2;NO;NO
-EXP-2026-0003;Stefano Longo;Lungomare Alighieri 88, Senigallia;Incasso;28.3;NO;NO
-EXP-2026-0004;Martina Marini;Corso Cavour 97, Macerata;CertificazioneGas;25.6;NO;SI
-EXP-2026-0005;Roberto Sorrentino;Lungomare Alighieri 13, Senigallia;Incasso;39.8;NO;NO
-EXP-2026-0006;Andrea Ricci;Viale Matteotti 48, Civitanova Marche;CertificazioneGas;56.2;NO;SI
-EXP-2026-0007;Beatrice Mancini;Via Dante 53, Civitanova Marche;BordoStrada;37.9;NO;NO
-EXP-2026-0008;Roberto Sorrentino;Via XX Settembre 35, Tolentino;Big;127.5;SI;NO
-EXP-2026-0009;Emanuele Barbieri;Via Gramsci 82, Porto Recanati;Incasso;46.8;NO;NO
-EXP-2026-0010;Luca Verdi;Viale Trento 116, Pesaro;BordoStrada;6.9;NO;NO
-EXP-2026-0011;Martina Marini;Via Colombo 49, Castelfidardo;BordoStrada;21.1;NO;NO
-EXP-2026-0012;Fabio Gentile;Via Roma 94, Loreto;Incasso;38.1;NO;NO
-EXP-2026-0013;Giulia Bianchi;Via Battisti 61, Urbino;InstallazioneSempliceAlPiano;30.1;NO;NO
-EXP-2026-0014;Nicola Farina;Via Flaminia 116, Falconara Marittima;Big;95.0;SI;NO
-EXP-2026-0015;Valentina Leone;Via Nolfi 84, Fano;BordoStrada;9.2;NO;NO
-EXP-2026-0016;Federica Ferraro;Via delle Grazie 16, Ancona;Incasso;32.5;NO;NO
-EXP-2026-0017;Alice Lombardi;Via San Francesco 24, Osimo;BordoStrada;15.4;NO;NO
-EXP-2026-0018;Luca Verdi;Via San Francesco 71, Osimo;BordoStrada;37.0;NO;NO
-EXP-2026-0019;Beatrice Mancini;Corso XI Settembre 50, Pesaro;BordoStrada;8.9;NO;NO
-EXP-2026-0020;Marco Rossi;Via Dante 85, Civitanova Marche;Big;160.8;SI;NO
+ID_Ordine;Cliente;Indirizzo;Categoria;Peso;RequiereSponda;RequiereCertGas;Provincia
+EXP-2026-0001;Marco Rossi;Via Podesti 103, Senigallia;BordoStrada;28.5;NO;NO;AN
+EXP-2026-0002;Simone Fontana;Via Roma 117, Loreto;BordoStrada;30.2;NO;NO;AN
+EXP-2026-0003;Stefano Longo;Lungomare Alighieri 88, Senigallia;Incasso;28.3;NO;NO;AN
+EXP-2026-0004;Martina Marini;Corso Cavour 97, Macerata;CertificazioneGas;25.6;NO;SI;MC
+EXP-2026-0005;Roberto Sorrentino;Lungomare Alighieri 13, Senigallia;Incasso;39.8;NO;NO;AN
+EXP-2026-0006;Andrea Ricci;Viale Matteotti 48, Civitanova Marche;CertificazioneGas;56.2;NO;SI;MC
+EXP-2026-0007;Beatrice Mancini;Via Dante 53, Civitanova Marche;BordoStrada;37.9;NO;NO;MC
+EXP-2026-0008;Roberto Sorrentino;Via XX Settembre 35, Tolentino;Big;127.5;SI;NO;MC
+EXP-2026-0009;Emanuele Barbieri;Via Gramsci 82, Porto Recanati;Incasso;46.8;NO;NO;MC
+EXP-2026-0010;Luca Verdi;Viale Trento 116, Pesaro;BordoStrada;6.9;NO;NO;PU
+EXP-2026-0011;Martina Marini;Via Colombo 49, Castelfidardo;BordoStrada;21.1;NO;NO;AN
+EXP-2026-0012;Fabio Gentile;Via Roma 94, Loreto;Incasso;38.1;NO;NO;AN
+EXP-2026-0013;Giulia Bianchi;Via Battisti 61, Urbino;InstallazioneSempliceAlPiano;30.1;NO;NO;PU
+EXP-2026-0014;Nicola Farina;Via Flaminia 116, Falconara Marittima;Big;95.0;SI;NO;AN
+EXP-2026-0015;Valentina Leone;Via Nolfi 84, Fano;BordoStrada;9.2;NO;NO;PU
+EXP-2026-0016;Federica Ferraro;Via delle Grazie 16, Ancona;Incasso;32.5;NO;NO;AN
+EXP-2026-0017;Alice Lombardi;Via San Francesco 24, Osimo;BordoStrada;15.4;NO;NO;AN
+EXP-2026-0018;Luca Verdi;Via San Francesco 71, Osimo;BordoStrada;37.0;NO;NO;AN
+EXP-2026-0019;Beatrice Mancini;Corso XI Settembre 50, Pesaro;BordoStrada;8.9;NO;NO;PU
+EXP-2026-0020;Marco Rossi;Via Dante 85, Civitanova Marche;Big;160.8;SI;NO;MC
