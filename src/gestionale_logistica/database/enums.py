@@ -27,3 +27,7 @@ class StatoViaggio(enum.Enum):
 class StatoEsito(enum.Enum):
     COMPLETATO = "Completato"
     FALLITO = "Fallito"
+
+
+class RuoloUtente(enum.Enum):
+    ADMIN = "Admin"
