@@ -38,6 +38,8 @@ class Camion(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     targa: Mapped[str] = mapped_column(unique=True)
     tipo_mezzo: Mapped[str]
+    peso_massimo: Mapped[float]
+    volume_massimo: Mapped[float]
     flg_sponda_idraulica: Mapped[bool]
     data_acquisizione: Mapped[datetime]
     data_dismissione: Mapped[Optional[datetime]]

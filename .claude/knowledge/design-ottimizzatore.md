@@ -29,11 +29,11 @@ Per il termine di dispersione geografica di RF13 servono le coordinate di ogni o
 
 **Scoperta utile controllando i CSV reali** in `dati_esempio/*.csv`: il campo `Indirizzo` ha sempre formato `"<via e civico>, <comune>"` — il comune è l'ultimo token dopo la virgola, pulito, **senza CAP nel testo**. Questo semplifica il geocoding: si può fare match diretto per nome comune contro una tabella comune→centroide, senza dover parsare/estrarre un CAP da un indirizzo libero.
 
+**RISOLTO il 2026-07-10 (PR #9):** tabella `data/geocoding/comuni_coordinate.csv` (7897 comuni italiani) procurata e imbustata; `Ordine.destinazione` sostituito da `indirizzo`/`comune`/`provincia`/`lat`/`lon`; nuovo modulo `logistica/geocoding.py`; `GestoreLogistica.importa_ordini()` popola le coordinate durante l'import, con test per indirizzi malformati e comuni sconosciuti.
+
 **Ancora da fare** (non implementato):
-- Procurare/imbustare una tabella comune italiano→coordinate come risorsa statica del progetto (percorso non ancora deciso).
-- Aggiungere un campo di capacità mancante su `Camion` (peso massimo, volume massimo — non esiste nel modello dati attuale, necessario anche solo per i vincoli RF12/RF13 di base, indipendentemente dal geocoding).
-- Aggiungere lat/lon (o riferimento al comune geocodificato) su `Ordine`, popolato durante `GestoreLogistica.importa_ordini()`.
-- Integrare la dispersione geografica nella funzione obiettivo di RF13 come termine subordinato pesato (non come pre-filtro/clustering separato — quella era un'ipotesi iniziale, superata dalla formulazione a weighted-sum sopra).
+- Aggiungere un campo di capacità mancante su `Camion` (peso massimo, volume massimo — non esiste nel modello dati attuale, unico prerequisito rimasto per i vincoli RF12/RF13 di base, indipendentemente dal geocoding, ora risolto).
+- Integrare la dispersione geografica nella funzione obiettivo di RF13 come termine subordinato pesato (non come pre-filtro/clustering separato — quella era un'ipotesi iniziale, superata dalla formulazione a weighted-sum sopra). Le coordinate sono ora disponibili su `Ordine.lat`/`Ordine.lon`.
 
 **Nota a margine, trovata controllando gli stessi CSV, non collegata al geocoding**: `dati_esempio/Ordini_Expert_20260706.csv` ha colonne diverse (`RequiereSponda;RequiereCertGas` al posto di `Volume`) rispetto all'header atteso da `GestoreLogistica.importa_ordini()` (`COLONNE_ATTESE`) — con il codice attuale quel file verrebbe scartato per intero ("header non riconosciuto"). Non affrontato.
 
