@@ -18,6 +18,14 @@ ordine = CRUDBase[Ordine](Ordine)
 viaggio = CRUDBase[Viaggio](Viaggio)
 
 
+def _negozio_da_nome_file(percorso_file: Path) -> str:
+    """RF19: il negozio partner non e' una colonna del CSV, ma e' codificato nel nome del file
+    che ciascun negozio invia (convenzione osservata in dati_esempio/, es. Ordini_Unieuro_*.csv).
+    """
+    parti = percorso_file.stem.split("_")
+    return parti[1] if len(parti) > 1 else percorso_file.stem
+
+
 @dataclass
 class ErroreImport:
     riga: int
@@ -135,6 +143,7 @@ class GestoreLogistica:
                     ]
                 )
 
+            negozio_partner = _negozio_da_nome_file(percorso_file)
             risultato = RisultatoImport()
             with self.session_factory() as session:
                 id_esistenti = set(session.scalars(select(Ordine.id)))
@@ -182,6 +191,7 @@ class GestoreLogistica:
                             stato_ordine=StatoOrdine.RICEVUTO,
                             data_consegna=None,
                             viaggio_id=None,
+                            negozio_partner=negozio_partner,
                         )
                     )
                     id_esistenti.add(id_ordine)
@@ -304,3 +314,22 @@ class GestoreLogistica:
             viaggio.stato_viaggio = StatoViaggio.PIANIFICATO
             session.commit()
             return RisultatoOperazioneViaggio(ok=True, viaggio_id=viaggio_id)
+
+    def verifica_partenze(self, ora_riferimento: datetime | None = None) -> list[str]:
+        """RF14: al superamento dell'orario di partenza programmato, porta i viaggi Pianificato
+        a InCorso (inibendo cosi' ulteriori modifiche al carico, gia' possibili solo su viaggi
+        IN_COMPOSIZIONE). Pensato per essere invocato periodicamente dallo scheduler interno
+        (config.ini [scheduler].verifica_partenza_intervallo_minuti). Ritorna gli id dei viaggi avviati.
+        """
+        ora_riferimento = ora_riferimento or datetime.now()
+        with self.session_factory() as session:
+            viaggi_da_avviare = session.scalars(
+                select(Viaggio).where(
+                    Viaggio.stato_viaggio == StatoViaggio.PIANIFICATO,
+                    Viaggio.data_partenza_prevista <= ora_riferimento,
+                )
+            ).all()
+            for viaggio in viaggi_da_avviare:
+                viaggio.stato_viaggio = StatoViaggio.IN_CORSO
+            session.commit()
+            return [viaggio.id for viaggio in viaggi_da_avviare]

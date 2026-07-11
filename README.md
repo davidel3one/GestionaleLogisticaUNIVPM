@@ -88,7 +88,7 @@ Entità principali (SQLAlchemy 2.0, dichiarate in `database/models.py`):
 - **`Dipendente`**, **`Camion`** — anagrafiche con soft delete (`flg_attivo`), certificazione gas / sponda idraulica.
 - **`Squadra`** / **`ComposizioneSquadra`** — la composizione (camion + 2 dipendenti) di una squadra è storicizzata con un intervallo di validità (`data_inizio_validita`/`data_fine_validita`); è l'unico modo per risalire ai membri di una squadra in un dato momento.
 - **`Viaggio`** — collegato alla composizione squadra attiva al momento della pianificazione (non direttamente a squadra/camion), con stato (`StatoViaggio`) e gli `Ordine` assegnati.
-- **`Ordine`** — richiesta di consegna/installazione da un negozio partner, con categoria (`CategoriaConsegna`: bordo strada, installazione semplice al piano, incasso, big, certificazione gas) e stato (`StatoOrdine`).
+- **`Ordine`** — richiesta di consegna/installazione da un negozio partner, con categoria (`CategoriaConsegna`: bordo strada, installazione semplice al piano, incasso, big, certificazione gas), stato (`StatoOrdine`) e negozio partner di provenienza (`negozio_partner`, opzionale, derivato dal nome del file CSV importato — usato per l'aggregazione di RF19).
 - **`EsitoConsegna`** / **`RegistroEsiti`** / **`Allegato`** / **`CausaleFallimento`** — esito di ogni ordine consegnato, raggruppato per giornata in un registro, con eventuali allegati probatori in caso di fallimento.
 - **`ReportConsuntivo`** — report PDF generato a fine giornata, con relazione M:N verso gli `Ordine` rendicontati.
 
@@ -103,9 +103,12 @@ Implementato:
 - Importazione ordini da CSV (RF9), con validazione dell'header, scarto delle righe malformate e degli ID duplicati (`logistica/gestore_logistica.py`), coperta da test.
 - Composizione manuale del viaggio (RF10) e validazione dei vincoli con motivo (RF11): avvio di una bozza su una `ComposizioneSquadra` idonea/attiva/libera quel giorno, aggiunta di ordini uno alla volta con validazione live di idoneità categoria↔risorsa e capacità peso/volume residua, chiusura verso lo stato definitivo `Pianificato` (`logistica/gestore_logistica.py`, nuovo stato `StatoViaggio.IN_COMPOSIZIONE`), coperta da test.
 - Motore di ottimizzazione (`ottimizzazione/motore_ottimizzazione.py`): suggerimento ordini per un viaggio parzialmente compilato (RF12) e pianificazione automatica massiva della giornata (RF13, clustering geografico + knapsack di capacità + vincolo di durata del tour), coperti da test.
-- Bootstrap applicazione: creazione schema DB, logging su file, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
+- Verifica partenza automatica (RF14): `GestoreLogistica.verifica_partenze()` porta i viaggi `Pianificato` con orario di partenza superato a `InCorso` (i viaggi ancora `IN_COMPOSIZIONE` non vengono toccati), coperta da test.
+- Generazione report periodico (RF19): `rendicontazione/gestore_rendicontazione.py` (`GestoreRendicontazione.genera_report_giornaliero()`) aggrega gli esiti degli ordini dei viaggi partiti in giornata per negozio partner e genera un PDF (`fpdf2`) in `report/`, persistendo `RegistroEsiti`/`ReportConsuntivo`, coperta da test. L'invio del report non è implementato (nessun contatto negozio nel modello dati).
+- Scheduler interno (`scheduler.py`, APScheduler): avvia i due trigger automatici a orario da `config.ini` — verifica partenza (RF14, a intervalli) e report giornaliero (RF19, a un orario fisso) — collegato al bootstrap applicativo.
+- Bootstrap applicazione: creazione schema DB, logging su file, avvio scheduler interno, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
 
-Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF14 (verifica partenza automatica), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. I package `risorse/`, `rendicontazione/` esistono come scheletro (solo `__init__.py`).
+Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF15-RF18 (visualizzazione consegne in transito, registrazione esito, ripianificazione ordini falliti, caricamento prove), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. I package `risorse/` (e la logica applicativa in `rendicontazione/` per RF15-RF18) esistono come scheletro.
 
 ## Struttura del progetto
 
@@ -117,8 +120,9 @@ dev/
 ├── scripts/
 │   └── importa_csv.py          # CLI per l'importazione ordini da riga di comando
 ├── src/gestionale_logistica/
-│   ├── __init__.py             # entry point: bootstrap DB, logging, avvio GUI
+│   ├── __init__.py             # entry point: bootstrap DB, logging, scheduler, avvio GUI
 │   ├── config.py                # loader di config.ini
+│   ├── scheduler.py             # trigger automatici a orario (RF14, RF19) via APScheduler
 │   ├── database/
 │   │   ├── base.py              # engine, sessionmaker, DeclarativeBase
 │   │   ├── models.py            # entità SQLAlchemy
@@ -126,17 +130,21 @@ dev/
 │   ├── gui/
 │   │   └── main_window.py       # finestra principale PySide6
 │   ├── logistica/
-│   │   ├── gestore_logistica.py # import ordini (RF9), composizione manuale e validazione viaggio (RF10/RF11)
+│   │   ├── gestore_logistica.py # import ordini (RF9), composizione/validazione viaggio (RF10/RF11), verifica partenza (RF14)
 │   │   └── geocoding.py          # geocodifica offline dei comuni italiani
 │   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13)
 │   ├── risorse/                 # gestione dipendenti/camion (RF1-RF8) - da implementare
-│   └── rendicontazione/         # esiti e report (RF15-RF19) - da implementare
+│   └── rendicontazione/
+│       └── gestore_rendicontazione.py  # CRUD esiti/allegati (RF15-RF18, da implementare) + report periodico (RF19)
 └── tests/
     ├── conftest.py               # fixture DB in-memory
     ├── test_config.py
     ├── test_import_ordini.py
     ├── test_logistica.py         # RF10/RF11
-    └── test_ottimizzazione.py    # RF12/RF13
+    ├── test_gestore_logistica_rf14.py       # RF14
+    ├── test_ottimizzazione.py    # RF12/RF13
+    ├── test_gestore_rendicontazione_rf19.py # RF19
+    └── test_scheduler.py         # wiring APScheduler (RF14/RF19)
 ```
 
 ## Setup
@@ -165,11 +173,11 @@ verifica_partenza_intervallo_minuti = 5
 report_orario = 21:00
 ```
 
-`gestionale.db` e `app.log` sono generati a runtime e non sono versionati (vedi `.gitignore`).
+`gestionale.db` e `app.log` sono generati a runtime e non sono versionati (vedi `.gitignore`). Lo stesso vale per `report/`, la cartella in cui `GestoreRendicontazione.genera_report_giornaliero()` (RF19) scrive i PDF generati.
 
 ## Utilizzo
 
-Avvio dell'applicazione (crea lo schema del database se non esiste e apre la finestra principale):
+Avvio dell'applicazione (crea lo schema del database se non esiste, avvia lo scheduler interno e apre la finestra principale):
 
 ```bash
 uv run gestionale-logistica
