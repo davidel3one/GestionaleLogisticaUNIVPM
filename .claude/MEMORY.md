@@ -10,6 +10,7 @@ KB condivisa via git — chiunque lavori su questo repo con Claude Code (Davide 
 - [Divergenze codice vs EA](knowledge/divergenze-ea.md) — 16 differenze intenzionali, checklist per quando si aggiorna il diagramma
 - [Design motore di ottimizzazione](knowledge/design-ottimizzatore.md) — funzione obiettivo RF12/RF13, geocoding offline, clustering DBSCAN + Held-Karp implementati e mergiati (PR #11)
 - RF10/RF11 (composizione manuale viaggio + validazione) implementate e mergiate (PR #12) — dettagli in `knowledge/stato-e-prossimi-passi.md`
+- RNF3 (multithreading, nuovo `concorrenza.py`) implementato su branch `feat/multithreading-rnf3`, non ancora mergiato — dettagli in `knowledge/stato-e-prossimi-passi.md` e `knowledge/divergenze-ea.md` (punto 17)
 - [Stato e prossimi passi](knowledge/stato-e-prossimi-passi.md) — cosa è fatto, cosa manca, ordine consigliato
 
 Handoff di sessioni precedenti: `.claude/handoff/` (in questa stessa cartella).

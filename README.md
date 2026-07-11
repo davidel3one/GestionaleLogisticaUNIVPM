@@ -103,9 +103,10 @@ Implementato:
 - Importazione ordini da CSV (RF9), con validazione dell'header, scarto delle righe malformate e degli ID duplicati (`logistica/gestore_logistica.py`), coperta da test.
 - Composizione manuale del viaggio (RF10) e validazione dei vincoli con motivo (RF11): avvio di una bozza su una `ComposizioneSquadra` idonea/attiva/libera quel giorno, aggiunta di ordini uno alla volta con validazione live di idoneità categoria↔risorsa e capacità peso/volume residua, chiusura verso lo stato definitivo `Pianificato` (`logistica/gestore_logistica.py`, nuovo stato `StatoViaggio.IN_COMPOSIZIONE`), coperta da test.
 - Motore di ottimizzazione (`ottimizzazione/motore_ottimizzazione.py`): suggerimento ordini per un viaggio parzialmente compilato (RF12) e pianificazione automatica massiva della giornata (RF13, clustering geografico + knapsack di capacità + vincolo di durata del tour), coperti da test.
+- Multithreading (RNF3): nuovo modulo `concorrenza.py` (`esegui_in_background()`, wrapper su `concurrent.futures.ThreadPoolExecutor`) con varianti asincrone `GestoreLogistica.importa_ordini_async()` (RF9) e `MotoreOttimizzazione.calcola_piano_async()` (RF13), coperte da test. Non basato su `QThread`: il collegamento a segnali Qt per aggiornare la GUI è compito della fase GUI, non ancora iniziata.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
 
-Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF14 (verifica partenza automatica), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. I package `risorse/`, `rendicontazione/` esistono come scheletro (solo `__init__.py`).
+Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF14 (verifica partenza automatica), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19) e l'autenticazione richiesta da RNF5. I package `risorse/`, `rendicontazione/` esistono come scheletro (solo `__init__.py`).
 
 ## Struttura del progetto
 
@@ -119,6 +120,7 @@ dev/
 ├── src/gestionale_logistica/
 │   ├── __init__.py             # entry point: bootstrap DB, logging, avvio GUI
 │   ├── config.py                # loader di config.ini
+│   ├── concorrenza.py           # esecuzione in background (RNF3) per import CSV e motore di ottimizzazione
 │   ├── database/
 │   │   ├── base.py              # engine, sessionmaker, DeclarativeBase
 │   │   ├── models.py            # entità SQLAlchemy
@@ -126,9 +128,9 @@ dev/
 │   ├── gui/
 │   │   └── main_window.py       # finestra principale PySide6
 │   ├── logistica/
-│   │   ├── gestore_logistica.py # import ordini (RF9), composizione manuale e validazione viaggio (RF10/RF11)
+│   │   ├── gestore_logistica.py # import ordini (RF9, con variante async RNF3), composizione manuale e validazione viaggio (RF10/RF11)
 │   │   └── geocoding.py          # geocodifica offline dei comuni italiani
-│   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13)
+│   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13, con variante async RNF3)
 │   ├── risorse/                 # gestione dipendenti/camion (RF1-RF8) - da implementare
 │   └── rendicontazione/         # esiti e report (RF15-RF19) - da implementare
 └── tests/
@@ -136,7 +138,8 @@ dev/
     ├── test_config.py
     ├── test_import_ordini.py
     ├── test_logistica.py         # RF10/RF11
-    └── test_ottimizzazione.py    # RF12/RF13
+    ├── test_ottimizzazione.py    # RF12/RF13
+    └── test_concorrenza_rnf3.py  # RNF3
 ```
 
 ## Setup

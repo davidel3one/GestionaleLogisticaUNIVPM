@@ -1,5 +1,6 @@
 import logging
 import time
+from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -7,6 +8,7 @@ import pulp
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from gestionale_logistica.concorrenza import esegui_in_background
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.enums import StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Viaggio
@@ -295,6 +297,18 @@ class MotoreOttimizzazione:
             ]
 
             return PianoGiornaliero(assegnazioni=assegnazioni, ordini_non_assegnati=ordini_non_assegnati)
+
+    def calcola_piano_async(
+        self,
+        ora_partenza: datetime,
+        composizione_ids: list[str] | None = None,
+        durata_viaggio: timedelta = timedelta(hours=8),
+    ) -> "Future[PianoGiornaliero]":
+        """RNF3: come calcola_piano, ma eseguito su un thread separato per non bloccare la GUI
+        durante la pianificazione automatica massiva (RF13, fino a 3 minuti per RNF4)."""
+        return esegui_in_background(
+            lambda: self.calcola_piano(ora_partenza, composizione_ids, durata_viaggio)
+        )
 
     def _knapsack_capacita_massima(
         self, ordini: list[Ordine], camion: Camion, time_limit: float

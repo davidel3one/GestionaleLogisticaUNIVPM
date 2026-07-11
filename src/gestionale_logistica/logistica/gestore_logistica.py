@@ -1,4 +1,5 @@
 import csv
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -6,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from gestionale_logistica.concorrenza import esegui_in_background
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
@@ -191,6 +193,11 @@ class GestoreLogistica:
                 risultato.ordini_creati = len(nuovi_ordini)
 
             return risultato
+
+    def importa_ordini_async(self, percorso_file: Path) -> "Future[RisultatoImport]":
+        """RNF3: come importa_ordini, ma eseguito su un thread separato per non bloccare la GUI
+        durante l'importazione massiva (RF9)."""
+        return esegui_in_background(lambda: self.importa_ordini(percorso_file))
 
     def avvia_composizione_viaggio(
         self,

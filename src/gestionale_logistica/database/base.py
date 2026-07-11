@@ -7,7 +7,17 @@ def get_database_url() -> str:
     db_path = config.get("database", "path", fallback="gestionale.db")
     return f"sqlite:///{db_path}"
 
-engine = create_engine(get_database_url())
+engine = create_engine(
+    get_database_url(),
+    # RNF3: importa_ordini_async/calcola_piano_async (concorrenza.py) aprono una Session su un
+    # worker thread diverso dal thread che ha creato l'engine. QueuePool puo' restituire a quel
+    # worker una connessione fisica creata in precedenza da un altro thread (mai usata da due
+    # thread contemporaneamente, solo in momenti diversi tramite checkout/checkin del pool) - senza
+    # check_same_thread=False, pysqlite la rifiuterebbe con "SQLite objects created in a thread can
+    # only be used in that same thread". Sicuro perche' ogni Session resta comunque confinata a un
+    # solo thread per tutta la propria durata (mai passata tra thread a meta' vita).
+    connect_args={"check_same_thread": False},
+)
 SessionLocal = sessionmaker(bind=engine)
 
 
