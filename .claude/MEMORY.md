@@ -7,8 +7,9 @@ KB condivisa via git — chiunque lavori su questo repo con Claude Code (Davide 
 - [Materiale del docente](knowledge/materiale-docente.md) — convenzioni obbligatorie: classi analisi/progettazione, controller «use», macchine a stati, casi d'uso, matrice di mapping
 - [Stack tecnologico](knowledge/stack-tecnologico.md) — librerie scelte e perché, struttura pacchetto mappata su EA
 - [Convenzioni di codice](knowledge/convenzioni-codice.md) — prefisso `flg_`, pattern segreti, backend-prima-poi-GUI, CRUDBase e i suoi limiti
-- [Divergenze codice vs EA](knowledge/divergenze-ea.md) — 15 differenze intenzionali, checklist per quando si aggiorna il diagramma
+- [Divergenze codice vs EA](knowledge/divergenze-ea.md) — 16 differenze intenzionali, checklist per quando si aggiorna il diagramma
 - [Design motore di ottimizzazione](knowledge/design-ottimizzatore.md) — funzione obiettivo RF12/RF13, geocoding offline, clustering DBSCAN + Held-Karp implementati e mergiati (PR #11)
+- RF10/RF11 (composizione manuale viaggio + validazione) implementate e mergiate (PR #12) — dettagli in `knowledge/stato-e-prossimi-passi.md`
 - [Stato e prossimi passi](knowledge/stato-e-prossimi-passi.md) — cosa è fatto, cosa manca, ordine consigliato
 
 Handoff di sessioni precedenti: `.claude/handoff/` (in questa stessa cartella).

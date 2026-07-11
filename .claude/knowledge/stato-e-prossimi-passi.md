@@ -1,6 +1,6 @@
 # Stato del progetto e prossimi passi
 
-Ultimo aggiornamento: 2026-07-11. Per lo stato git aggiornato in tempo reale, `git log`/`gh pr list` restano l'unica fonte autorevole — questa pagina è un'istantanea di orientamento, non sostituisce quello.
+Ultimo aggiornamento: 2026-07-11 (post-merge PR #12). Per lo stato git aggiornato in tempo reale, `git log`/`gh pr list` restano l'unica fonte autorevole — questa pagina è un'istantanea di orientamento, non sostituisce quello.
 
 ## Fatto
 
@@ -13,19 +13,21 @@ Ultimo aggiornamento: 2026-07-11. Per lo stato git aggiornato in tempo reale, `g
 - **Geocoding offline (PR #9, mergiata il 2026-07-10):** `Ordine.destinazione` sostituito da `indirizzo`/`comune`/`provincia`/`lat`/`lon`; nuovo modulo `logistica/geocoding.py` + tabella statica `data/geocoding/comuni_coordinate.csv` (7897 comuni italiani). `GestoreLogistica.importa_ordini()` popola le coordinate durante l'import, con test per indirizzi malformati/comuni sconosciuti.
 - **`Camion.peso_massimo`/`volume_massimo` (PR #10, mergiata il 2026-07-10):** capacità di peso/volume, prerequisito per i vincoli RF12/RF13.
 - **RF12/RF13 (motore di ottimizzazione), PR #11 "Feat/ottimizzatore rf12 rf13", mergiata il 2026-07-11 (commit `7125476`):** `ottimizzazione/motore_ottimizzazione.py` con `suggerisci_ordini()` (RF12, knapsack 0/1 via PuLP/CBC) e `calcola_piano()`/`applica_piano()` (RF13, architettura a due fasi). RF13 usa clustering geografico (`ottimizzazione/clustering.py`, scikit-learn DBSCAN) → knapsack per cluster → vincolo di durata/orario di lavoro calcolato con un tour Held-Karp scritto a mano sotto una soglia di nodi calibrata empiricamente, fallback euristico nearest-neighbor sopra (`ottimizzazione/stima_durata.py`). RNF4 alzato da 30s a 3 minuti in questo passaggio. Storia completa (redesign da v1 cancellata per bug di calibrazione, stress test su 26 scenari, audit avversariale con 1 bug reale trovato e risolto) in `design-ottimizzatore.md`. Include anche 3 nuovi CSV di esempio con ordini sparsi su tutta Italia (`dati_esempio/Ordini_*_Nazionale.csv`), oltre ai 3 originali (solo Marche).
+- **RF10/RF11 (composizione manuale viaggio + validazione), PR #12 "Implementazione della composizione manuale dei viaggi e validazione dei vincoli (RF10/RF11)", mergiata il 2026-07-11 (commit `a08541b`):** nuovo valore enum `StatoViaggio.IN_COMPOSIZIONE` per una bozza di viaggio persistita fin dal primo ordine. In `logistica/gestore_logistica.py`: `verifica_idoneita_risorsa()` (ex `MotoreOttimizzazione._ordine_idoneo`, spostata e resa pubblica, riusata da `ottimizzazione/` — stesso pattern di riuso cross-package già usato da `stima_durata.py`↔`geocoding.py`, niente package `common/`), `valida_ordine_per_viaggio()` (estende l'idoneità con capacità peso/volume residua e restituisce un motivo di rifiuto testuale), e tre operazioni per il ciclo di vita del viaggio manuale: `avvia_composizione_viaggio()` (imposta `data_partenza_prevista` già all'avvio, cruciale perché è il campo su cui `calcola_piano` verifica se una composizione è occupata quel giorno — evita il doppio-booking tra flusso manuale e automatico), `aggiungi_ordine_a_viaggio()` (valida contro lo stato accumulato, aggancia `viaggio_id`+`stato_ordine=PIANIFICATO` all'aggiunta non alla chiusura, per restare escluso dai candidati RF12/RF13), `chiudi_composizione_viaggio()` (richiede almeno un ordine). Estratta anche `crea_viaggio_persistito()` (riceve una `Session` aperta, non ne apre una propria) riusata sia dal flusso manuale sia da `MotoreOttimizzazione.applica_piano` (che non genera/persiste più i viaggi in proprio) — preserva l'atomicità della transazione batch esistente, verificata con un test dedicato che inietta un fallimento a metà batch. Pianificato con `task-exec` + pre-mortem (3 fix bloccanti trovati e risolti prima dell'implementazione; uno, il presunto CHECK constraint SQLite sul nuovo enum, si è rivelato una falsa premessa — `_enum_column` non genera CHECK su SQLite, verificato sul DDL reale). Storia completa in `design-ottimizzatore.md` e nella memoria personale `piano-rf10-rf11-v1.md`. Fuori scope in questo giro (segnalato esplicitamente, non implementato silenziosamente): rimozione di un ordine da una bozza, pulizia di bozze abbandonate, GUI.
 - PR #5 (caricamento duplicato/rotto via web UI) chiusa senza merge.
-- Suite pytest verde: 92 test.
+- Suite pytest verde: 105 test.
 
 ## Non ancora fatto
 
 - **RF1-RF8** (gestione risorse umane e mezzi): la logica di business reale sopra il CRUD generico — soft delete corretto (`update` non `delete`), validazioni, criteri di univocità, viste "risorse attive" vs "storico risorse".
-- **RF10/RF11** (composizione manuale viaggio, validazione realtime in GUI): l'idoneità categoria↔risorsa esiste già dentro l'ottimizzatore (`_ordine_idoneo`) ma non è ancora richiamabile da un flusso manuale.
 - **RF15-RF19** (rendicontazione ed esiti): stessa situazione di RF1-8, il CRUD generico esiste ma non la logica applicativa.
 - Scheduler interno (APScheduler) per i trigger automatici (RF14 verifica partenza, RF19 report delle 21:00).
 - Multithreading (RNF3) — import CSV e motore di ottimizzazione devono girare in thread separati dalla GUI.
-- GUI vera e propria (in blocco unico, quando tutto il backend sarà pronto).
-- Riportare su EA tutte le divergenze accumulate (vedi `divergenze-ea.md`, 15 voci) e i 22 fix dell'audit (vedi `modello-ea.md`) — incluso il nuovo package `ottimizzazione/` (DBSCAN + Held-Karp) e il vincolo di durata che riapre la nota "non è un problema di instradamento (VRP)".
+- GUI vera e propria (in blocco unico, quando tutto il backend sarà pronto) — include la validazione "in tempo reale" di RF11 vista in GUI, da costruire sopra `valida_ordine_per_viaggio()` già pronta.
+- Riportare su EA tutte le divergenze accumulate (vedi `divergenze-ea.md`, 16 voci) e i 22 fix dell'audit (vedi `modello-ea.md`) — incluso il package `ottimizzazione/` (DBSCAN + Held-Karp), il nuovo stato `StatoViaggio.IN_COMPOSIZIONE`, e il vincolo di durata che riapre la nota "non è un problema di instradamento (VRP)".
 - Aggiornare il documento requisiti di tesi con RNF4 a 3 minuti (fuori da questo repo, a carico dell'utente).
+- **Rimozione di un ordine da un viaggio in composizione** (non richiesta per RF10/RF11 v1, segnalata come estensione naturale non implementata).
+- **Pulizia/timeout di viaggi lasciati in stato `IN_COMPOSIZIONE`** indefinitamente (nessun meccanismo di scadenza).
 
 ## File morti / piccoli refusi da sistemare quando si torna su quella parte
 
@@ -35,8 +37,7 @@ Ultimo aggiornamento: 2026-07-11. Per lo stato git aggiornato in tempo reale, `g
 
 ## Prossimi passi consigliati, in ordine
 
-1. **RF10/RF11**: esporre `_ordine_idoneo()` come flusso di composizione manuale del viaggio (già pronto dentro l'ottimizzatore, manca solo il richiamo da un percorso non automatico).
-2. Completare la logica reale dietro il CRUD generico per RF1-8 e RF15-19 (soft delete, validazioni, viste).
-3. Scheduler (RF14/RF19) e multithreading (RNF3).
-4. Riportare le divergenze accumulate (15 voci) sul modello EA, incluso il package `ottimizzazione/` e la nota "non è un VRP" da aggiornare.
-5. GUI, come blocco unico finale.
+1. Completare la logica reale dietro il CRUD generico per RF1-8 e RF15-19 (soft delete, validazioni, viste).
+2. Scheduler (RF14/RF19) e multithreading (RNF3).
+3. Riportare le divergenze accumulate (16 voci) sul modello EA, incluso il package `ottimizzazione/`, il nuovo `StatoViaggio.IN_COMPOSIZIONE` e la nota "non è un VRP" da aggiornare.
+4. GUI, come blocco unico finale — include il collegamento della validazione RF11 (`valida_ordine_per_viaggio`, già pronta) all'interazione "in tempo reale" prevista dal requisito.
