@@ -200,11 +200,7 @@ class MotoreOttimizzazione:
             cluster_ordini = raggruppa_ordini(candidati_idonei)
             # Cluster piu' numerosi elaborati per primi: consolida gli ordini
             # vicini sullo stesso viaggio prima di dedicare una composizione
-            # intera a un singolo punto isolato. Scelta non specificata
-            # esplicitamente nel brief, ma coerente con l'obiettivo RF13 di
-            # preferire raggruppamenti compatti quando piu' composizioni sono
-            # disponibili (altrimenti l'assegnazione dipenderebbe solo
-            # dall'ordine arbitrario restituito da DBSCAN).
+            # intera a un singolo punto isolato.
             cluster_ordini.sort(key=len, reverse=True)
 
             composizioni_disponibili = list(composizioni)

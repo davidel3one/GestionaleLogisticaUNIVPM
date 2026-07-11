@@ -1,0 +1,21 @@
+ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia
+EXP-2026-0021;Giorgia Barbieri;Via Roma 22, L'Aquila;BordoStrada;23.5;0.38;AQ
+EXP-2026-0022;Nicolò Mariani;Corso Federico II 14, L'Aquila;Big;140.7;1.95;AQ
+EXP-2026-0023;Chiara Villa;Corso Vittorio Emanuele 9, Pescara;InstallazioneSempliceAlPiano;37.2;0.64;PE
+EXP-2026-0024;Gabriele Serra;Via Firenze 51, Pescara;CertificazioneGas;62.8;1.12;PE
+EXP-2026-0025;Elisa Coppola;Via Roma 33, Campobasso;BordoStrada;16.9;0.25;CB
+EXP-2026-0026;Matteo Conti;Via Mazzini 7, Campobasso;Incasso;45.4;0.84;CB
+EXP-2026-0027;Sara Bruno;Via Epitaffio 40, Latina;InstallazioneSempliceAlPiano;33.0;0.57;LT
+EXP-2026-0028;Riccardo Ferrari;Corso della Repubblica 18, Latina;Big;152.6;2.10;LT
+EXP-2026-0029;Valentina Rizzo;Via Cavour 25, Ravenna;BordoStrada;20.3;0.32;RA
+EXP-2026-0030;Lorenzo Romano;Via Diaz 60, Ravenna;CertificazioneGas;58.1;1.05;RA
+EXP-2026-0031;Giorgia Barbieri;Via Mercatovecchio 12, Udine;InstallazioneSempliceAlPiano;39.7;0.69;UD
+EXP-2026-0032;Nicolò Mariani;Piazza Libertà 3, Udine;Incasso;48.3;0.90;UD
+EXP-2026-0033;Chiara Villa;Via Grande 28, Livorno;BordoStrada;14.2;0.21;LI
+EXP-2026-0034;Gabriele Serra;Viale Italia 75, Livorno;Big;134.9;1.88;LI
+EXP-2026-0035;Elisa Coppola;Via D'Aquino 16, Taranto;InstallazioneSempliceAlPiano;42.1;0.73;TA
+EXP-2026-0036;Matteo Conti;Corso Umberto I 39, Taranto;CertificazioneGas;66.5;1.18;TA
+EXP-2026-0037;Sara Bruno;Via Pretoria 20, Potenza;BordoStrada;25.7;0.41;PZ
+EXP-2026-0038;Riccardo Ferrari;Via Manhes 8, Potenza;Incasso;50.6;0.97;PZ
+EXP-2026-0039;Valentina Rizzo;Corso Mazzini 31, Catanzaro;InstallazioneSempliceAlPiano;30.8;0.53;CZ
+EXP-2026-0040;Lorenzo Romano;Via Roma 47, Aosta;Big;146.2;2.02;AO

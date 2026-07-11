@@ -12,7 +12,7 @@ TEMPO_INSTALLAZIONE_MINUTI = {
     CategoriaConsegna.BIG: 60,
     CategoriaConsegna.CERTIFICAZIONE_GAS: 60,
 }
-VELOCITA_MEDIA_KMH = 40.0
+VELOCITA_MEDIA_KMH = 60.0
 
 # Soglia oltre la quale tour_esatto (Held-Karp, O(2^n * n^2)) viene abbandonato
 # a favore di tour_euristico. Calibrata misurando il tempo di tour_esatto su
@@ -26,7 +26,6 @@ VELOCITA_MEDIA_KMH = 40.0
 # molti cluster hanno quella taglia, mentre gia' da n=16 in su il costo di un
 # singolo cluster sfortunato diventerebbe percepibile sul budget totale.
 SOGLIA_NODI_HELD_KARP = 12
-
 
 def _distanza_coppia(ordine_a: Ordine, ordine_b: Ordine) -> float:
     if ordine_a.lat is None or ordine_a.lon is None or ordine_b.lat is None or ordine_b.lon is None:

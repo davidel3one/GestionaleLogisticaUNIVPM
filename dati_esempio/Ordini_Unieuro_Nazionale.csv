@@ -1,0 +1,31 @@
+ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia
+UNI-2026-0031;Matteo Conti;Corso Buenos Aires 45, Milano;Big;138.2;1.98;MI
+UNI-2026-0032;Sara Bruno;Via Torino 12, Milano;InstallazioneSempliceAlPiano;48.6;0.85;MI
+UNI-2026-0033;Riccardo Ferrari;Corso Francia 67, Torino;BordoStrada;22.4;0.31;TO
+UNI-2026-0034;Valentina Rizzo;Via Po 88, Torino;Incasso;41.7;0.72;TO
+UNI-2026-0035;Lorenzo Romano;Via XX Settembre 33, Genova;Big;155.9;2.11;GE
+UNI-2026-0036;Giorgia Barbieri;Via Balbi 9, Genova;BordoStrada;15.3;0.22;GE
+UNI-2026-0037;Nicolò Mariani;Cannaregio 118, Venezia;InstallazioneSempliceAlPiano;39.5;0.68;VE
+UNI-2026-0038;Chiara Villa;Via Garibaldi 21, Venezia;BordoStrada;19.8;0.35;VE
+UNI-2026-0039;Gabriele Serra;Corso Porta Nuova 55, Verona;Big;121.4;1.74;VR
+UNI-2026-0040;Elisa Coppola;Via Mazzini 14, Verona;Incasso;46.2;0.91;VR
+UNI-2026-0041;Matteo Conti;Via Rizzoli 30, Bologna;InstallazioneSempliceAlPiano;53.8;1.02;BO
+UNI-2026-0042;Sara Bruno;Via Indipendenza 77, Bologna;BordoStrada;27.1;0.44;BO
+UNI-2026-0043;Riccardo Ferrari;Via de' Tornabuoni 19, Firenze;Big;168.3;2.38;FI
+UNI-2026-0044;Valentina Rizzo;Viale Europa 41, Firenze;InstallazioneSempliceAlPiano;35.9;0.63;FI
+UNI-2026-0045;Lorenzo Romano;Via del Corso 102, Roma;Big;144.6;1.87;RM
+UNI-2026-0046;Giorgia Barbieri;Via Nazionale 58, Roma;Incasso;51.3;0.95;RM
+UNI-2026-0047;Nicolò Mariani;Via Toledo 90, Napoli;BordoStrada;18.7;0.29;NA
+UNI-2026-0048;Chiara Villa;Corso Umberto I 44, Napoli;InstallazioneSempliceAlPiano;44.0;0.77;NA
+UNI-2026-0049;Gabriele Serra;Via Sparano 23, Bari;Big;131.5;1.83;BA
+UNI-2026-0050;Elisa Coppola;Corso Cavour 66, Bari;BordoStrada;24.6;0.39;BA
+UNI-2026-0051;Matteo Conti;Via Maqueda 71, Palermo;Incasso;38.9;0.66;PA
+UNI-2026-0052;Sara Bruno;Via Roma 15, Palermo;InstallazioneSempliceAlPiano;49.4;0.88;PA
+UNI-2026-0053;Riccardo Ferrari;Via Etnea 120, Catania;Big;159.7;2.19;CT
+UNI-2026-0054;Valentina Rizzo;Corso Italia 34, Catania;BordoStrada;12.8;0.19;CT
+UNI-2026-0055;Lorenzo Romano;Via Roma 5, Cagliari;InstallazioneSempliceAlPiano;41.2;0.74;CA
+UNI-2026-0056;Giorgia Barbieri;Viale Trieste 88, Cagliari;Incasso;55.0;1.03;CA
+UNI-2026-0057;Nicolò Mariani;Corso Garibaldi 12, Reggio di Calabria;BordoStrada;29.3;0.47;RC
+UNI-2026-0058;Chiara Villa;Via Marina 60, Reggio di Calabria;Big;126.8;1.71;RC
+UNI-2026-0059;Gabriele Serra;Corso Vannucci 17, Perugia;InstallazioneSempliceAlPiano;33.6;0.58;PG
+UNI-2026-0060;Elisa Coppola;Via Baglioni 40, Perugia;BordoStrada;16.5;0.26;PG

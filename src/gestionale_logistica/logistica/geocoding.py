@@ -42,7 +42,7 @@ def distanza_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def _convex_hull(punti: list[tuple[float, float]]) -> list[tuple[float, float]]:
     """Monotone chain (Andrew) su (lat, lon) trattate come piano cartesiano.
 
-    E' un'approssimazione (la Terra non e' piatta) ma accettabile su scala
+    E' un'approssimazione ma accettabile su scala
     nazionale: serve solo a restringere la ricerca del punto piu' distante
     (vedi distanza_penalita_km) a poche decine di vertici invece di ~7897 punti.
     """

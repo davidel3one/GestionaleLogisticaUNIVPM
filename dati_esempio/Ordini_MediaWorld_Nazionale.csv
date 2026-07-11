@@ -1,0 +1,26 @@
+ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia
+MW-2026-0026;Matteo Conti;Via Roma 8, Padova;BordoStrada;20.1;0.33;PD
+MW-2026-0027;Sara Bruno;Corso Milano 55, Padova;InstallazioneSempliceAlPiano;46.7;0.81;PD
+MW-2026-0028;Riccardo Ferrari;Corso Zanardelli 19, Brescia;Big;149.2;2.04;BS
+MW-2026-0029;Valentina Rizzo;Via San Faustino 33, Brescia;Incasso;42.5;0.79;BS
+MW-2026-0030;Lorenzo Romano;Via XX Settembre 61, Bergamo;BordoStrada;14.9;0.24;BG
+MW-2026-0031;Giorgia Barbieri;Viale Vittorio Emanuele 27, Bergamo;InstallazioneSempliceAlPiano;38.3;0.65;BG
+MW-2026-0032;Nicolò Mariani;Via Carducci 9, Trieste;Big;133.6;1.86;TS
+MW-2026-0033;Chiara Villa;Corso Italia 44, Trieste;BordoStrada;23.0;0.36;TS
+MW-2026-0034;Gabriele Serra;Via Belenzani 12, Trento;Incasso;49.8;0.93;TN
+MW-2026-0035;Elisa Coppola;Via Manci 21, Trento;InstallazioneSempliceAlPiano;31.4;0.55;TN
+MW-2026-0036;Matteo Conti;Strada della Repubblica 3, Parma;Big;162.1;2.27;PR
+MW-2026-0037;Sara Bruno;Via Farini 40, Parma;BordoStrada;17.6;0.27;PR
+MW-2026-0038;Riccardo Ferrari;Via Emilia Centro 88, Modena;Incasso;44.9;0.86;MO
+MW-2026-0039;Valentina Rizzo;Corso Canalgrande 15, Modena;InstallazioneSempliceAlPiano;40.2;0.71;MO
+MW-2026-0040;Lorenzo Romano;Corso Italia 30, Pisa;BordoStrada;21.7;0.34;PI
+MW-2026-0041;Giorgia Barbieri;Via Santa Maria 52, Pisa;Big;118.9;1.65;PI
+MW-2026-0042;Nicolò Mariani;Via di Città 6, Siena;InstallazioneSempliceAlPiano;36.8;0.61;SI
+MW-2026-0043;Chiara Villa;Via Banchi di Sopra 24, Siena;Incasso;53.5;1.0;SI
+MW-2026-0044;Gabriele Serra;Corso Vittorio Emanuele 70, Salerno;BordoStrada;26.4;0.42;SA
+MW-2026-0045;Elisa Coppola;Via Mercanti 18, Salerno;Big;143.0;1.99;SA
+MW-2026-0046;Matteo Conti;Viale 1 Maggio 11, Foggia;InstallazioneSempliceAlPiano;34.1;0.59;FG
+MW-2026-0047;Sara Bruno;Corso Giannone 45, Foggia;BordoStrada;19.2;0.30;FG
+MW-2026-0048;Riccardo Ferrari;Via Trinchese 29, Lecce;Incasso;47.6;0.89;LE
+MW-2026-0049;Valentina Rizzo;Via Palmieri 8, Messina;Big;127.3;1.78;ME
+MW-2026-0050;Lorenzo Romano;Via Roma 61, Sassari;InstallazioneSempliceAlPiano;42.8;0.75;SS
