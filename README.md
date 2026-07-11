@@ -101,9 +101,11 @@ Implementato:
 - Modello dati completo (`database/models.py`, `database/enums.py`) con tutte le entità del dominio.
 - Configurazione applicativa da `config.ini` (`config.py`).
 - Importazione ordini da CSV (RF9), con validazione dell'header, scarto delle righe malformate e degli ID duplicati (`logistica/gestore_logistica.py`), coperta da test.
+- Composizione manuale del viaggio (RF10) e validazione dei vincoli con motivo (RF11): avvio di una bozza su una `ComposizioneSquadra` idonea/attiva/libera quel giorno, aggiunta di ordini uno alla volta con validazione live di idoneità categoria↔risorsa e capacità peso/volume residua, chiusura verso lo stato definitivo `Pianificato` (`logistica/gestore_logistica.py`, nuovo stato `StatoViaggio.IN_COMPOSIZIONE`), coperta da test.
+- Motore di ottimizzazione (`ottimizzazione/motore_ottimizzazione.py`): suggerimento ordini per un viaggio parzialmente compilato (RF12) e pianificazione automatica massiva della giornata (RF13, clustering geografico + knapsack di capacità + vincolo di durata del tour), coperti da test.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
 
-Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF10-RF14 (composizione viaggi, validazione vincoli, motore di ottimizzazione), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. I package `ottimizzazione/`, `risorse/`, `rendicontazione/` esistono come scheletro (solo `__init__.py`).
+Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF14 (verifica partenza automatica), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. I package `risorse/`, `rendicontazione/` esistono come scheletro (solo `__init__.py`).
 
 ## Struttura del progetto
 
@@ -124,14 +126,17 @@ dev/
 │   ├── gui/
 │   │   └── main_window.py       # finestra principale PySide6
 │   ├── logistica/
-│   │   └── gestore_logistica.py # import ordini, pianificazione (RF9-RF14)
-│   ├── ottimizzazione/          # motore di ottimizzazione (RF12/RF13) - da implementare
+│   │   ├── gestore_logistica.py # import ordini (RF9), composizione manuale e validazione viaggio (RF10/RF11)
+│   │   └── geocoding.py          # geocodifica offline dei comuni italiani
+│   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13)
 │   ├── risorse/                 # gestione dipendenti/camion (RF1-RF8) - da implementare
 │   └── rendicontazione/         # esiti e report (RF15-RF19) - da implementare
 └── tests/
     ├── conftest.py               # fixture DB in-memory
     ├── test_config.py
-    └── test_import_ordini.py
+    ├── test_import_ordini.py
+    ├── test_logistica.py         # RF10/RF11
+    └── test_ottimizzazione.py    # RF12/RF13
 ```
 
 ## Setup
