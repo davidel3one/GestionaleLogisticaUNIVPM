@@ -61,7 +61,7 @@ Il sistema copre l'intero ciclo operativo: importazione degli ordini dai negozi 
 | RNF1 | Stack Tecnologico e GUI | Software desktop stand-alone, core in Python 3.x, GUI con PyQt/PySide. |
 | RNF2 | Persistenza e Integrità dei Dati | Database relazionale (SQLite in locale) con integrità referenziale e supporto al soft delete. |
 | RNF3 | Reattività dell'Interfaccia (Non-blocking GUI) | Il motore di ottimizzazione e l'importazione massiva CSV (RF9, RF13) devono girare in thread separati per non bloccare la GUI. |
-| RNF4 | Performance del Motore di Ottimizzazione | Elaborare il carico giornaliero standard (100-150 ordini) restituendo i viaggi ottimali in al massimo 30 secondi. |
+| RNF4 | Performance del Motore di Ottimizzazione | Elaborare il carico giornaliero standard (100-150 ordini) restituendo i viaggi ottimali in al massimo 3 minuti. |
 | RNF5 | Conformità GDPR e Privacy | Protezione del database locale e autenticazione base dell'amministratore, a tutela dei dati anagrafici dei clienti finali. |
 
 ## Architettura
