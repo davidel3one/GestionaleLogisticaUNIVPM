@@ -18,6 +18,7 @@ class StatoOrdine(enum.Enum):
 
 
 class StatoViaggio(enum.Enum):
+    IN_COMPOSIZIONE = "InComposizione"
     PIANIFICATO = "Pianificato"
     IN_CORSO = "InCorso"
     COMPLETATO = "Completato"

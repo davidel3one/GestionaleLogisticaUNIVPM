@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import (
@@ -17,7 +18,7 @@ from gestionale_logistica.database.models import (
     Squadra,
     Viaggio,
 )
-from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica, verifica_idoneita_risorsa
 from gestionale_logistica.logistica.geocoding import distanza_km, distanza_penalita_km
 from gestionale_logistica.ottimizzazione import motore_ottimizzazione as modulo_motore
 from gestionale_logistica.ottimizzazione import stima_durata as modulo_stima_durata
@@ -375,7 +376,56 @@ def test_applica_piano_stesso_giorno_continua_il_progressivo(session_factory):
     assert secondo.viaggi_creati == ["V-20260710-02"]
 
 
-# --- Coerenza incrociata _ordine_idoneo (RF11) ---
+def test_applica_piano_atomico_nessun_viaggio_parziale_su_fallimento_a_meta_batch(
+    session_factory, monkeypatch
+):
+    # Regressione (dal pre-mortem): crea_viaggio_persistito e' stata estratta da applica_piano
+    # per essere riusata anche dal flusso manuale RF10, ma applica_piano deve continuare a
+    # creare tutti i viaggi di un batch in un'unica transazione. Si inietta un fallimento sulla
+    # seconda chiamata a Session.flush (una per viaggio creato) per simulare un errore a meta'
+    # batch e verificare che il primo viaggio, gia' aggiunto alla session ma non commitato, non
+    # sopravviva alla chiusura del `with` (rollback implicito).
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        crea_flotta_semplice(session, "C2")
+        session.add(crea_ordine("ORD-1", peso=10.0))
+        session.add(crea_ordine("ORD-2", peso=10.0))
+        session.commit()
+
+    motore = MotoreOttimizzazione(session_factory)
+    piano = PianoGiornaliero(
+        assegnazioni=[
+            AssegnazioneViaggio(composizione_id="C1", ordini_ids=["ORD-1"]),
+            AssegnazioneViaggio(composizione_id="C2", ordini_ids=["ORD-2"]),
+        ],
+        ordini_non_assegnati=[],
+    )
+
+    flush_originale = Session.flush
+    chiamate = {"n": 0}
+
+    def flush_che_fallisce_al_secondo_viaggio(self, *args, **kwargs):
+        chiamate["n"] += 1
+        if chiamate["n"] == 2:
+            raise RuntimeError("fallimento simulato a meta' batch")
+        return flush_originale(self, *args, **kwargs)
+
+    monkeypatch.setattr(Session, "flush", flush_che_fallisce_al_secondo_viaggio)
+
+    with pytest.raises(RuntimeError):
+        motore.applica_piano(piano, datetime(2026, 7, 10, 8, 0))
+
+    with session_factory() as session:
+        assert session.scalars(select(Viaggio.id)).all() == []
+        ordine_1 = session.get(Ordine, "ORD-1")
+        ordine_2 = session.get(Ordine, "ORD-2")
+        assert ordine_1.viaggio_id is None
+        assert ordine_1.stato_ordine == StatoOrdine.RICEVUTO
+        assert ordine_2.viaggio_id is None
+        assert ordine_2.stato_ordine == StatoOrdine.RICEVUTO
+
+
+# --- Coerenza incrociata verifica_idoneita_risorsa (RF11) ---
 
 
 @pytest.mark.parametrize(
@@ -391,7 +441,6 @@ def test_applica_piano_stesso_giorno_continua_il_progressivo(session_factory):
 def test_ordine_idoneo_coerente_tra_suggerisci_e_calcola_piano(
     session_factory, categoria, sponda, gas_certificato, atteso
 ):
-    motore = MotoreOttimizzazione(session_factory)
     camion = crea_camion("CAM-TEST", sponda_idraulica=sponda)
     dipendenti = [
         crea_dipendente("D1", certificazione_gas=gas_certificato),
@@ -399,7 +448,7 @@ def test_ordine_idoneo_coerente_tra_suggerisci_e_calcola_piano(
     ]
     ordine = crea_ordine("ORD-TEST", categoria=categoria)
 
-    risultato = motore._ordine_idoneo(ordine, camion, dipendenti)
+    risultato = verifica_idoneita_risorsa(ordine, camion, dipendenti)
 
     assert risultato is atteso
 
@@ -897,7 +946,7 @@ LIMITE_BRUTE_FORCE_VERIFICA_INDIPENDENTE = 8
 
 
 def _idoneo_indipendente(ordine, camion, dipendenti):
-    """Reimplementazione da zero della regola di idoneita' (RF11), senza chiamare _ordine_idoneo."""
+    """Reimplementazione da zero della regola di idoneita' (RF11), senza chiamare verifica_idoneita_risorsa."""
     if ordine.categoria_consegna == CategoriaConsegna.BIG:
         return camion.flg_sponda_idraulica
     if ordine.categoria_consegna == CategoriaConsegna.CERTIFICAZIONE_GAS:

@@ -8,8 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
-from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
+from gestionale_logistica.database.enums import StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Viaggio
+from gestionale_logistica.logistica.gestore_logistica import crea_viaggio_persistito, verifica_idoneita_risorsa
 from gestionale_logistica.ottimizzazione.clustering import raggruppa_ordini
 from gestionale_logistica.ottimizzazione.stima_durata import (
     SOGLIA_NODI_HELD_KARP,
@@ -67,13 +68,6 @@ class MotoreOttimizzazione:
     def __init__(self, session_factory: sessionmaker = SessionLocal) -> None:
         self.session_factory = session_factory
 
-    def _ordine_idoneo(self, ordine: Ordine, camion: Camion, dipendenti: list[Dipendente]) -> bool:
-        if ordine.categoria_consegna == CategoriaConsegna.BIG:
-            return camion.flg_sponda_idraulica
-        if ordine.categoria_consegna == CategoriaConsegna.CERTIFICAZIONE_GAS:
-            return any(dipendente.flg_certificazione_gas for dipendente in dipendenti)
-        return True
-
     def suggerisci_ordini(self, viaggio_id: str) -> SuggerimentoOrdini:
         with self.session_factory() as session:
             viaggio = session.get(Viaggio, viaggio_id)
@@ -94,7 +88,7 @@ class MotoreOttimizzazione:
                     )
                 )
             )
-            candidati = [o for o in candidati if self._ordine_idoneo(o, camion, dipendenti)]
+            candidati = [o for o in candidati if verifica_idoneita_risorsa(o, camion, dipendenti)]
 
             if not candidati:
                 return SuggerimentoOrdini(
@@ -183,7 +177,7 @@ class MotoreOttimizzazione:
                 ordine
                 for ordine in tutti_candidati
                 if any(
-                    self._ordine_idoneo(
+                    verifica_idoneita_risorsa(
                         ordine, comp.camion, [comp.dipendente_1, comp.dipendente_2]
                     )
                     for comp in composizioni
@@ -220,7 +214,7 @@ class MotoreOttimizzazione:
                     idonei = [
                         ordine
                         for ordine in ordini_restanti_cluster
-                        if self._ordine_idoneo(ordine, camion, dipendenti)
+                        if verifica_idoneita_risorsa(ordine, camion, dipendenti)
                     ]
                     if not idonei:
                         continue
@@ -271,7 +265,7 @@ class MotoreOttimizzazione:
                     composizione = composizioni_by_id[assegnazione.composizione_id]
                     camion = composizione.camion
                     dipendenti = [composizione.dipendente_1, composizione.dipendente_2]
-                    if not self._ordine_idoneo(ordine, camion, dipendenti):
+                    if not verifica_idoneita_risorsa(ordine, camion, dipendenti):
                         continue
 
                     ordini_viaggio = [
@@ -364,32 +358,15 @@ class MotoreOttimizzazione:
         ordini_assegnati = 0
 
         with self.session_factory() as session:
-            prefisso = f"V-{ora_partenza:%Y%m%d}-"
-            progressivo = len(
-                session.scalars(select(Viaggio.id).where(Viaggio.id.like(f"{prefisso}%"))).all()
-            )
-
             for assegnazione in piano.assegnazioni:
-                progressivo += 1
-                viaggio_id = f"{prefisso}{progressivo:02d}"
-
-                session.add(
-                    Viaggio(
-                        id=viaggio_id,
-                        data_partenza_prevista=ora_partenza,
-                        data_arrivo_prevista=ora_partenza + durata_viaggio,
-                        km_percorsi=None,
-                        stato_viaggio=StatoViaggio.PIANIFICATO,
-                        composizione_id=assegnazione.composizione_id,
-                    )
+                viaggio_id = crea_viaggio_persistito(
+                    session,
+                    ora_partenza=ora_partenza,
+                    data_arrivo_prevista=ora_partenza + durata_viaggio,
+                    composizione_id=assegnazione.composizione_id,
+                    stato_viaggio=StatoViaggio.PIANIFICATO,
+                    ordini_ids=tuple(assegnazione.ordini_ids),
                 )
-
-                ordini = session.scalars(
-                    select(Ordine).where(Ordine.id.in_(assegnazione.ordini_ids))
-                ).all()
-                for ordine in ordini:
-                    ordine.viaggio_id = viaggio_id
-                    ordine.stato_ordine = StatoOrdine.PIANIFICATO
 
                 viaggi_creati.append(viaggio_id)
                 ordini_assegnati += len(assegnazione.ordini_ids)
