@@ -13,6 +13,7 @@ dependencies = [
     "pulp>=3.3.2",
     "pyside6>=6.11.1",
     "python-dotenv>=1.0.1",
+    "scikit-learn>=1.9.0",
     "sqlalchemy>=2.0.51",
 ]
 
