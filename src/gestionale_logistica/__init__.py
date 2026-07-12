@@ -7,6 +7,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from gestionale_logistica.gui.main_window import MainWindow
+from gestionale_logistica.scheduler import avvia_scheduler
 
 from gestionale_logistica.database.base import Base, engine
 from gestionale_logistica.database import models
@@ -26,7 +27,10 @@ def main() -> None:
     setup_logging(config)
     logging.getLogger(__name__).info("Avvio Gestionale Logistica")
 
+    scheduler = avvia_scheduler(config)
+
     app = QApplication(sys.argv)
+    app.aboutToQuit.connect(scheduler.shutdown)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
