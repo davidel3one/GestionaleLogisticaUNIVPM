@@ -27,14 +27,58 @@ def _job_report_giornaliero() -> None:
         logger.info("Report consuntivo non generato: %s", risultato.motivo)
 
 
+def _parsa_orario_report(valore: str) -> tuple[int, int]:
+    """Valida il formato HH:MM di [scheduler].report_orario. Il fallback di configparser copre
+    solo la chiave assente in config.ini, non un valore presente ma malformato (es. "21" invece
+    di "21:00") - senza questo controllo un valore simile solleva un generico "ValueError: not
+    enough values to unpack" dentro avvia_scheduler(), chiamato in main() prima che la GUI si
+    apra: l'app non parte, senza un messaggio comprensibile.
+    """
+    parti = valore.split(":")
+    if len(parti) != 2 or not all(parte.isdigit() for parte in parti):
+        raise ValueError(
+            f"config.ini [scheduler].report_orario='{valore}' non valido: formato atteso HH:MM (es. 21:00)"
+        )
+    ora, minuti = int(parti[0]), int(parti[1])
+    if not (0 <= ora <= 23 and 0 <= minuti <= 59):
+        raise ValueError(
+            f"config.ini [scheduler].report_orario='{valore}' non valido: ora deve essere 0-23, minuti 0-59"
+        )
+    return ora, minuti
+
+
+def _parsa_intervallo_minuti(valore: str) -> int:
+    """Valida che [scheduler].verifica_partenza_intervallo_minuti sia un intero positivo.
+    APScheduler non lo convalida affatto: IntervalTrigger(minutes=0) diventa silenziosamente un
+    intervallo di 1 secondo (non "mai"), e IntervalTrigger(minutes=N negativo) un intervallo
+    negativo dal comportamento non documentato - in entrambi i casi lo scheduler partirebbe
+    con un comportamento sbagliato senza sollevare alcun errore.
+    """
+    try:
+        minuti = int(valore)
+    except ValueError:
+        raise ValueError(
+            f"config.ini [scheduler].verifica_partenza_intervallo_minuti='{valore}' non valido: "
+            "atteso un intero positivo"
+        ) from None
+    if minuti <= 0:
+        raise ValueError(
+            f"config.ini [scheduler].verifica_partenza_intervallo_minuti={minuti} non valido: "
+            "deve essere un intero positivo"
+        )
+    return minuti
+
+
 def avvia_scheduler(config: configparser.ConfigParser) -> BackgroundScheduler:
     """Avvia lo scheduler interno (RNF3/architettura) che gestisce i trigger automatici a
     orario: verifica partenza (RF14, ogni N minuti) e generazione report (RF19, un orario fisso
     al giorno). Entrambi gli intervalli vengono da config.ini [scheduler], gia' presente a
     prescindere da questa feature.
     """
-    intervallo_minuti = config.getint("scheduler", "verifica_partenza_intervallo_minuti", fallback=5)
-    ora, minuti = (int(parte) for parte in config.get("scheduler", "report_orario", fallback="21:00").split(":"))
+    intervallo_minuti = _parsa_intervallo_minuti(
+        config.get("scheduler", "verifica_partenza_intervallo_minuti", fallback="5")
+    )
+    ora, minuti = _parsa_orario_report(config.get("scheduler", "report_orario", fallback="21:00"))
 
     scheduler = BackgroundScheduler()
     scheduler.add_job(

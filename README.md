@@ -175,6 +175,8 @@ report_orario = 21:00
 
 `gestionale.db` e `app.log` sono generati a runtime e non sono versionati (vedi `.gitignore`). Lo stesso vale per `report/`, la cartella in cui `GestoreRendicontazione.genera_report_giornaliero()` (RF19) scrive i PDF generati.
 
+Il progetto non ha un sistema di migrazioni: se hai gia' un `gestionale.db` locale creato prima di questo branch (es. da RF9), la prima query su `Ordine` dopo il pull fallira' con `OperationalError: no such column: ordini.negozio_partner` (colonna nuova, aggiunta per RF19). Cancella il file `gestionale.db` locale — verra' ricreato automaticamente con lo schema aggiornato al prossimo avvio.
+
 ## Utilizzo
 
 Avvio dell'applicazione (crea lo schema del database se non esiste, avvia lo scheduler interno e apre la finestra principale):

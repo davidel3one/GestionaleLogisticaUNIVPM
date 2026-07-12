@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fpdf import FPDF
 from sqlalchemy import select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import selectinload, sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
@@ -72,10 +72,12 @@ class GestoreRendicontazione:
                     )
 
             viaggi_del_giorno = session.scalars(
-                select(Viaggio).where(
+                select(Viaggio)
+                .where(
                     Viaggio.data_partenza_prevista >= data_riferimento,
                     Viaggio.data_partenza_prevista < fine_giorno,
                 )
+                .options(selectinload(Viaggio.ordini))
             ).all()
             ordini_rendicontati = [
                 o for v in viaggi_del_giorno for o in v.ordini if o.stato_ordine in STATI_RENDICONTABILI
