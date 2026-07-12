@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 
 from gestionale_logistica.database.enums import StatoViaggio
 from gestionale_logistica.database.models import Viaggio
-from gestionale_logistica.rendicontazione.visualizza_consegne_transito import VisualizzaConsegneInTransito
+from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
 from test_logistica import crea_flotta_semplice, crea_ordine
 
 
@@ -27,8 +27,8 @@ def _crea_viaggio(session, comp_id, viaggio_id, stato, ordini_ids=()):
 
 
 def test_elenca_db_vuoto(session_factory):
-    vista = VisualizzaConsegneInTransito(session_factory)
-    assert vista.elenca() == []
+    vista = GestoreRendicontazione(session_factory)
+    assert vista.elenca_consegne_in_transito() == []
 
 
 def test_elenca_solo_viaggi_in_corso(session_factory):
@@ -38,8 +38,8 @@ def test_elenca_solo_viaggi_in_corso(session_factory):
         _crea_viaggio(session, "C3", "V3", StatoViaggio.COMPLETATO, ordini_ids=("O3",))
         _crea_viaggio(session, "C4", "V4", StatoViaggio.IN_COMPOSIZIONE, ordini_ids=("O4",))
 
-    vista = VisualizzaConsegneInTransito(session_factory)
-    risultato = vista.elenca()
+    vista = GestoreRendicontazione(session_factory)
+    risultato = vista.elenca_consegne_in_transito()
 
     assert [v.id for v in risultato] == ["V1"]
 
@@ -48,8 +48,8 @@ def test_elenca_viaggio_in_corso_con_piu_ordini(session_factory):
     with session_factory() as session:
         _crea_viaggio(session, "C1", "V1", StatoViaggio.IN_CORSO, ordini_ids=("O1", "O2"))
 
-    vista = VisualizzaConsegneInTransito(session_factory)
-    risultato = vista.elenca()
+    vista = GestoreRendicontazione(session_factory)
+    risultato = vista.elenca_consegne_in_transito()
 
     assert len(risultato) == 1
     viaggio = risultato[0]

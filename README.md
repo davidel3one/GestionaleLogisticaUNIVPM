@@ -106,7 +106,7 @@ Implementato:
 - Verifica partenza automatica (RF14): `GestoreLogistica.verifica_partenze()` porta i viaggi `Pianificato` con orario di partenza superato a `InCorso` (i viaggi ancora `IN_COMPOSIZIONE` non vengono toccati), coperta da test.
 - Generazione report periodico (RF19): `rendicontazione/gestore_rendicontazione.py` (`GestoreRendicontazione.genera_report_giornaliero()`) aggrega gli esiti degli ordini dei viaggi partiti in giornata per negozio partner e genera un PDF (`fpdf2`) in `report/`, persistendo `RegistroEsiti`/`ReportConsuntivo`, coperta da test. Rigenerabile per la stessa data (aggiorna la riga esistente invece di rifiutare o duplicare). L'invio del report non è implementato (nessun contatto negozio nel modello dati).
 - Scheduler interno (`scheduler.py`, APScheduler): avvia i due trigger automatici a orario da `config.ini` — verifica partenza (RF14, a intervalli) e report giornaliero (RF19, a un orario fisso) — collegato al bootstrap applicativo.
-- Registrazione esito, ripianificazione e prove documentali (RF15-RF18, `rendicontazione/`): `VisualizzaConsegneInTransito` (RF15, viaggi `InCorso` con i relativi ordini); `GestoreEsiti.registra_esito()` (RF16, causale obbligatoria se Fallito) che ri-accoda automaticamente l'ordine Fallito tra i candidati di RF12/RF13 (RF17) e `carica_prova_documentale()` (RF18, copia fisica del file in una cartella gestita, non solo il riferimento al percorso originale), coperti da test.
+- Registrazione esito, ripianificazione e prove documentali (RF15-RF18, `rendicontazione/gestore_rendicontazione.py`): `elenca_consegne_in_transito()` (RF15, viaggi `InCorso` con i relativi ordini); `registra_esito()` (RF16, causale obbligatoria se Fallito) che ri-accoda automaticamente l'ordine Fallito tra i candidati di RF12/RF13 (RF17) e `carica_prova_documentale()` (RF18, copia fisica del file in una cartella gestita, non solo il riferimento al percorso originale), coperti da test.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio scheduler interno, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
 
 Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. Il package `risorse/` esiste come scheletro (solo `__init__.py`).
@@ -136,9 +136,7 @@ dev/
 │   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13)
 │   ├── risorse/                 # gestione dipendenti/camion (RF1-RF8) - da implementare
 │   └── rendicontazione/
-│       ├── gestore_rendicontazione.py       # report periodico (RF19)
-│       ├── gestore_esiti.py                 # RF16-RF17
-│       └── visualizza_consegne_transito.py  # RF15
+│       └── gestore_rendicontazione.py       # consegne in transito (RF15), esiti/ripianificazione/prove (RF16-RF18), report periodico (RF19)
 └── tests/
     ├── conftest.py               # fixture DB in-memory
     ├── test_config.py
