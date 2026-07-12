@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra
+from gestionale_logistica.database.enums import StatoViaggio
+from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra, Viaggio
 from gestionale_logistica.risorse.gestore_camion import GestoreCamion
 
 
@@ -175,3 +176,70 @@ def test_disattiva_camion_non_disattiva_composizioni_di_altri_camion(session_fac
 
     with session_factory() as session:
         assert session.get(ComposizioneSquadra, "C1").flg_attiva is True
+
+
+def test_disattiva_camion_rifiutato_se_gia_coinvolto_in_viaggio_in_composizione(session_factory):
+    # Stesso scenario "zombie" segnalato in review per licenzia_dipendente, versione camion: un
+    # Viaggio IN_COMPOSIZIONE aperto prima della dismissione non e' toccato dalla sola cascata su
+    # ComposizioneSquadra, quindi la dismissione va rifiutata a monte.
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(crea_dipendente("D1"))
+        session.add(crea_dipendente("D2"))
+        session.add(
+            ComposizioneSquadra(
+                id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+                dipendente_1_id="D1", dipendente_2_id="D2",
+                data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+            )
+        )
+        session.add(
+            Viaggio(
+                id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                stato_viaggio=StatoViaggio.IN_COMPOSIZIONE, composizione_id="C1",
+            )
+        )
+        session.commit()
+
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("CAM1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+
+    risultato = gestore.disattiva_camion("CAM1")
+
+    assert not risultato.ok
+    assert "V1" in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Camion, "CAM1").flg_attivo is True
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is True
+
+
+def test_disattiva_camion_rifiutato_se_coinvolto_in_viaggio_in_corso(session_factory):
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(crea_dipendente("D1"))
+        session.add(crea_dipendente("D2"))
+        session.add(
+            ComposizioneSquadra(
+                id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+                dipendente_1_id="D1", dipendente_2_id="D2",
+                data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+            )
+        )
+        session.add(
+            Viaggio(
+                id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
+            )
+        )
+        session.commit()
+
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("CAM1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+
+    risultato = gestore.disattiva_camion("CAM1")
+
+    assert not risultato.ok
+    with session_factory() as session:
+        assert session.get(Camion, "CAM1").flg_attivo is True

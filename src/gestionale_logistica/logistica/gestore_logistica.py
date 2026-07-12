@@ -65,6 +65,12 @@ def valida_ordine_per_viaggio(
     volume_occupato: float,
 ) -> EsitoValidazioneOrdine:
     """Validazione RF11 completa (idoneita' + capacita' residua) con motivo del rifiuto."""
+    if not camion.flg_attivo:
+        return EsitoValidazioneOrdine(ammesso=False, motivo="Il camion non e' piu' in servizio")
+    if not all(dipendente.flg_attivo for dipendente in dipendenti):
+        return EsitoValidazioneOrdine(
+            ammesso=False, motivo="Un membro della squadra non e' piu' in servizio (licenziato)"
+        )
     if not verifica_idoneita_risorsa(ordine, camion, dipendenti):
         if ordine.categoria_consegna == CategoriaConsegna.BIG:
             return EsitoValidazioneOrdine(

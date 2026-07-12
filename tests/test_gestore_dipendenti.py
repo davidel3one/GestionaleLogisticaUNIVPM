@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra
+from gestionale_logistica.database.enums import StatoViaggio
+from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra, Viaggio
 from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
 
 
@@ -177,3 +178,118 @@ def test_licenzia_dipendente_non_disattiva_composizioni_di_altri_dipendenti(sess
 
     with session_factory() as session:
         assert session.get(ComposizioneSquadra, "C1").flg_attiva is True
+
+
+def crea_squadra_con_composizione(session, comp_id="C1", camion_id="CAM1", d1="D1", d2="D2"):
+    session.add(Squadra(id=f"SQ-{comp_id}", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+    session.add(
+        Camion(
+            id=camion_id, targa=f"TARGA-{camion_id}", tipo_mezzo="Furgone", peso_massimo=100.0,
+            volume_massimo=5.0, flg_sponda_idraulica=False, data_acquisizione=datetime(2020, 1, 1),
+            data_dismissione=None, flg_attivo=True,
+        )
+    )
+    session.add(
+        ComposizioneSquadra(
+            id_composizione=comp_id, squadra_id=f"SQ-{comp_id}", camion_id=camion_id,
+            dipendente_1_id=d1, dipendente_2_id=d2,
+            data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+        )
+    )
+
+
+def test_licenzia_dipendente_rifiutato_se_gia_coinvolto_in_viaggio_in_composizione(session_factory):
+    # Riproduce lo scenario segnalato in review: un Viaggio IN_COMPOSIZIONE aperto *prima* del
+    # licenziamento non viene toccato dalla sola cascata su ComposizioneSquadra (che agisce solo
+    # sulle richieste future di avvia_composizione_viaggio) - senza questo controllo a monte,
+    # nessun ordine potrebbe mai piu' essere aggiunto al viaggio (verifica_idoneita_risorsa
+    # rifiuta sempre) e chiudi_composizione_viaggio non potrebbe mai chiuderlo (richiede almeno
+    # un ordine): uno "zombie" bloccato indefinitamente.
+    with session_factory() as session:
+        crea_squadra_con_composizione(session, "C1")
+        session.add(
+            Viaggio(
+                id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                stato_viaggio=StatoViaggio.IN_COMPOSIZIONE, composizione_id="C1",
+            )
+        )
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "CF1", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "CF2", datetime(2020, 1, 1))
+
+    risultato = gestore.licenzia_dipendente("D1")
+
+    assert not risultato.ok
+    assert "V1" in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1").flg_attivo is True
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is True
+
+
+def test_licenzia_dipendente_rifiutato_se_coinvolto_in_viaggio_in_corso(session_factory):
+    with session_factory() as session:
+        crea_squadra_con_composizione(session, "C1")
+        session.add(
+            Viaggio(
+                id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
+            )
+        )
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "CF1", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "CF2", datetime(2020, 1, 1))
+
+    risultato = gestore.licenzia_dipendente("D1")
+
+    assert not risultato.ok
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1").flg_attivo is True
+
+
+def test_licenzia_dipendente_ammesso_se_viaggio_collegato_e_gia_pianificato(session_factory):
+    # Un Viaggio Pianificato non e' piu' modificabile (aggiungi_ordine_a_viaggio richiede
+    # IN_COMPOSIZIONE), quindi non puo' diventare zombie: il licenziamento deve restare ammesso.
+    with session_factory() as session:
+        crea_squadra_con_composizione(session, "C1")
+        session.add(
+            Viaggio(
+                id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                stato_viaggio=StatoViaggio.PIANIFICATO, composizione_id="C1",
+            )
+        )
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "CF1", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "CF2", datetime(2020, 1, 1))
+
+    risultato = gestore.licenzia_dipendente("D1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is False
+
+
+def test_licenzia_dipendente_2_disattiva_a_cascata_la_composizione(session_factory):
+    # Copertura del secondo slot (dipendente_2_id), stesso ramo dell'or_ nella query di
+    # licenzia_dipendente ma finora mai esercitato da un test dedicato.
+    with session_factory() as session:
+        crea_squadra_con_composizione(session, "C1")
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "CF1", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "CF2", datetime(2020, 1, 1))
+
+    risultato = gestore.licenzia_dipendente("D2")
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is False

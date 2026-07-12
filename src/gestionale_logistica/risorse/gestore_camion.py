@@ -6,7 +6,8 @@ from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
-from gestionale_logistica.database.models import Camion, ComposizioneSquadra
+from gestionale_logistica.database.enums import StatoViaggio
+from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Viaggio
 
 camion = CRUDBase[Camion](Camion)
 
@@ -95,7 +96,12 @@ class GestoreCamion:
         mantenendo intatta l'integrita' referenziale dei viaggi passati. Disattiva a cascata anche
         le ComposizioneSquadra attive che lo contengono - stesso motivo di
         GestoreDipendenti.licenzia_dipendente(): senza, avvia_composizione_viaggio (RF10) le
-        riterrebbe ancora valide, creando un Viaggio IN_COMPOSIZIONE bloccato indefinitamente."""
+        riterrebbe ancora valide, creando un Viaggio IN_COMPOSIZIONE bloccato indefinitamente.
+
+        La cascata da sola non basta per un Viaggio IN_COMPOSIZIONE aperto *prima* della
+        dismissione (stesso gap di GestoreDipendenti.licenzia_dipendente(), vedi li' per il
+        dettaglio) - la dismissione viene percio' rifiutata a monte se il camion e' coinvolto in
+        un Viaggio IN_COMPOSIZIONE o IN_CORSO."""
         with self.session_factory() as session:
             mezzo = session.get(Camion, id_)
             if mezzo is None:
@@ -103,17 +109,31 @@ class GestoreCamion:
             if not mezzo.flg_attivo:
                 return RisultatoOperazioneCamion(ok=False, motivo="Camion gia' fuori servizio")
 
+            composizioni = session.scalars(
+                select(ComposizioneSquadra).where(ComposizioneSquadra.camion_id == id_)
+            ).all()
+            if composizioni:
+                viaggio_bloccante = session.scalar(
+                    select(Viaggio.id).where(
+                        Viaggio.composizione_id.in_([c.id_composizione for c in composizioni]),
+                        Viaggio.stato_viaggio.in_([StatoViaggio.IN_COMPOSIZIONE, StatoViaggio.IN_CORSO]),
+                    )
+                )
+                if viaggio_bloccante is not None:
+                    return RisultatoOperazioneCamion(
+                        ok=False,
+                        motivo=(
+                            f"Impossibile dismettere: coinvolto nel viaggio '{viaggio_bloccante}', "
+                            "ancora in composizione o in corso"
+                        ),
+                    )
+
             mezzo.flg_attivo = False
             mezzo.data_dismissione = data_dismissione or datetime.now()
 
-            composizioni_da_disattivare = session.scalars(
-                select(ComposizioneSquadra).where(
-                    ComposizioneSquadra.flg_attiva.is_(True),
-                    ComposizioneSquadra.camion_id == id_,
-                )
-            ).all()
-            for composizione in composizioni_da_disattivare:
-                composizione.flg_attiva = False
+            for composizione in composizioni:
+                if composizione.flg_attiva:
+                    composizione.flg_attiva = False
 
             session.commit()
             return RisultatoOperazioneCamion(ok=True, camion_id=id_)

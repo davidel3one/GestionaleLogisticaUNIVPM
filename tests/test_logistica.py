@@ -2,7 +2,11 @@ from datetime import datetime, timedelta
 
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Squadra, Viaggio
-from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica, verifica_idoneita_risorsa
+from gestionale_logistica.logistica.gestore_logistica import (
+    GestoreLogistica,
+    valida_ordine_per_viaggio,
+    verifica_idoneita_risorsa,
+)
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione
 from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
 
@@ -324,6 +328,33 @@ def test_verifica_idoneita_risorsa_rifiuta_dipendente_licenziato_indipendentemen
     assert verifica_idoneita_risorsa(ordine, camion, dipendenti) is False
 
 
+def test_valida_ordine_per_viaggio_motivo_camion_dismesso_non_e_fuorviante():
+    # Senza un controllo dedicato, un camion dismesso su un ordine Big finirebbe nel ramo
+    # "categoria" e restituirebbe "non ha la sponda idraulica" anche se il camion ce l'ha mai
+    # avuta - il vero motivo (dismesso) andrebbe perso.
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.BIG)
+    camion_dismesso = crea_camion("C1", sponda_idraulica=True, attivo=False)
+    dipendenti = [crea_dipendente("D1"), crea_dipendente("D2")]
+
+    esito = valida_ordine_per_viaggio(ordine, camion_dismesso, dipendenti, peso_occupato=0.0, volume_occupato=0.0)
+
+    assert not esito.ammesso
+    assert "servizio" in esito.motivo
+    assert "sponda idraulica" not in esito.motivo
+
+
+def test_valida_ordine_per_viaggio_motivo_dipendente_licenziato_non_e_fuorviante():
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.CERTIFICAZIONE_GAS)
+    camion = crea_camion("C1")
+    dipendenti = [crea_dipendente("D1", certificazione_gas=True, attivo=False), crea_dipendente("D2")]
+
+    esito = valida_ordine_per_viaggio(ordine, camion, dipendenti, peso_occupato=0.0, volume_occupato=0.0)
+
+    assert not esito.ammesso
+    assert "servizio" in esito.motivo
+    assert "certificazione gas" not in esito.motivo
+
+
 def test_licenziamento_dipendente_disattiva_composizione_e_evita_viaggio_zombie(session_factory):
     # Riproduce lo scenario segnalato: senza la disattivazione a cascata in licenzia_dipendente,
     # avvia_composizione_viaggio accetterebbe comunque la composizione (composizione.flg_attiva
@@ -346,6 +377,31 @@ def test_licenziamento_dipendente_disattiva_composizione_e_evita_viaggio_zombie(
 
     with session_factory() as session:
         assert session.get(ComposizioneSquadra, "C1").flg_attiva is False
+
+
+def test_licenziamento_rifiutato_se_viaggio_in_composizione_gia_aperto_sulla_squadra(session_factory):
+    # Variante dello scenario zombie non coperta dal fix precedente: qui avvia_composizione_viaggio
+    # viene chiamato *prima* del licenziamento, quindi al momento del licenziamento esiste gia' un
+    # Viaggio IN_COMPOSIZIONE (senza ordini) agganciato alla composizione. La sola cascata su
+    # ComposizioneSquadra non lo tocca (aggiungi_ordine_a_viaggio controlla solo
+    # viaggio.stato_viaggio, mai composizione.flg_attiva): il licenziamento va quindi rifiutato a
+    # monte, non solo la composizione disattivata a valle.
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    avvio = gestore.avvia_composizione_viaggio("C1", datetime(2026, 7, 20, 8, 0))
+    assert avvio.ok
+
+    risultato = GestoreDipendenti(session_factory).licenzia_dipendente("C1-D1")
+
+    assert not risultato.ok
+    assert avvio.viaggio_id in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Dipendente, "C1-D1").flg_attivo is True
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is True
+        assert session.get(Viaggio, avvio.viaggio_id).stato_viaggio == StatoViaggio.IN_COMPOSIZIONE
 
 
 # --- Invarianti verso RF12/RF13 ---
