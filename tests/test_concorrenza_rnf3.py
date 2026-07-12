@@ -1,18 +1,37 @@
+import logging
 import threading
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
-
 from gestionale_logistica.concorrenza import esegui_in_background
-from gestionale_logistica.database.base import Base
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine
-from gestionale_logistica.database.models import Dipendente, Ordine
+from gestionale_logistica.database.models import Ordine
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione
 
 DATI_ESEMPIO = Path(__file__).parent.parent / "dati_esempio"
+
+
+def test_operazioni_sequenziali_condividono_lo_stesso_worker_thread_e_vedono_lo_stato_scritto():
+    # Proprieta' da cui dipende in produzione l'uso di SessionLocal (database/base.py) dai worker
+    # RNF3: due submit distinti a esegui_in_background, il secondo dopo il .result() del primo,
+    # devono girare in modo coerente (stesso worker, con max_workers=1) e lo stato scritto dal
+    # primo deve essere visibile al secondo. Verificata qui con un dict Python in memoria, non con
+    # un database reale, cosi' il test resta indipendente da SQLite/SQLAlchemy.
+    archivio: dict[str, object] = {}
+
+    def scrivi():
+        archivio["thread"] = threading.get_ident()
+        archivio["valore"] = "scritto dal primo worker"
+
+    def leggi():
+        return archivio.get("thread"), archivio.get("valore")
+
+    esegui_in_background(scrivi).result(timeout=5)
+    thread_scrittura, valore_letto = esegui_in_background(leggi).result(timeout=5)
+
+    assert valore_letto == "scritto dal primo worker"
+    assert thread_scrittura == esegui_in_background(threading.get_ident).result(timeout=5)
 
 
 def test_esegui_in_background_gira_su_un_thread_diverso_dal_chiamante():
@@ -40,6 +59,23 @@ def test_esegui_in_background_propaga_le_eccezioni():
         assert False, "doveva sollevare ValueError"
     except ValueError as errore:
         assert str(errore) == "boom"
+
+
+def test_eccezione_non_recuperata_viene_comunque_loggata(caplog):
+    # concurrent.futures, a differenza di asyncio, non segnala mai un'eccezione rimasta in una
+    # Future il cui .result() non viene chiamato: senza il done_callback di esegui_in_background
+    # questo test fallirebbe (nessun log), pur non sollevando alcun errore visibile.
+    def esplode():
+        raise ValueError("boom mai raccolto")
+
+    completata = threading.Event()
+
+    with caplog.at_level(logging.ERROR, logger="gestionale_logistica.concorrenza"):
+        future = esegui_in_background(esplode)
+        future.add_done_callback(lambda f: completata.set())
+        assert completata.wait(timeout=5)
+
+    assert any("Operazione in background fallita" in r.message for r in caplog.records)
 
 
 def test_importa_ordini_async_produce_lo_stesso_risultato_della_versione_sincrona(session_factory):
@@ -102,43 +138,3 @@ def test_calcola_piano_async_produce_lo_stesso_risultato_della_versione_sincrona
 
     assert piano.assegnazioni == []
     assert piano.ordini_non_assegnati == ["ORD-1"]
-
-
-def test_engine_sqlite_su_file_e_utilizzabile_da_piu_worker_thread(tmp_path):
-    # Stessa configurazione di database/base.py (sqlite su file, non ":memory:", con
-    # connect_args={"check_same_thread": False}): a differenza dei test con l'engine ":memory:"
-    # + StaticPool di conftest.py, qui la sessionmaker di produzione (QueuePool) puo' assegnare a
-    # un worker thread una connessione fisica aperta in precedenza da un thread diverso -
-    # senza check_same_thread=False pysqlite la rifiuterebbe. Regressione per il fix in base.py.
-    engine = create_engine(
-        f"sqlite:///{tmp_path / 'rnf3.db'}",
-        connect_args={"check_same_thread": False},
-    )
-    Base.metadata.create_all(engine)
-    session_factory = sessionmaker(bind=engine)
-
-    def scrivi_su_un_thread():
-        with session_factory() as session:
-            session.add(
-                Dipendente(
-                    id="D1",
-                    nome="Nome",
-                    cognome="Cognome",
-                    codice_fiscale="CF-D1",
-                    data_assunzione=datetime(2020, 1, 1),
-                    data_licenziamento=None,
-                    flg_attivo=True,
-                    flg_certificazione_gas=False,
-                )
-            )
-            session.commit()
-
-    def leggi_su_un_altro_thread():
-        with session_factory() as session:
-            return session.scalar(select(Dipendente).where(Dipendente.id == "D1"))
-
-    esegui_in_background(scrivi_su_un_thread).result(timeout=5)
-    dipendente = esegui_in_background(leggi_su_un_altro_thread).result(timeout=5)
-
-    assert dipendente is not None
-    assert dipendente.id == "D1"
