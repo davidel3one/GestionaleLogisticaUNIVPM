@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from sqlalchemy import select
+
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Ordine, ReportConsuntivo, Viaggio
 from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
@@ -85,7 +87,9 @@ def test_report_ignora_ordini_non_ancora_rendicontabili(session_factory, tmp_pat
     assert not risultato.generato
 
 
-def test_report_gia_generato_per_la_data_non_viene_duplicato(session_factory, tmp_path):
+def test_report_gia_generato_per_la_data_viene_rigenerato_senza_duplicare(session_factory, tmp_path):
+    # RF19 e' schedulato periodicamente: rigenerare lo stesso giorno deve aggiornare la riga
+    # esistente (stesso report_id, stesso registro), non rifiutare ne' crearne una seconda.
     giorno = datetime(2026, 7, 20, 8, 0)
     with session_factory() as session:
         session.add(crea_viaggio("V-1", giorno))
@@ -97,8 +101,50 @@ def test_report_gia_generato_per_la_data_non_viene_duplicato(session_factory, tm
     assert primo.generato
 
     secondo = gestore.genera_report_giornaliero(giorno)
-    assert not secondo.generato
-    assert "gia'" in secondo.motivo
+    assert secondo.generato
+    assert secondo.report_id == primo.report_id
+
+    with session_factory() as session:
+        reports = session.scalars(select(ReportConsuntivo)).all()
+        assert len(reports) == 1
+
+
+def test_report_rigenerato_include_ordine_completato_dopo_la_prima_generazione(session_factory, tmp_path):
+    # Riproduce il bug: un ordine ancora IN_CONSEGNA al momento della prima generazione (es. il
+    # job delle 21:00) veniva escluso per sempre dal report, anche una volta completato/fallito,
+    # perche' il guard su report_esistente rifiutava qualunque rigenerazione successiva.
+    giorno = datetime(2026, 7, 20, 8, 0)
+    with session_factory() as session:
+        session.add(crea_viaggio("V-1", giorno))
+        session.add(crea_ordine("ORD-1", "V-1", StatoOrdine.COMPLETATO))
+        session.add(crea_ordine("ORD-2", "V-1", StatoOrdine.IN_CONSEGNA))
+        session.commit()
+
+    gestore = GestoreRendicontazione(session_factory, cartella_output=tmp_path)
+    primo = gestore.genera_report_giornaliero(giorno)
+    assert primo.generato
+    with session_factory() as session:
+        report = session.get(ReportConsuntivo, primo.report_id)
+        assert report.ordini_consegnati == 1
+        assert report.ordini_falliti == 0
+        assert {o.id for o in report.ordini} == {"ORD-1"}
+
+    with session_factory() as session:
+        ordine_2 = session.get(Ordine, "ORD-2")
+        ordine_2.stato_ordine = StatoOrdine.COMPLETATO
+        session.commit()
+
+    secondo = gestore.genera_report_giornaliero(giorno)
+    assert secondo.generato
+    assert secondo.report_id == primo.report_id
+
+    with session_factory() as session:
+        reports = session.scalars(select(ReportConsuntivo)).all()
+        assert len(reports) == 1
+        report = reports[0]
+        assert report.ordini_consegnati == 2
+        assert report.ordini_falliti == 0
+        assert {o.id for o in report.ordini} == {"ORD-1", "ORD-2"}
 
 
 def test_report_esclude_ordini_di_viaggi_partiti_in_altri_giorni(session_factory, tmp_path):

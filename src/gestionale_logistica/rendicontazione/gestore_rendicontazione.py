@@ -62,14 +62,11 @@ class GestoreRendicontazione:
             registro_esistente = session.scalar(
                 select(RegistroEsiti).where(RegistroEsiti.data_riferimento == data_riferimento)
             )
+            report_esistente = None
             if registro_esistente is not None:
                 report_esistente = session.scalar(
-                    select(ReportConsuntivo.id).where(ReportConsuntivo.registro_id == registro_esistente.id)
+                    select(ReportConsuntivo).where(ReportConsuntivo.registro_id == registro_esistente.id)
                 )
-                if report_esistente is not None:
-                    return RisultatoGenerazioneReport(
-                        generato=False, motivo="Report gia' generato per questa data"
-                    )
 
             viaggi_del_giorno = session.scalars(
                 select(Viaggio)
@@ -109,6 +106,23 @@ class GestoreRendicontazione:
             _genera_pdf(
                 percorso_file, data_riferimento, conteggio_per_negozio, ordini_consegnati, ordini_falliti
             )
+
+            if report_esistente is not None:
+                # Il job schedulato (RF19) puo' rigenerare piu' volte lo stesso giorno: un ordine
+                # ancora IN_CONSEGNA alla prima generazione (es. alle 21:00) puo' completarsi o
+                # fallire dopo. Aggiorniamo la riga esistente invece di rifiutare, cosi' il report
+                # riflette sempre lo stato corrente ed e' idempotente rispetto a chiamate ripetute -
+                # niente riga duplicata, l'invariante "un ReportConsuntivo per registro" e' preservata.
+                report_esistente.data_generazione = datetime.now()
+                report_esistente.ordini_consegnati = ordini_consegnati
+                report_esistente.ordini_falliti = ordini_falliti
+                report_esistente.negozi_partner = negozi_partner
+                report_esistente.percorso_file = str(percorso_file)
+                report_esistente.ordini = ordini_rendicontati
+                session.commit()
+                return RisultatoGenerazioneReport(
+                    generato=True, report_id=report_esistente.id, percorso_file=str(percorso_file)
+                )
 
             report = ReportConsuntivo(
                 data_generazione=datetime.now(),

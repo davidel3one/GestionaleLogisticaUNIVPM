@@ -7,7 +7,7 @@ def get_database_url() -> str:
     db_path = config.get("database", "path", fallback="gestionale.db")
     return f"sqlite:///{db_path}"
 
-engine = create_engine(get_database_url())
+engine = create_engine(get_database_url(), connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 
 
