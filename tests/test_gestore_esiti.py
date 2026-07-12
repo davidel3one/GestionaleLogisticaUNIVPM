@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from gestionale_logistica.database.enums import StatoEsito, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Allegato, CausaleFallimento, Ordine, RegistroEsiti, Viaggio
-from gestionale_logistica.rendicontazione.gestore_esiti import GestoreEsiti
+from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
 from test_logistica import crea_flotta_semplice, crea_ordine
 
 
@@ -53,7 +53,7 @@ def test_registra_esito_completato(session_factory):
     with session_factory() as session:
         _crea_viaggio_con_ordini(session)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
 
     assert risultato.ok
@@ -70,7 +70,7 @@ def test_registra_esito_fallito_rimette_ordine_disponibile(session_factory):
         _crea_viaggio_con_ordini(session)
         _crea_causale(session)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito("O1", StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE")
 
     assert risultato.ok
@@ -85,7 +85,7 @@ def test_registra_esito_fallito_rimette_ordine_disponibile(session_factory):
 
 
 def test_registra_esito_ordine_inesistente_rifiutato(session_factory):
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito("INESISTENTE", StatoEsito.COMPLETATO)
     assert not risultato.ok
     assert "non trovato" in risultato.motivo
@@ -95,7 +95,7 @@ def test_registra_esito_gia_presente_rifiutato(session_factory):
     with session_factory() as session:
         _crea_viaggio_con_ordini(session)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     assert gestore.registra_esito("O1", StatoEsito.COMPLETATO).ok
 
     risultato = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
@@ -107,7 +107,7 @@ def test_registra_esito_viaggio_non_in_corso_rifiutato(session_factory):
     with session_factory() as session:
         _crea_viaggio_con_ordini(session, stato=StatoViaggio.PIANIFICATO)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
     assert not risultato.ok
     assert "viaggio in corso" in risultato.motivo
@@ -117,7 +117,7 @@ def test_registra_esito_fallito_senza_causale_rifiutato(session_factory):
     with session_factory() as session:
         _crea_viaggio_con_ordini(session)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito("O1", StatoEsito.FALLITO)
     assert not risultato.ok
     assert "Causale obbligatoria" in risultato.motivo
@@ -127,7 +127,7 @@ def test_registra_esito_fallito_causale_inesistente_rifiutato(session_factory):
     with session_factory() as session:
         _crea_viaggio_con_ordini(session)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito("O1", StatoEsito.FALLITO, causale_codice="INESISTENTE")
     assert not risultato.ok
     assert "non trovata" in risultato.motivo
@@ -141,7 +141,7 @@ def test_registro_esiti_usa_data_partenza_viaggio_non_data_odierna(session_facto
     with session_factory() as session:
         _crea_viaggio_con_ordini(session, data_partenza=data_partenza)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
     assert risultato.ok
 
@@ -159,7 +159,7 @@ def test_ordine_fallito_soddisfa_filtro_candidati_motore_ottimizzazione(session_
         _crea_viaggio_con_ordini(session)
         _crea_causale(session)
 
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     assert gestore.registra_esito("O1", StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE").ok
 
     with session_factory() as session:
@@ -179,7 +179,7 @@ def _crea_esito_fallito(session_factory, viaggio_id="V1", ordine_id="O1"):
     with session_factory() as session:
         _crea_viaggio_con_ordini(session, viaggio_id=viaggio_id, ordini_ids=(ordine_id,))
         _crea_causale(session)
-    gestore = GestoreEsiti(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
     risultato = gestore.registra_esito(ordine_id, StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE")
     assert risultato.ok
     return risultato.esito_id
@@ -192,7 +192,7 @@ def test_carica_prova_documentale_happy_path(session_factory, tmp_path):
     sorgente.write_bytes(b"contenuto foto")
     cartella_allegati = tmp_path / "allegati"
 
-    gestore = GestoreEsiti(session_factory, cartella_allegati=cartella_allegati)
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=cartella_allegati)
     risultato = gestore.carica_prova_documentale(esito_id, "prova.jpg", str(sorgente), "image/jpeg")
 
     assert risultato.ok
@@ -209,7 +209,7 @@ def test_carica_prova_documentale_esito_inesistente_rifiutato(session_factory, t
     sorgente = tmp_path / "prova.jpg"
     sorgente.write_bytes(b"x")
 
-    gestore = GestoreEsiti(session_factory, cartella_allegati=tmp_path / "allegati")
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=tmp_path / "allegati")
     risultato = gestore.carica_prova_documentale(999, "prova.jpg", str(sorgente), "image/jpeg")
 
     assert not risultato.ok
@@ -219,7 +219,7 @@ def test_carica_prova_documentale_esito_inesistente_rifiutato(session_factory, t
 def test_carica_prova_documentale_esito_completato_rifiutato(session_factory, tmp_path):
     with session_factory() as session:
         _crea_viaggio_con_ordini(session)
-    gestore = GestoreEsiti(session_factory, cartella_allegati=tmp_path / "allegati")
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=tmp_path / "allegati")
     risultato_esito = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
     assert risultato_esito.ok
 
@@ -234,7 +234,7 @@ def test_carica_prova_documentale_esito_completato_rifiutato(session_factory, tm
 def test_carica_prova_documentale_file_sorgente_inesistente_rifiutato(session_factory, tmp_path):
     esito_id = _crea_esito_fallito(session_factory)
 
-    gestore = GestoreEsiti(session_factory, cartella_allegati=tmp_path / "allegati")
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=tmp_path / "allegati")
     risultato = gestore.carica_prova_documentale(
         esito_id, "prova.jpg", str(tmp_path / "non_esiste.jpg"), "image/jpeg"
     )
@@ -253,7 +253,7 @@ def test_prova_documentale_sopravvive_a_cancellazione_file_sorgente(session_fact
     sorgente.write_bytes(b"contenuto foto")
     cartella_allegati = tmp_path / "allegati"
 
-    gestore = GestoreEsiti(session_factory, cartella_allegati=cartella_allegati)
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=cartella_allegati)
     risultato = gestore.carica_prova_documentale(esito_id, "prova.jpg", str(sorgente), "image/jpeg")
     assert risultato.ok
 
@@ -277,7 +277,7 @@ def test_carica_prova_documentale_nome_file_con_traversal_resta_confinato(sessio
     sorgente.write_bytes(b"contenuto foto")
     cartella_allegati = tmp_path / "allegati"
 
-    gestore = GestoreEsiti(session_factory, cartella_allegati=cartella_allegati)
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=cartella_allegati)
     risultato = gestore.carica_prova_documentale(
         esito_id, "../../../etc/passwd", str(sorgente), "image/jpeg"
     )
@@ -293,7 +293,7 @@ def test_carica_prova_documentale_nome_file_con_traversal_resta_confinato(sessio
 def test_carica_prova_documentale_nome_file_duplicato_non_sovrascrive(session_factory, tmp_path):
     esito_id = _crea_esito_fallito(session_factory)
     cartella_allegati = tmp_path / "allegati"
-    gestore = GestoreEsiti(session_factory, cartella_allegati=cartella_allegati)
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=cartella_allegati)
 
     prima = tmp_path / "prova.jpg"
     prima.write_bytes(b"prima foto")
