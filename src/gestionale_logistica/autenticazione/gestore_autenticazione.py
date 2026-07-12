@@ -15,6 +15,8 @@ from gestionale_logistica.autenticazione.validazione import (
 from gestionale_logistica.database.enums import RuoloUtente
 from gestionale_logistica.database.models import CodiceConferma, Sessione, Utente
 
+
+
 DURATA_CODICE_CONFERMA = timedelta(minutes=10)
 DURATA_SESSIONE = timedelta(hours=3)
 COOLDOWN_RIGENERAZIONE_CODICE = timedelta(seconds=60)
