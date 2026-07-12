@@ -12,6 +12,7 @@ wheels/
 # Runtime artifacts (deployment diagram: generated at runtime, not versioned)
 app.log
 gestionale.db
+allegati/
 report/
 
 .DS_Store
