@@ -103,9 +103,10 @@ Implementato:
 - Importazione ordini da CSV (RF9), con validazione dell'header, scarto delle righe malformate e degli ID duplicati (`logistica/gestore_logistica.py`), coperta da test.
 - Composizione manuale del viaggio (RF10) e validazione dei vincoli con motivo (RF11): avvio di una bozza su una `ComposizioneSquadra` idonea/attiva/libera quel giorno, aggiunta di ordini uno alla volta con validazione live di idoneità categoria↔risorsa e capacità peso/volume residua, chiusura verso lo stato definitivo `Pianificato` (`logistica/gestore_logistica.py`, nuovo stato `StatoViaggio.IN_COMPOSIZIONE`), coperta da test.
 - Motore di ottimizzazione (`ottimizzazione/motore_ottimizzazione.py`): suggerimento ordini per un viaggio parzialmente compilato (RF12) e pianificazione automatica massiva della giornata (RF13, clustering geografico + knapsack di capacità + vincolo di durata del tour), coperti da test.
+- Registrazione esito, ripianificazione e prove documentali (RF15-RF18, `rendicontazione/`): `VisualizzaConsegneInTransito` (RF15, viaggi `InCorso` con i relativi ordini); `GestoreEsiti.registra_esito()` (RF16, causale obbligatoria se Fallito) che ri-accoda automaticamente l'ordine Fallito tra i candidati di RF12/RF13 (RF17) e `carica_prova_documentale()` (RF18, copia fisica del file in una cartella gestita, non solo il riferimento al percorso originale), coperti da test.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
 
-Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF14 (verifica partenza automatica), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. I package `risorse/`, `rendicontazione/` esistono come scheletro (solo `__init__.py`).
+Non ancora implementato: RF1-RF8 (gestione risorse umane e mezzi), RF14 (verifica partenza automatica), RF19 (generazione ed invio report periodico), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. Il package `risorse/` esiste come scheletro (solo `__init__.py`).
 
 ## Struttura del progetto
 
@@ -130,13 +131,18 @@ dev/
 │   │   └── geocoding.py          # geocodifica offline dei comuni italiani
 │   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13)
 │   ├── risorse/                 # gestione dipendenti/camion (RF1-RF8) - da implementare
-│   └── rendicontazione/         # esiti e report (RF15-RF19) - da implementare
+│   └── rendicontazione/
+│       ├── gestore_rendicontazione.py       # CRUD esiti/allegati - da implementare (RF19)
+│       ├── gestore_esiti.py                 # RF16-RF17
+│       └── visualizza_consegne_transito.py  # RF15
 └── tests/
     ├── conftest.py               # fixture DB in-memory
     ├── test_config.py
     ├── test_import_ordini.py
     ├── test_logistica.py         # RF10/RF11
-    └── test_ottimizzazione.py    # RF12/RF13
+    ├── test_ottimizzazione.py    # RF12/RF13
+    ├── test_gestore_esiti.py               # RF16-RF18
+    └── test_visualizza_consegne_transito.py # RF15
 ```
 
 ## Setup
