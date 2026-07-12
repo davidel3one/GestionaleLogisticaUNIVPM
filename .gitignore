@@ -13,6 +13,7 @@ wheels/
 app.log
 gestionale.db
 allegati/
+report/
 
 .DS_Store
 
