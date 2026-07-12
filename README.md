@@ -103,10 +103,10 @@ Implementato:
 - Importazione ordini da CSV (RF9), con validazione dell'header, scarto delle righe malformate e degli ID duplicati (`logistica/gestore_logistica.py`), coperta da test.
 - Composizione manuale del viaggio (RF10) e validazione dei vincoli con motivo (RF11): avvio di una bozza su una `ComposizioneSquadra` idonea/attiva/libera quel giorno, aggiunta di ordini uno alla volta con validazione live di idoneità categoria↔risorsa e capacità peso/volume residua, chiusura verso lo stato definitivo `Pianificato` (`logistica/gestore_logistica.py`, nuovo stato `StatoViaggio.IN_COMPOSIZIONE`), coperta da test.
 - Motore di ottimizzazione (`ottimizzazione/motore_ottimizzazione.py`): suggerimento ordini per un viaggio parzialmente compilato (RF12) e pianificazione automatica massiva della giornata (RF13, clustering geografico + knapsack di capacità + vincolo di durata del tour), coperti da test.
-- Gestione risorse umane e mezzi, solo RF1 e RF8 (`risorse/`): `GestoreDipendenti.inserisci_dipendente()` (RF1, univocità id e `codice_fiscale`) sopra il CRUD generico; `visualizza_risorse.py` con `VisualizzaStoricoRisorse` (RF8). Coperti da test.
+- Gestione risorse umane e mezzi (RF1-RF8, `risorse/`): `GestoreDipendenti` (inserisci/modifica/licenzia, RF1-RF3, univocità `codice_fiscale`) e `GestoreCamion` (inserisci/modifica/disattiva, RF4-RF6, univocità `targa`) sopra il CRUD generico, entrambi con soft delete vero (`flg_attivo`, non cancellazione fisica); `visualizza_risorse.py` con `VisualizzaRisorseAttive` (RF7) e `VisualizzaStoricoRisorse` (RF8). Un camion dismesso o un dipendente licenziato è ora escluso anche da nuovi viaggi manuali/automatici (`verifica_idoneita_risorsa()`, RF10-RF13). Coperti da test.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
 
-Non ancora implementato: RF2-RF7 (modifica/licenzia dipendente, gestione camion, visualizza risorse attive), RF14 (verifica partenza automatica), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. Il package `rendicontazione/` esiste come scheletro (solo CRUD generico, nessuna logica applicativa); `risorse/gestore_camion.py` è ancora lo scheletro CRUD originale.
+Non ancora implementato: RF14 (verifica partenza automatica), RF15-RF19 (rendicontazione, esiti, report), lo scheduler interno (RF14/RF19), il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5. Il package `rendicontazione/` esiste come scheletro (solo CRUD generico, nessuna logica applicativa).
 
 ## Struttura del progetto
 
@@ -131,9 +131,9 @@ dev/
 │   │   └── geocoding.py          # geocodifica offline dei comuni italiani
 │   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13)
 │   ├── risorse/
-│   │   ├── gestore_dipendenti.py # RF1 (RF2-RF3 non implementate)
-│   │   ├── gestore_camion.py     # scheletro CRUD (RF4-RF6 non implementate)
-│   │   └── visualizza_risorse.py # RF8 (RF7 non implementata)
+│   │   ├── gestore_dipendenti.py # RF1-RF3
+│   │   ├── gestore_camion.py     # RF4-RF6
+│   │   └── visualizza_risorse.py # RF7-RF8
 │   └── rendicontazione/         # esiti e report (RF15-RF19) - da implementare
 └── tests/
     ├── conftest.py               # fixture DB in-memory
@@ -141,8 +141,9 @@ dev/
     ├── test_import_ordini.py
     ├── test_logistica.py         # RF10/RF11
     ├── test_ottimizzazione.py    # RF12/RF13
-    ├── test_gestore_dipendenti_rf1.py
-    └── test_visualizza_risorse_rf8.py
+    ├── test_gestore_dipendenti.py
+    ├── test_gestore_camion.py
+    └── test_visualizza_risorse.py
 ```
 
 ## Setup

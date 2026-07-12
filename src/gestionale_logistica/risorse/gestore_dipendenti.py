@@ -54,3 +54,44 @@ class GestoreDipendenti:
             )
             session.commit()
             return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)
+
+    def modifica_dipendente(
+        self,
+        id_: str,
+        nome: str | None = None,
+        cognome: str | None = None,
+        flg_certificazione_gas: bool | None = None,
+    ) -> RisultatoOperazioneDipendente:
+        """RF2: aggiorna dati anagrafici/certificazioni di un dipendente esistente. L'identificativo
+        di sistema (id) non e' mai modificabile - non a caso non compare tra i campi aggiornabili."""
+        with self.session_factory() as session:
+            dip = session.get(Dipendente, id_)
+            if dip is None:
+                return RisultatoOperazioneDipendente(ok=False, motivo=f"Dipendente '{id_}' non trovato")
+
+            if nome is not None:
+                dip.nome = nome
+            if cognome is not None:
+                dip.cognome = cognome
+            if flg_certificazione_gas is not None:
+                dip.flg_certificazione_gas = flg_certificazione_gas
+
+            session.commit()
+            return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)
+
+    def licenzia_dipendente(
+        self, id_: str, data_licenziamento: datetime | None = None
+    ) -> RisultatoOperazioneDipendente:
+        """RF3: soft delete - il dipendente resta a database (storico, RF8) ma flg_attivo=False lo
+        esclude dalle risorse attive (RF7) e dai nuovi viaggi (verifica_idoneita_risorsa)."""
+        with self.session_factory() as session:
+            dip = session.get(Dipendente, id_)
+            if dip is None:
+                return RisultatoOperazioneDipendente(ok=False, motivo=f"Dipendente '{id_}' non trovato")
+            if not dip.flg_attivo:
+                return RisultatoOperazioneDipendente(ok=False, motivo="Dipendente gia' licenziato")
+
+            dip.flg_attivo = False
+            dip.data_licenziamento = data_licenziamento or datetime.now()
+            session.commit()
+            return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)

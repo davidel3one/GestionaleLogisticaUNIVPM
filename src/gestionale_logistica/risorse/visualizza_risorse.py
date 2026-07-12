@@ -53,6 +53,22 @@ def _vista_camion(c: Camion) -> CamionVista:
     )
 
 
+class VisualizzaRisorseAttive:
+    """RF7: elenca solo i dipendenti non licenziati e i camion attualmente in servizio."""
+
+    def __init__(self, session_factory: sessionmaker = SessionLocal) -> None:
+        self.session_factory = session_factory
+
+    def elenca(self) -> ElencoRisorse:
+        with self.session_factory() as session:
+            dipendenti = session.scalars(select(Dipendente).where(Dipendente.flg_attivo.is_(True))).all()
+            camion = session.scalars(select(Camion).where(Camion.flg_attivo.is_(True))).all()
+            return ElencoRisorse(
+                dipendenti=[_vista_dipendente(d) for d in dipendenti],
+                camion=[_vista_camion(c) for c in camion],
+            )
+
+
 class VisualizzaStoricoRisorse:
     """RF8: elenca tutte le risorse transitate in azienda, inclusi dipendenti licenziati e mezzi
     dismessi (nome della classe preso dal diagramma EA - vedi modello-ea.md, Fix 6)."""

@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from gestionale_logistica.database.models import Camion, Dipendente
-from gestionale_logistica.risorse.visualizza_risorse import VisualizzaStoricoRisorse
+from gestionale_logistica.risorse.visualizza_risorse import VisualizzaRisorseAttive, VisualizzaStoricoRisorse
 
 
 def crea_dipendente(id_, attivo=True):
@@ -31,13 +31,33 @@ def crea_camion(id_, attivo=True):
     )
 
 
-def test_visualizza_storico_risorse_include_attivi_e_licenziati_dismessi(session_factory):
+def popola_risorse_miste(session_factory):
     with session_factory() as session:
         session.add(crea_dipendente("D1", attivo=True))
         session.add(crea_dipendente("D2", attivo=False))
         session.add(crea_camion("C1", attivo=True))
         session.add(crea_camion("C2", attivo=False))
         session.commit()
+
+
+def test_visualizza_risorse_attive_esclude_licenziati_e_dismessi(session_factory):
+    popola_risorse_miste(session_factory)
+
+    elenco = VisualizzaRisorseAttive(session_factory).elenca()
+
+    assert {d.id for d in elenco.dipendenti} == {"D1"}
+    assert {c.id for c in elenco.camion} == {"C1"}
+
+
+def test_visualizza_risorse_attive_su_db_vuoto(session_factory):
+    elenco = VisualizzaRisorseAttive(session_factory).elenca()
+
+    assert elenco.dipendenti == []
+    assert elenco.camion == []
+
+
+def test_visualizza_storico_risorse_include_attivi_e_licenziati_dismessi(session_factory):
+    popola_risorse_miste(session_factory)
 
     elenco = VisualizzaStoricoRisorse(session_factory).elenca()
 

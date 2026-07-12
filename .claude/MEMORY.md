@@ -10,7 +10,7 @@ KB condivisa via git — chiunque lavori su questo repo con Claude Code (Davide 
 - [Divergenze codice vs EA](knowledge/divergenze-ea.md) — 17 differenze intenzionali, checklist per quando si aggiorna il diagramma
 - [Design motore di ottimizzazione](knowledge/design-ottimizzatore.md) — funzione obiettivo RF12/RF13, geocoding offline, clustering DBSCAN + Held-Karp implementati e mergiati (PR #11)
 - RF10/RF11 (composizione manuale viaggio + validazione) implementate e mergiate (PR #12) — dettagli in `knowledge/stato-e-prossimi-passi.md`
-- RF1 e RF8 (solo queste due, non l'intero range RF1-RF8) implementate su branch `feat/manage-resources-rf1-rf8`, non ancora mergiate — dettagli in `knowledge/stato-e-prossimi-passi.md` e `knowledge/divergenze-ea.md` (punto 17)
+- RF1-RF8 (intero range, gestione risorse umane e mezzi) implementate su branch `feat/manage-resources-rf1-rf8`, non ancora mergiate — dettagli in `knowledge/stato-e-prossimi-passi.md` e `knowledge/divergenze-ea.md` (punto 17)
 - [Stato e prossimi passi](knowledge/stato-e-prossimi-passi.md) — cosa è fatto, cosa manca, ordine consigliato
 
 Handoff di sessioni precedenti: `.claude/handoff/` (in questa stessa cartella).

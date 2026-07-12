@@ -2,11 +2,11 @@ from datetime import datetime, timedelta
 
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Squadra, Viaggio
-from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica, verifica_idoneita_risorsa
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione
 
 
-def crea_dipendente(id_, certificazione_gas=False):
+def crea_dipendente(id_, certificazione_gas=False, attivo=True):
     return Dipendente(
         id=id_,
         nome="Nome",
@@ -14,12 +14,12 @@ def crea_dipendente(id_, certificazione_gas=False):
         codice_fiscale=f"CF-{id_}",
         data_assunzione=datetime(2020, 1, 1),
         data_licenziamento=None,
-        flg_attivo=True,
+        flg_attivo=attivo,
         flg_certificazione_gas=certificazione_gas,
     )
 
 
-def crea_camion(id_, peso_massimo=100.0, volume_massimo=5.0, sponda_idraulica=False):
+def crea_camion(id_, peso_massimo=100.0, volume_massimo=5.0, sponda_idraulica=False, attivo=True):
     return Camion(
         id=id_,
         targa=f"TARGA-{id_}",
@@ -29,7 +29,7 @@ def crea_camion(id_, peso_massimo=100.0, volume_massimo=5.0, sponda_idraulica=Fa
         flg_sponda_idraulica=sponda_idraulica,
         data_acquisizione=datetime(2020, 1, 1),
         data_dismissione=None,
-        flg_attivo=True,
+        flg_attivo=attivo,
     )
 
 
@@ -302,6 +302,25 @@ def test_chiusura_senza_ordini_rifiutata(session_factory):
     with session_factory() as session:
         viaggio = session.get(Viaggio, viaggio_id)
         assert viaggio.stato_viaggio == StatoViaggio.IN_COMPOSIZIONE
+
+
+# --- verifica_idoneita_risorsa: esclusione risorse disattivate (RF3/RF6) ---
+
+
+def test_verifica_idoneita_risorsa_rifiuta_camion_dismesso_indipendentemente_dalla_categoria():
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.BORDO_STRADA)
+    camion_dismesso = crea_camion("C1", attivo=False)
+    dipendenti = [crea_dipendente("D1"), crea_dipendente("D2")]
+
+    assert verifica_idoneita_risorsa(ordine, camion_dismesso, dipendenti) is False
+
+
+def test_verifica_idoneita_risorsa_rifiuta_dipendente_licenziato_indipendentemente_dalla_categoria():
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.BORDO_STRADA)
+    camion = crea_camion("C1")
+    dipendenti = [crea_dipendente("D1"), crea_dipendente("D2", attivo=False)]
+
+    assert verifica_idoneita_risorsa(ordine, camion, dipendenti) is False
 
 
 # --- Invarianti verso RF12/RF13 ---
