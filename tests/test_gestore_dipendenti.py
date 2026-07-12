@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from gestionale_logistica.database.models import Dipendente
+from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra
 from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
 
 
@@ -113,3 +113,67 @@ def test_licenzia_dipendente_inesistente_rifiutato(session_factory):
 
     assert not risultato.ok
     assert "non trovato" in risultato.motivo
+
+
+def test_licenzia_dipendente_disattiva_a_cascata_le_composizioni_attive_che_lo_contengono(session_factory):
+    # Senza la cascata, avvia_composizione_viaggio (RF10) accetterebbe ancora la composizione
+    # (controlla solo composizione.flg_attiva) nonostante il dipendente non sia piu' idoneo,
+    # producendo un Viaggio IN_COMPOSIZIONE bloccato indefinitamente (nessun ordine puo' mai
+    # essere aggiunto, la chiusura richiede almeno un ordine).
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(
+            Camion(
+                id="CAM1", targa="AB123CD", tipo_mezzo="Furgone", peso_massimo=100.0, volume_massimo=5.0,
+                flg_sponda_idraulica=False, data_acquisizione=datetime(2020, 1, 1), data_dismissione=None,
+                flg_attivo=True,
+            )
+        )
+        session.add(
+            ComposizioneSquadra(
+                id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+                dipendente_1_id="D1", dipendente_2_id="D2",
+                data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+            )
+        )
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "CF1", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "CF2", datetime(2020, 1, 1))
+
+    risultato = gestore.licenzia_dipendente("D1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is False
+
+
+def test_licenzia_dipendente_non_disattiva_composizioni_di_altri_dipendenti(session_factory):
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(
+            Camion(
+                id="CAM1", targa="AB123CD", tipo_mezzo="Furgone", peso_massimo=100.0, volume_massimo=5.0,
+                flg_sponda_idraulica=False, data_acquisizione=datetime(2020, 1, 1), data_dismissione=None,
+                flg_attivo=True,
+            )
+        )
+        session.add(
+            ComposizioneSquadra(
+                id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+                dipendente_1_id="D2", dipendente_2_id="D3",
+                data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+            )
+        )
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "CF1", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "CF2", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D3", "Anna", "Neri", "CF3", datetime(2020, 1, 1))
+
+    gestore.licenzia_dipendente("D1")
+
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is True

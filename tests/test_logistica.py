@@ -4,6 +4,7 @@ from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, 
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Squadra, Viaggio
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica, verifica_idoneita_risorsa
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione
+from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
 
 
 def crea_dipendente(id_, certificazione_gas=False, attivo=True):
@@ -321,6 +322,30 @@ def test_verifica_idoneita_risorsa_rifiuta_dipendente_licenziato_indipendentemen
     dipendenti = [crea_dipendente("D1"), crea_dipendente("D2", attivo=False)]
 
     assert verifica_idoneita_risorsa(ordine, camion, dipendenti) is False
+
+
+def test_licenziamento_dipendente_disattiva_composizione_e_evita_viaggio_zombie(session_factory):
+    # Riproduce lo scenario segnalato: senza la disattivazione a cascata in licenzia_dipendente,
+    # avvia_composizione_viaggio accetterebbe comunque la composizione (composizione.flg_attiva
+    # ancora True), producendo un Viaggio IN_COMPOSIZIONE che nessun ordine potrebbe mai
+    # raggiungere (verifica_idoneita_risorsa rifiuta sempre il dipendente licenziato) e che
+    # chiudi_composizione_viaggio non potrebbe mai chiudere (richiede almeno un ordine) - uno
+    # stato "zombie" indefinito, che occuperebbe anche lo slot-giorno per calcola_piano (RF13).
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        session.add(crea_ordine("ORD-1", peso=10.0, volume=0.5))
+        session.commit()
+
+    GestoreDipendenti(session_factory).licenzia_dipendente("C1-D1")
+
+    gestore = GestoreLogistica(session_factory)
+    avvio = gestore.avvia_composizione_viaggio("C1", datetime(2026, 7, 20, 8, 0))
+
+    assert not avvio.ok
+    assert "non attiva" in avvio.motivo
+
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is False
 
 
 # --- Invarianti verso RF12/RF13 ---

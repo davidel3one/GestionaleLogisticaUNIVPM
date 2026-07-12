@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
-from gestionale_logistica.database.models import Dipendente
+from gestionale_logistica.database.models import ComposizioneSquadra, Dipendente
 
 dipendente = CRUDBase[Dipendente](Dipendente)
 
@@ -83,7 +83,12 @@ class GestoreDipendenti:
         self, id_: str, data_licenziamento: datetime | None = None
     ) -> RisultatoOperazioneDipendente:
         """RF3: soft delete - il dipendente resta a database (storico, RF8) ma flg_attivo=False lo
-        esclude dalle risorse attive (RF7) e dai nuovi viaggi (verifica_idoneita_risorsa)."""
+        esclude dalle risorse attive (RF7) e dai nuovi viaggi (verifica_idoneita_risorsa). Disattiva
+        a cascata anche le ComposizioneSquadra attive che lo contengono (dipendente_1/dipendente_2):
+        senza, avvia_composizione_viaggio (RF10) le riterrebbe ancora valide (controlla solo
+        composizione.flg_attiva), creando un Viaggio IN_COMPOSIZIONE che nessun ordine potrebbe mai
+        raggiungere (verifica_idoneita_risorsa rifiuta sempre) e che chiudi_composizione_viaggio non
+        potrebbe mai chiudere (richiede almeno un ordine) - uno stato "zombie" indefinito."""
         with self.session_factory() as session:
             dip = session.get(Dipendente, id_)
             if dip is None:
@@ -93,5 +98,18 @@ class GestoreDipendenti:
 
             dip.flg_attivo = False
             dip.data_licenziamento = data_licenziamento or datetime.now()
+
+            composizioni_da_disattivare = session.scalars(
+                select(ComposizioneSquadra).where(
+                    ComposizioneSquadra.flg_attiva.is_(True),
+                    or_(
+                        ComposizioneSquadra.dipendente_1_id == id_,
+                        ComposizioneSquadra.dipendente_2_id == id_,
+                    ),
+                )
+            ).all()
+            for composizione in composizioni_da_disattivare:
+                composizione.flg_attiva = False
+
             session.commit()
             return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)

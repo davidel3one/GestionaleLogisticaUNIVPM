@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
-from gestionale_logistica.database.models import Camion
+from gestionale_logistica.database.models import Camion, ComposizioneSquadra
 
 camion = CRUDBase[Camion](Camion)
 
@@ -92,7 +92,10 @@ class GestoreCamion:
     ) -> RisultatoOperazioneCamion:
         """RF6: soft delete - il camion resta a database (storico, RF8) ma flg_attivo=False lo
         esclude dalle risorse attive (RF7) e dai nuovi viaggi (verifica_idoneita_risorsa),
-        mantenendo intatta l'integrita' referenziale dei viaggi passati."""
+        mantenendo intatta l'integrita' referenziale dei viaggi passati. Disattiva a cascata anche
+        le ComposizioneSquadra attive che lo contengono - stesso motivo di
+        GestoreDipendenti.licenzia_dipendente(): senza, avvia_composizione_viaggio (RF10) le
+        riterrebbe ancora valide, creando un Viaggio IN_COMPOSIZIONE bloccato indefinitamente."""
         with self.session_factory() as session:
             mezzo = session.get(Camion, id_)
             if mezzo is None:
@@ -102,5 +105,15 @@ class GestoreCamion:
 
             mezzo.flg_attivo = False
             mezzo.data_dismissione = data_dismissione or datetime.now()
+
+            composizioni_da_disattivare = session.scalars(
+                select(ComposizioneSquadra).where(
+                    ComposizioneSquadra.flg_attiva.is_(True),
+                    ComposizioneSquadra.camion_id == id_,
+                )
+            ).all()
+            for composizione in composizioni_da_disattivare:
+                composizione.flg_attiva = False
+
             session.commit()
             return RisultatoOperazioneCamion(ok=True, camion_id=id_)

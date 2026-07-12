@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from gestionale_logistica.database.models import Camion
+from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra
 from gestionale_logistica.risorse.gestore_camion import GestoreCamion
 
 
@@ -116,3 +116,62 @@ def test_disattiva_camion_inesistente_rifiutato(session_factory):
 
     assert not risultato.ok
     assert "non trovato" in risultato.motivo
+
+
+def crea_dipendente(id_):
+    return Dipendente(
+        id=id_, nome="Nome", cognome="Cognome", codice_fiscale=f"CF-{id_}",
+        data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
+        flg_attivo=True, flg_certificazione_gas=False,
+    )
+
+
+def test_disattiva_camion_disattiva_a_cascata_le_composizioni_attive_che_lo_contengono(session_factory):
+    # Stesso scenario "zombie" della cascata su licenzia_dipendente, versione camion: senza,
+    # avvia_composizione_viaggio (RF10) accetterebbe la composizione (flg_attiva ancora True)
+    # nonostante il camion non sia piu' idoneo.
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(crea_dipendente("D1"))
+        session.add(crea_dipendente("D2"))
+        session.add(
+            ComposizioneSquadra(
+                id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+                dipendente_1_id="D1", dipendente_2_id="D2",
+                data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+            )
+        )
+        session.commit()
+
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("CAM1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+
+    risultato = gestore.disattiva_camion("CAM1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is False
+
+
+def test_disattiva_camion_non_disattiva_composizioni_di_altri_camion(session_factory):
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(crea_dipendente("D1"))
+        session.add(crea_dipendente("D2"))
+        session.add(
+            ComposizioneSquadra(
+                id_composizione="C1", squadra_id="SQ1", camion_id="CAM2",
+                dipendente_1_id="D1", dipendente_2_id="D2",
+                data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+            )
+        )
+        session.commit()
+
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("CAM1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+    gestore.inserisci_camion("CAM2", "XY999ZZ", "Camion", datetime(2020, 1, 1), 200.0, 10.0)
+
+    gestore.disattiva_camion("CAM1")
+
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is True
