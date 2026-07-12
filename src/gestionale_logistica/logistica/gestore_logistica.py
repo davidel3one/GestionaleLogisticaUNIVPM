@@ -88,12 +88,17 @@ def crea_viaggio_persistito(
     composizione_id: str,
     stato_viaggio: StatoViaggio,
     ordini_ids: tuple[str, ...] = (),
-) -> str:
+) -> tuple[str, int]:
     """Genera il prossimo id sequenziale V-YYYYMMDD-NN per il giorno e persiste il Viaggio
     (piu' l'aggancio degli ordini indicati, se presenti) sulla session gia' aperta passata come
     parametro. Non apre una sessione propria e non fa commit: il chiamante controlla i confini
     della transazione (necessario per preservare l'atomicita' di un batch multi-viaggio in
     MotoreOttimizzazione.applica_piano).
+
+    Aggancia solo gli ordini ancora disponibili (stato RICEVUTO e viaggio_id None): tra il calcolo
+    di un piano e la sua applicazione un ordine candidato puo' essere stato agganciato altrove (es.
+    a una bozza manuale RF10), e riassegnarlo qui lo ruberebbe silenziosamente. Restituisce l'id del
+    viaggio e il numero di ordini effettivamente agganciati.
     """
     prefisso = f"V-{ora_partenza:%Y%m%d}-"
     progressivo = len(session.scalars(select(Viaggio.id).where(Viaggio.id.like(f"{prefisso}%"))).all()) + 1
@@ -109,13 +114,21 @@ def crea_viaggio_persistito(
             composizione_id=composizione_id,
         )
     )
+    ordini_agganciati = 0
     if ordini_ids:
-        ordini_da_agganciare = session.scalars(select(Ordine).where(Ordine.id.in_(ordini_ids))).all()
+        ordini_da_agganciare = session.scalars(
+            select(Ordine).where(
+                Ordine.id.in_(ordini_ids),
+                Ordine.stato_ordine == StatoOrdine.RICEVUTO,
+                Ordine.viaggio_id.is_(None),
+            )
+        ).all()
         for o in ordini_da_agganciare:
             o.viaggio_id = viaggio_id
             o.stato_ordine = StatoOrdine.PIANIFICATO
+        ordini_agganciati = len(ordini_da_agganciare)
     session.flush()
-    return viaggio_id
+    return viaggio_id, ordini_agganciati
 
 
 class GestoreLogistica:
@@ -152,7 +165,10 @@ class GestoreLogistica:
                         peso = float(riga["Peso"])
                         volume = float(riga["Volume"])
                         categoria = CategoriaConsegna(riga["Categoria"])
-                    except ValueError as errore:
+                    except (ValueError, TypeError) as errore:
+                        # TypeError: riga con meno colonne dell'header -> csv.DictReader
+                        # riempie i campi mancanti con None (float(None)/Enum(None) sollevano
+                        # TypeError). Va scartata come riga malformata, non deve interrompere l'import.
                         risultato.errori.append(ErroreImport(numero_riga, str(errore)))
                         continue
 
@@ -163,6 +179,16 @@ class GestoreLogistica:
                         )
                         continue
                     indirizzo, comune = parti
+                    if riga["Provincia"] is None:
+                        # Riga con meno colonne dell'header in cui manca solo l'ultima
+                        # (Provincia): Peso/Volume/Categoria sono presenti e superano il
+                        # parsing sopra, quindi il TypeError non scatta e riga["Provincia"]
+                        # resta None (restval di csv.DictReader). Va scartata, non deve
+                        # far crashare l'import con AttributeError su None.strip().
+                        risultato.errori.append(
+                            ErroreImport(numero_riga, "Riga con colonne mancanti: 'Provincia' assente")
+                        )
+                        continue
                     provincia = riga["Provincia"].strip()
                     coordinate = geocodifica_comune(comune, provincia)
                     lat, lon = coordinate if coordinate is not None else (None, None)
@@ -237,7 +263,7 @@ class GestoreLogistica:
                     ok=False, motivo="Composizione gia' occupata in questa data"
                 )
 
-            viaggio_id = crea_viaggio_persistito(
+            viaggio_id, _ = crea_viaggio_persistito(
                 session,
                 ora_partenza=ora_partenza,
                 data_arrivo_prevista=ora_partenza + durata_prevista,
