@@ -108,9 +108,10 @@ Implementato:
 - Generazione report periodico (RF19): `rendicontazione/gestore_rendicontazione.py` (`GestoreRendicontazione.genera_report_giornaliero()`) aggrega gli esiti degli ordini dei viaggi partiti in giornata per negozio partner e genera un PDF (`fpdf2`) in `report/`, persistendo `RegistroEsiti`/`ReportConsuntivo`, coperta da test. Rigenerabile per la stessa data (aggiorna la riga esistente invece di rifiutare o duplicare). L'invio del report non è implementato (nessun contatto negozio nel modello dati).
 - Scheduler interno (`scheduler.py`, APScheduler): avvia i due trigger automatici a orario da `config.ini` — verifica partenza (RF14, a intervalli) e report giornaliero (RF19, a un orario fisso) — collegato al bootstrap applicativo.
 - Registrazione esito, ripianificazione e prove documentali (RF15-RF18, `rendicontazione/gestore_rendicontazione.py`): `elenca_consegne_in_transito()` (RF15, viaggi `InCorso` con i relativi ordini); `registra_esito()` (RF16, causale obbligatoria se Fallito) che ri-accoda automaticamente l'ordine Fallito tra i candidati di RF12/RF13 (RF17) e `carica_prova_documentale()` (RF18, copia fisica del file in una cartella gestita, non solo il riferimento al percorso originale), coperti da test.
+- Multithreading (RNF3): nuovo modulo `concorrenza.py` (`esegui_in_background()`, wrapper su `concurrent.futures.ThreadPoolExecutor`) con varianti asincrone `GestoreLogistica.importa_ordini_async()` (RF9) e `MotoreOttimizzazione.calcola_piano_async()` (RF13), coperte da test. Non basato su `QThread`: il collegamento a segnali Qt per aggiornare la GUI è compito della fase GUI, non ancora iniziata.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio scheduler interno, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
 
-Non ancora implementato: il multithreading richiesto da RNF3 e l'autenticazione richiesta da RNF5.
+Non ancora implementato: l'autenticazione richiesta da RNF5.
 
 ## Struttura del progetto
 
@@ -124,6 +125,7 @@ dev/
 ├── src/gestionale_logistica/
 │   ├── __init__.py             # entry point: bootstrap DB, logging, scheduler, avvio GUI
 │   ├── config.py                # loader di config.ini
+│   ├── concorrenza.py           # esecuzione in background (RNF3) per import CSV e motore di ottimizzazione
 │   ├── scheduler.py             # trigger automatici a orario (RF14, RF19) via APScheduler
 │   ├── database/
 │   │   ├── base.py              # engine, sessionmaker, DeclarativeBase
@@ -132,9 +134,9 @@ dev/
 │   ├── gui/
 │   │   └── main_window.py       # finestra principale PySide6
 │   ├── logistica/
-│   │   ├── gestore_logistica.py # import ordini (RF9), composizione/validazione viaggio (RF10/RF11), verifica partenza (RF14)
+│   │   ├── gestore_logistica.py # import ordini (RF9, con variante async RNF3), composizione/validazione viaggio (RF10/RF11), verifica partenza (RF14)
 │   │   └── geocoding.py          # geocodifica offline dei comuni italiani
-│   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13)
+│   ├── ottimizzazione/          # motore di ottimizzazione: suggerimento (RF12), pianificazione automatica (RF13, con variante async RNF3)
 │   ├── risorse/
 │   │   ├── gestore_dipendenti.py # RF1-RF3
 │   │   ├── gestore_camion.py     # RF4-RF6
@@ -154,7 +156,8 @@ dev/
     ├── test_visualizza_consegne_transito.py # RF15
     ├── test_gestore_dipendenti.py           # RF1-RF3
     ├── test_gestore_camion.py               # RF4-RF6
-    └── test_visualizza_risorse.py           # RF7-RF8
+    ├── test_visualizza_risorse.py           # RF7-RF8
+    └── test_concorrenza_rnf3.py  # RNF3
 ```
 
 ## Setup
