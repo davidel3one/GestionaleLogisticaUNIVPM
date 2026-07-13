@@ -20,15 +20,6 @@ ordine = CRUDBase[Ordine](Ordine)
 viaggio = CRUDBase[Viaggio](Viaggio)
 
 
-def _negozio_da_nome_file(percorso_file: Path) -> str:
-    """RF19: il negozio partner non e' una colonna del CSV, ma e' codificato nel nome del file
-    che ciascun negozio invia (convenzione osservata in dati_esempio/, es. Ordini_Unieuro_*.csv).
-    """
-    parti = percorso_file.stem.split("_")
-    return parti[1] if len(parti) > 1 else percorso_file.stem
-    ##### DA CAMBIARE
-
-
 @dataclass
 class ErroreImport:
     riga: int
@@ -157,7 +148,12 @@ class GestoreLogistica:
     def __init__(self, session_factory: sessionmaker = SessionLocal) -> None:
         self.session_factory = session_factory
 
-    def importa_ordini(self, percorso_file: Path) -> RisultatoImport:
+    def importa_ordini(self, percorso_file: Path, negozio_partner: str) -> RisultatoImport:
+        if not negozio_partner.strip():
+            return RisultatoImport(
+                errori=[ErroreImport(riga=0, messaggio="Negozio partner obbligatorio")]
+            )
+
         with open(percorso_file, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f, delimiter=";")
             if reader.fieldnames != COLONNE_ATTESE:
@@ -170,7 +166,7 @@ class GestoreLogistica:
                     ]
                 )
 
-            negozio_partner = _negozio_da_nome_file(percorso_file)
+            negozio_partner = negozio_partner.strip()
             risultato = RisultatoImport()
             with self.session_factory() as session:
                 id_esistenti = set(session.scalars(select(Ordine.id)))
@@ -242,10 +238,10 @@ class GestoreLogistica:
 
             return risultato
 
-    def importa_ordini_async(self, percorso_file: Path) -> "Future[RisultatoImport]":
+    def importa_ordini_async(self, percorso_file: Path, negozio_partner: str) -> "Future[RisultatoImport]":
         """RNF3: come importa_ordini, ma eseguito su un thread separato per non bloccare la GUI
         durante l'importazione massiva (RF9)."""
-        return esegui_in_background(lambda: self.importa_ordini(percorso_file))
+        return esegui_in_background(lambda: self.importa_ordini(percorso_file, negozio_partner))
 
     def avvia_composizione_viaggio(
         self,

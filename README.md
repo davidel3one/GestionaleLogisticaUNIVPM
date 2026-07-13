@@ -88,7 +88,7 @@ Entità principali (SQLAlchemy 2.0, dichiarate in `database/models.py`):
 - **`Dipendente`**, **`Camion`** — anagrafiche con soft delete (`flg_attivo`), certificazione gas / sponda idraulica.
 - **`Squadra`** / **`ComposizioneSquadra`** — la composizione (camion + 2 dipendenti) di una squadra è storicizzata con un intervallo di validità (`data_inizio_validita`/`data_fine_validita`); è l'unico modo per risalire ai membri di una squadra in un dato momento.
 - **`Viaggio`** — collegato alla composizione squadra attiva al momento della pianificazione (non direttamente a squadra/camion), con stato (`StatoViaggio`) e gli `Ordine` assegnati.
-- **`Ordine`** — richiesta di consegna/installazione da un negozio partner, con categoria (`CategoriaConsegna`: bordo strada, installazione semplice al piano, incasso, big, certificazione gas), stato (`StatoOrdine`) e negozio partner di provenienza (`negozio_partner`, opzionale, derivato dal nome del file CSV importato — usato per l'aggregazione di RF19).
+- **`Ordine`** — richiesta di consegna/installazione da un negozio partner, con categoria (`CategoriaConsegna`: bordo strada, installazione semplice al piano, incasso, big, certificazione gas), stato (`StatoOrdine`) e negozio partner di provenienza (`negozio_partner`, opzionale, fornito esplicitamente al momento dell'importazione — usato per l'aggregazione di RF19).
 - **`EsitoConsegna`** / **`RegistroEsiti`** / **`Allegato`** / **`CausaleFallimento`** — esito di ogni ordine consegnato, raggruppato per giornata in un registro, con eventuali allegati probatori in caso di fallimento.
 - **`ReportConsuntivo`** — report PDF generato a fine giornata, con relazione M:N verso gli `Ordine` rendicontati.
 
@@ -201,7 +201,7 @@ uv run gestionale-logistica
 Importazione ordini da CSV da riga di comando (RF9):
 
 ```bash
-uv run python scripts/importa_csv.py dati_esempio/Ordini_Unieuro_20260706.csv
+uv run python scripts/importa_csv.py dati_esempio/Ordini_Unieuro_20260706.csv Unieuro
 ```
 
 Il file CSV deve avere separatore `;` e le colonne, in ordine: `ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia`. La categoria deve corrispondere a uno dei valori di `CategoriaConsegna` (`BordoStrada`, `InstallazioneSempliceAlPiano`, `Incasso`, `Big`, `CertificazioneGas`). La `Provincia` è la sigla (es. `AN`, `MC`, `PU`) della città di destinazione; viene persistita e usata per la geocodifica offline del comune. Righe con ID già presente a database o con campi numerici non validi vengono scartate e riportate come errori, senza interrompere l'importazione delle righe valide; un header non riconosciuto rifiuta invece l'intero file.

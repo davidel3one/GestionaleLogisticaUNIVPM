@@ -582,7 +582,7 @@ def test_benchmark_calcola_piano_dataset_sintetico(session_factory):
 
 def test_benchmark_calcola_piano_dati_reali(session_factory):
     gestore = GestoreLogistica(session_factory)
-    risultato_import = gestore.importa_ordini(DATI_ESEMPIO / "Ordini_Unieuro_20260706.csv")
+    risultato_import = gestore.importa_ordini(DATI_ESEMPIO / "Ordini_Unieuro_20260706.csv", "Unieuro")
     assert risultato_import.errori == []
 
     with session_factory() as session:

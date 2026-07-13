@@ -10,7 +10,7 @@ DATI_ESEMPIO = Path(__file__).parent.parent / "dati_esempio"
 def test_import_file_valido(session_factory):
     gestore = GestoreLogistica(session_factory)
 
-    risultato = gestore.importa_ordini(DATI_ESEMPIO / "Ordini_Unieuro_20260706.csv")
+    risultato = gestore.importa_ordini(DATI_ESEMPIO / "Ordini_Unieuro_20260706.csv", "Unieuro")
 
     assert risultato.ordini_creati == 30
     assert risultato.errori == []
@@ -42,7 +42,7 @@ def test_riga_malformata_viene_scartata(tmp_path, session_factory):
     )
 
     gestore = GestoreLogistica(session_factory)
-    risultato = gestore.importa_ordini(csv_path)
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
 
     assert risultato.ordini_creati == 2
     assert len(risultato.errori) == 1
@@ -66,7 +66,7 @@ def test_riga_con_colonne_mancanti_viene_scartata_senza_interrompere(tmp_path, s
     )
 
     gestore = GestoreLogistica(session_factory)
-    risultato = gestore.importa_ordini(csv_path)
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
 
     assert risultato.ordini_creati == 2
     assert len(risultato.errori) == 1
@@ -92,7 +92,7 @@ def test_riga_manca_solo_provincia_viene_scartata_senza_interrompere(tmp_path, s
     )
 
     gestore = GestoreLogistica(session_factory)
-    risultato = gestore.importa_ordini(csv_path)
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
 
     assert risultato.ordini_creati == 2
     assert len(risultato.errori) == 1
@@ -113,7 +113,7 @@ def test_indirizzo_senza_virgola_viene_scartato(tmp_path, session_factory):
     )
 
     gestore = GestoreLogistica(session_factory)
-    risultato = gestore.importa_ordini(csv_path)
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
 
     assert risultato.ordini_creati == 1
     assert len(risultato.errori) == 1
@@ -132,7 +132,7 @@ def test_comune_non_geocodificabile_importa_senza_coordinate(tmp_path, session_f
     )
 
     gestore = GestoreLogistica(session_factory)
-    risultato = gestore.importa_ordini(csv_path)
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
 
     assert risultato.ordini_creati == 1
     assert risultato.errori == []
@@ -175,7 +175,7 @@ def test_id_ordine_duplicato_viene_scartato(tmp_path, session_factory):
     )
 
     gestore = GestoreLogistica(session_factory)
-    risultato = gestore.importa_ordini(csv_path)
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
 
     assert risultato.ordini_creati == 1
     assert len(risultato.errori) == 1
@@ -195,10 +195,45 @@ def test_header_non_riconosciuto_rifiuta_intero_file(tmp_path, session_factory):
     )
 
     gestore = GestoreLogistica(session_factory)
-    risultato = gestore.importa_ordini(csv_path)
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
 
     assert risultato.ordini_creati == 0
     assert len(risultato.errori) == 1
 
     with session_factory() as session:
         assert session.get(Ordine, "ORD-001") is None
+
+
+def test_negozio_partner_vuoto_viene_rifiutato(tmp_path, session_factory):
+    csv_path = tmp_path / "ordini_validi.csv"
+    csv_path.write_text(
+        "ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia\n"
+        "ORD-001;Mario Bianchi;Via Roma 1, Ancona;BordoStrada;10.5;0.2;AN\n"
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    risultato = gestore.importa_ordini(csv_path, "   ")
+
+    assert risultato.ordini_creati == 0
+    assert len(risultato.errori) == 1
+
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-001") is None
+
+
+def test_negozio_partner_viene_applicato_a_tutti_gli_ordini_importati(tmp_path, session_factory):
+    csv_path = tmp_path / "ordini_validi.csv"
+    csv_path.write_text(
+        "ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia\n"
+        "ORD-001;Mario Bianchi;Via Roma 1, Ancona;BordoStrada;10.5;0.2;AN\n"
+        "ORD-002;Anna Verdi;Via Torino 3, Ancona;Incasso;15.0;0.4;AN\n"
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    risultato = gestore.importa_ordini(csv_path, "MediaWorld")
+
+    assert risultato.ordini_creati == 2
+
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-001").negozio_partner == "MediaWorld"
+        assert session.get(Ordine, "ORD-002").negozio_partner == "MediaWorld"
