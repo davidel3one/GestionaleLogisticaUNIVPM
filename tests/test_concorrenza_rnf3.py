@@ -87,7 +87,7 @@ def test_importa_ordini_async_produce_lo_stesso_risultato_della_versione_sincron
 
     def importa_e_registra_thread():
         thread_esecuzione.append(threading.get_ident())
-        return gestore.importa_ordini(percorso)
+        return gestore.importa_ordini(percorso, "Unieuro")
 
     future = esegui_in_background(importa_e_registra_thread)
     risultato = future.result(timeout=30)
@@ -103,7 +103,7 @@ def test_importa_ordini_async_produce_lo_stesso_risultato_della_versione_sincron
 def test_importa_ordini_async_ritorna_una_future_utilizzabile(session_factory):
     gestore = GestoreLogistica(session_factory)
 
-    future = gestore.importa_ordini_async(DATI_ESEMPIO / "Ordini_Unieuro_20260706.csv")
+    future = gestore.importa_ordini_async(DATI_ESEMPIO / "Ordini_Unieuro_20260706.csv", "Unieuro")
     risultato = future.result(timeout=30)
 
     assert risultato.ordini_creati == 30

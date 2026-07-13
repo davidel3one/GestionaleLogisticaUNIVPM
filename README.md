@@ -88,7 +88,7 @@ Entità principali (SQLAlchemy 2.0, dichiarate in `database/models.py`):
 - **`Dipendente`**, **`Camion`** — anagrafiche con soft delete (`flg_attivo`), certificazione gas / sponda idraulica.
 - **`Squadra`** / **`ComposizioneSquadra`** — la composizione (camion + 2 dipendenti) di una squadra è storicizzata con un intervallo di validità (`data_inizio_validita`/`data_fine_validita`); è l'unico modo per risalire ai membri di una squadra in un dato momento.
 - **`Viaggio`** — collegato alla composizione squadra attiva al momento della pianificazione (non direttamente a squadra/camion), con stato (`StatoViaggio`) e gli `Ordine` assegnati.
-- **`Ordine`** — richiesta di consegna/installazione da un negozio partner, con categoria (`CategoriaConsegna`: bordo strada, installazione semplice al piano, incasso, big, certificazione gas), stato (`StatoOrdine`) e negozio partner di provenienza (`negozio_partner`, opzionale, derivato dal nome del file CSV importato — usato per l'aggregazione di RF19).
+- **`Ordine`** — richiesta di consegna/installazione da un negozio partner, con categoria (`CategoriaConsegna`: bordo strada, installazione semplice al piano, incasso, big, certificazione gas), stato (`StatoOrdine`) e negozio partner di provenienza (`negozio_partner`, opzionale, fornito esplicitamente al momento dell'importazione — usato per l'aggregazione di RF19).
 - **`EsitoConsegna`** / **`RegistroEsiti`** / **`Allegato`** / **`CausaleFallimento`** — esito di ogni ordine consegnato, raggruppato per giornata in un registro, con eventuali allegati probatori in caso di fallimento.
 - **`ReportConsuntivo`** — report PDF generato a fine giornata, con relazione M:N verso gli `Ordine` rendicontati.
 
@@ -110,8 +110,7 @@ Implementato:
 - Registrazione esito, ripianificazione e prove documentali (RF15-RF18, `rendicontazione/gestore_rendicontazione.py`): `elenca_consegne_in_transito()` (RF15, viaggi `InCorso` con i relativi ordini); `registra_esito()` (RF16, causale obbligatoria se Fallito) che ri-accoda automaticamente l'ordine Fallito tra i candidati di RF12/RF13 (RF17) e `carica_prova_documentale()` (RF18, copia fisica del file in una cartella gestita, non solo il riferimento al percorso originale), coperti da test.
 - Multithreading (RNF3): nuovo modulo `concorrenza.py` (`esegui_in_background()`, wrapper su `concurrent.futures.ThreadPoolExecutor`) con varianti asincrone `GestoreLogistica.importa_ordini_async()` (RF9) e `MotoreOttimizzazione.calcola_piano_async()` (RF13), coperte da test. Non basato su `QThread`: il collegamento a segnali Qt per aggiornare la GUI è compito della fase GUI, non ancora iniziata.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio scheduler interno, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
-
-Non ancora implementato: l'autenticazione richiesta da RNF5.
+- Conformità GDPR e Privacy (RNF5): autenticazione amministratore con login e OTP via email (`autenticazione/`, bcrypt per l'hashing delle password), coperta da test — non ancora agganciata all'avvio dell'applicazione, rimandata alla fase GUI. Protezione del database locale via cifratura SQLCipher (`database/base.py`): il file `gestionale.db` è illeggibile senza la chiave impostata in `DB_ENCRYPTION_KEY`, coperta da test.
 
 ## Struttura del progetto
 
@@ -128,7 +127,7 @@ dev/
 │   ├── concorrenza.py           # esecuzione in background (RNF3) per import CSV e motore di ottimizzazione
 │   ├── scheduler.py             # trigger automatici a orario (RF14, RF19) via APScheduler
 │   ├── database/
-│   │   ├── base.py              # engine, sessionmaker, DeclarativeBase
+│   │   ├── base.py              # engine, sessionmaker, DeclarativeBase (connessione cifrata SQLCipher, RNF5)
 │   │   ├── models.py            # entità SQLAlchemy
 │   │   └── enums.py             # enumerazioni di stato/categoria
 │   ├── gui/
@@ -188,7 +187,9 @@ report_orario = 21:00
 
 `gestionale.db` e `app.log` sono generati a runtime e non sono versionati (vedi `.gitignore`). Lo stesso vale per `report/`, la cartella in cui `GestoreRendicontazione.genera_report_giornaliero()` (RF19) scrive i PDF generati.
 
-Il progetto non ha un sistema di migrazioni: se hai gia' un `gestionale.db` locale creato prima di questo branch (es. da RF9), la prima query su `Ordine` dopo il pull fallira' con `OperationalError: no such column: ordini.negozio_partner` (colonna nuova, aggiunta per RF19). Cancella il file `gestionale.db` locale — verra' ricreato automaticamente con lo schema aggiornato al prossimo avvio.
+I segreti non versionati (credenziali SMTP, chiave di cifratura del database) vivono in un file `.env` locale, non tracciato da git, caricato con `python-dotenv`. Copia `.env.example` in `.env` e valorizza le variabili, tra cui `DB_ENCRYPTION_KEY` — la passphrase con cui `database/base.py` cifra il file SQLite tramite SQLCipher (RNF5). Senza questa variabile l'avvio dell'applicazione fallisce con `KeyError`.
+
+Il progetto non ha un sistema di migrazioni: se hai gia' un `gestionale.db` locale creato prima di questo branch (es. da RF9), la prima query su `Ordine` dopo il pull fallira' con `OperationalError: no such column: ordini.negozio_partner` (colonna nuova, aggiunta per RF19). Cancella il file `gestionale.db` locale — verra' ricreato automaticamente con lo schema aggiornato al prossimo avvio. Lo stesso vale se hai un `gestionale.db` locale creato prima dell'introduzione della cifratura SQLCipher: il file preesistente non è cifrato e non è leggibile dal nuovo codice; cancellalo e verrà ricreato cifrato al prossimo avvio.
 
 ## Utilizzo
 
@@ -201,7 +202,7 @@ uv run gestionale-logistica
 Importazione ordini da CSV da riga di comando (RF9):
 
 ```bash
-uv run python scripts/importa_csv.py dati_esempio/Ordini_Unieuro_20260706.csv
+uv run python scripts/importa_csv.py dati_esempio/Ordini_Unieuro_20260706.csv Unieuro
 ```
 
 Il file CSV deve avere separatore `;` e le colonne, in ordine: `ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia`. La categoria deve corrispondere a uno dei valori di `CategoriaConsegna` (`BordoStrada`, `InstallazioneSempliceAlPiano`, `Incasso`, `Big`, `CertificazioneGas`). La `Provincia` è la sigla (es. `AN`, `MC`, `PU`) della città di destinazione; viene persistita e usata per la geocodifica offline del comune. Righe con ID già presente a database o con campi numerici non validi vengono scartate e riportate come errori, senza interrompere l'importazione delle righe valide; un header non riconosciuto rifiuta invece l'intero file.

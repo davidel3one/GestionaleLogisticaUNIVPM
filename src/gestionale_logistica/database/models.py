@@ -110,7 +110,7 @@ class Ordine(Base):
     negozio_partner: Mapped[Optional[str]]
 
     viaggio: Mapped[Optional["Viaggio"]] = relationship(back_populates="ordini")
-    esito: Mapped[Optional["EsitoConsegna"]] = relationship(back_populates="ordine")
+    esiti: Mapped[list["EsitoConsegna"]] = relationship(back_populates="ordine")
 
 
 class CausaleFallimento(Base):
@@ -135,11 +135,12 @@ class EsitoConsegna(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     stato_esito: Mapped[StatoEsito] = _enum_column(StatoEsito)
     data_registrazione: Mapped[datetime]
-    ordine_id: Mapped[str] = mapped_column(ForeignKey("ordini.id"), unique=True)
+    ordine_id: Mapped[str] = mapped_column(ForeignKey("ordini.id"))
+    viaggio_id: Mapped[str] = mapped_column(ForeignKey("viaggi.id"))
     causale_id: Mapped[Optional[str]] = mapped_column(ForeignKey("causali_fallimento.codice"))
     registro_id: Mapped[int] = mapped_column(ForeignKey("registri_esiti.id"))
 
-    ordine: Mapped["Ordine"] = relationship(back_populates="esito")
+    ordine: Mapped["Ordine"] = relationship(back_populates="esiti")
     causale: Mapped[Optional["CausaleFallimento"]] = relationship()
     registro: Mapped["RegistroEsiti"] = relationship(back_populates="esiti")
     allegati: Mapped[list["Allegato"]] = relationship(back_populates="esito")
