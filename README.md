@@ -110,8 +110,7 @@ Implementato:
 - Registrazione esito, ripianificazione e prove documentali (RF15-RF18, `rendicontazione/gestore_rendicontazione.py`): `elenca_consegne_in_transito()` (RF15, viaggi `InCorso` con i relativi ordini); `registra_esito()` (RF16, causale obbligatoria se Fallito) che ri-accoda automaticamente l'ordine Fallito tra i candidati di RF12/RF13 (RF17) e `carica_prova_documentale()` (RF18, copia fisica del file in una cartella gestita, non solo il riferimento al percorso originale), coperti da test.
 - Multithreading (RNF3): nuovo modulo `concorrenza.py` (`esegui_in_background()`, wrapper su `concurrent.futures.ThreadPoolExecutor`) con varianti asincrone `GestoreLogistica.importa_ordini_async()` (RF9) e `MotoreOttimizzazione.calcola_piano_async()` (RF13), coperte da test. Non basato su `QThread`: il collegamento a segnali Qt per aggiornare la GUI è compito della fase GUI, non ancora iniziata.
 - Bootstrap applicazione: creazione schema DB, logging su file, avvio scheduler interno, avvio finestra principale PySide6 (`__init__.py`, `gui/main_window.py` — al momento una finestra vuota).
-
-Non ancora implementato: l'autenticazione richiesta da RNF5.
+- Conformità GDPR e Privacy (RNF5): autenticazione amministratore con login e OTP via email (`autenticazione/`, bcrypt per l'hashing delle password), coperta da test — non ancora agganciata all'avvio dell'applicazione, rimandata alla fase GUI. Protezione del database locale via cifratura SQLCipher (`database/base.py`): il file `gestionale.db` è illeggibile senza la chiave impostata in `DB_ENCRYPTION_KEY`, coperta da test.
 
 ## Struttura del progetto
 
@@ -128,7 +127,7 @@ dev/
 │   ├── concorrenza.py           # esecuzione in background (RNF3) per import CSV e motore di ottimizzazione
 │   ├── scheduler.py             # trigger automatici a orario (RF14, RF19) via APScheduler
 │   ├── database/
-│   │   ├── base.py              # engine, sessionmaker, DeclarativeBase
+│   │   ├── base.py              # engine, sessionmaker, DeclarativeBase (connessione cifrata SQLCipher, RNF5)
 │   │   ├── models.py            # entità SQLAlchemy
 │   │   └── enums.py             # enumerazioni di stato/categoria
 │   ├── gui/
@@ -188,7 +187,9 @@ report_orario = 21:00
 
 `gestionale.db` e `app.log` sono generati a runtime e non sono versionati (vedi `.gitignore`). Lo stesso vale per `report/`, la cartella in cui `GestoreRendicontazione.genera_report_giornaliero()` (RF19) scrive i PDF generati.
 
-Il progetto non ha un sistema di migrazioni: se hai gia' un `gestionale.db` locale creato prima di questo branch (es. da RF9), la prima query su `Ordine` dopo il pull fallira' con `OperationalError: no such column: ordini.negozio_partner` (colonna nuova, aggiunta per RF19). Cancella il file `gestionale.db` locale — verra' ricreato automaticamente con lo schema aggiornato al prossimo avvio.
+I segreti non versionati (credenziali SMTP, chiave di cifratura del database) vivono in un file `.env` locale, non tracciato da git, caricato con `python-dotenv`. Copia `.env.example` in `.env` e valorizza le variabili, tra cui `DB_ENCRYPTION_KEY` — la passphrase con cui `database/base.py` cifra il file SQLite tramite SQLCipher (RNF5). Senza questa variabile l'avvio dell'applicazione fallisce con `KeyError`.
+
+Il progetto non ha un sistema di migrazioni: se hai gia' un `gestionale.db` locale creato prima di questo branch (es. da RF9), la prima query su `Ordine` dopo il pull fallira' con `OperationalError: no such column: ordini.negozio_partner` (colonna nuova, aggiunta per RF19). Cancella il file `gestionale.db` locale — verra' ricreato automaticamente con lo schema aggiornato al prossimo avvio. Lo stesso vale se hai un `gestionale.db` locale creato prima dell'introduzione della cifratura SQLCipher: il file preesistente non è cifrato e non è leggibile dal nuovo codice; cancellalo e verrà ricreato cifrato al prossimo avvio.
 
 ## Utilizzo
 

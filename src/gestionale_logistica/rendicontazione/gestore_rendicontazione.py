@@ -2,7 +2,7 @@ import shutil
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 
 from fpdf import FPDF
@@ -30,7 +30,6 @@ report_consuntivo = CRUDBase[ReportConsuntivo](ReportConsuntivo)
 
 CARTELLA_REPORT_DEFAULT = Path("report")
 CARTELLA_ALLEGATI_DEFAULT = Path("allegati")
-STATI_RENDICONTABILI = (StatoOrdine.COMPLETATO, StatoOrdine.FALLITO)
 
 
 @dataclass
@@ -92,50 +91,41 @@ class GestoreRendicontazione:
         """
         giorno = giorno or datetime.now()
         data_riferimento = datetime(giorno.year, giorno.month, giorno.day)
-        fine_giorno = data_riferimento + timedelta(days=1)
 
         with self.session_factory() as session:
+            # Fonte del report: gli EsitoConsegna registrati (RF16) nel RegistroEsiti del giorno,
+            # non lo stato_ordine transitorio. Un ordine Fallito (RF17) viene riportato a RICEVUTO
+            # e sganciato dal viaggio, quindi il suo fallimento sopravvive solo nell'esito
+            # persistente; leggere lo stato dell'ordine perderebbe ogni consegna fallita.
             registro_esistente = session.scalar(
-                select(RegistroEsiti).where(RegistroEsiti.data_riferimento == data_riferimento)
+                select(RegistroEsiti)
+                .where(RegistroEsiti.data_riferimento == data_riferimento)
+                .options(selectinload(RegistroEsiti.esiti).selectinload(EsitoConsegna.ordine))
             )
-            report_esistente = None
-            if registro_esistente is not None:
-                report_esistente = session.scalar(
-                    select(ReportConsuntivo).where(ReportConsuntivo.registro_id == registro_esistente.id)
-                )
-
-            viaggi_del_giorno = session.scalars(
-                select(Viaggio)
-                .where(
-                    Viaggio.data_partenza_prevista >= data_riferimento,
-                    Viaggio.data_partenza_prevista < fine_giorno,
-                )
-                .options(selectinload(Viaggio.ordini))
-            ).all()
-            ordini_rendicontati = [
-                o for v in viaggi_del_giorno for o in v.ordini if o.stato_ordine in STATI_RENDICONTABILI
-            ]
-            if not ordini_rendicontati:
+            if registro_esistente is None or not registro_esistente.esiti:
                 return RisultatoGenerazioneReport(
                     generato=False, motivo="Nessuna consegna da rendicontare per questa data"
                 )
 
+            report_esistente = session.scalar(
+                select(ReportConsuntivo).where(ReportConsuntivo.registro_id == registro_esistente.id)
+            )
+
+            esiti = registro_esistente.esiti
             conteggio_per_negozio: dict[str, dict[str, int]] = defaultdict(
                 lambda: {"completati": 0, "falliti": 0}
             )
-            for o in ordini_rendicontati:
-                negozio = o.negozio_partner or "Non specificato"
-                chiave = "completati" if o.stato_ordine == StatoOrdine.COMPLETATO else "falliti"
+            for e in esiti:
+                negozio = e.ordine.negozio_partner or "Non specificato"
+                chiave = "completati" if e.stato_esito == StatoEsito.COMPLETATO else "falliti"
                 conteggio_per_negozio[negozio][chiave] += 1
 
             ordini_consegnati = sum(v["completati"] for v in conteggio_per_negozio.values())
             ordini_falliti = sum(v["falliti"] for v in conteggio_per_negozio.values())
             negozi_partner = ", ".join(sorted(conteggio_per_negozio))
-
-            if registro_esistente is None:
-                registro_esistente = RegistroEsiti(data_riferimento=data_riferimento)
-                session.add(registro_esistente)
-                session.flush()
+            # Ordini distinti coinvolti: un ordine ripianificato lo stesso giorno puo' avere piu'
+            # esiti (un Fallito + un Completato), ma nella relazione M2M compare una volta sola.
+            ordini_coinvolti = list({e.ordine_id: e.ordine for e in esiti}.values())
 
             self.cartella_output.mkdir(parents=True, exist_ok=True)
             percorso_file = self.cartella_output / f"report_{data_riferimento:%Y%m%d}.pdf"
@@ -154,7 +144,7 @@ class GestoreRendicontazione:
                 report_esistente.ordini_falliti = ordini_falliti
                 report_esistente.negozi_partner = negozi_partner
                 report_esistente.percorso_file = str(percorso_file)
-                report_esistente.ordini = ordini_rendicontati
+                report_esistente.ordini = ordini_coinvolti
                 session.commit()
                 return RisultatoGenerazioneReport(
                     generato=True, report_id=report_esistente.id, percorso_file=str(percorso_file)
@@ -169,7 +159,7 @@ class GestoreRendicontazione:
                 percorso_file=str(percorso_file),
                 registro_id=registro_esistente.id,
             )
-            report.ordini = ordini_rendicontati
+            report.ordini = ordini_coinvolti
             session.add(report)
             session.commit()
 
@@ -192,12 +182,22 @@ class GestoreRendicontazione:
             ordine = session.get(Ordine, ordine_id)
             if ordine is None:
                 return RisultatoRegistrazioneEsito(ok=False, motivo=f"Ordine '{ordine_id}' non trovato")
-            if ordine.esito is not None:
-                return RisultatoRegistrazioneEsito(ok=False, motivo="Ordine gia' associato a un esito")
             if ordine.viaggio is None or ordine.viaggio.stato_viaggio != StatoViaggio.IN_CORSO:
                 return RisultatoRegistrazioneEsito(
                     ok=False, motivo="L'ordine non e' su un viaggio in corso"
                 )
+            # Idempotenza ancorata al viaggio corrente, non all'ordine: dopo un Fallito (RF17)
+            # l'ordine torna in coda e puo' ricevere un nuovo esito su un viaggio successivo.
+            # Un secondo esito e' rifiutato solo se ne esiste gia' uno per QUESTO stesso viaggio.
+            viaggio_id = ordine.viaggio_id
+            esito_esistente = session.scalar(
+                select(EsitoConsegna).where(
+                    EsitoConsegna.ordine_id == ordine_id,
+                    EsitoConsegna.viaggio_id == viaggio_id,
+                )
+            )
+            if esito_esistente is not None:
+                return RisultatoRegistrazioneEsito(ok=False, motivo="Ordine gia' associato a un esito")
 
             if stato_esito == StatoEsito.FALLITO:
                 if causale_codice is None:
@@ -226,6 +226,7 @@ class GestoreRendicontazione:
                 stato_esito=stato_esito,
                 data_registrazione=datetime.now(),
                 ordine_id=ordine_id,
+                viaggio_id=viaggio_id,
                 causale_id=causale_codice if stato_esito == StatoEsito.FALLITO else None,
                 registro_id=registro.id,
             )

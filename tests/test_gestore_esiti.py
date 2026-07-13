@@ -172,6 +172,46 @@ def test_ordine_fallito_soddisfa_filtro_candidati_motore_ottimizzazione(session_
         assert [o.id for o in candidati] == ["O1"]
 
 
+# --- Regressione bug schema: un ordine ripianificato (RF17) accetta un SECONDO esito ---
+
+
+def test_secondo_esito_dopo_ripianificazione_su_nuovo_viaggio(session_factory):
+    # Prima del fix (unique su EsitoConsegna.ordine_id + guard su ordine.esito) questo secondo
+    # registra_esito veniva rifiutato con "gia' associato a un esito" e l'ordine restava bloccato.
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session, comp_id="C1", viaggio_id="V1")
+        _crea_causale(session)
+
+    gestore = GestoreRendicontazione(session_factory)
+    assert gestore.registra_esito("O1", StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE").ok
+
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C2")
+        session.add(
+            Viaggio(
+                id="V2",
+                data_partenza_prevista=datetime(2026, 7, 11, 8, 0),
+                data_arrivo_prevista=datetime(2026, 7, 11, 16, 0),
+                km_percorsi=None,
+                stato_viaggio=StatoViaggio.IN_CORSO,
+                composizione_id="C2",
+            )
+        )
+        ordine = session.get(Ordine, "O1")
+        ordine.viaggio_id = "V2"
+        ordine.stato_ordine = StatoOrdine.IN_CONSEGNA
+        session.commit()
+
+    risultato = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+    assert risultato.ok, risultato.motivo
+
+    with session_factory() as session:
+        ordine = session.get(Ordine, "O1")
+        assert ordine.stato_ordine == StatoOrdine.COMPLETATO
+        assert ordine.viaggio_id == "V2"
+        assert {e.viaggio_id for e in ordine.esiti} == {"V1", "V2"}
+
+
 # --- carica_prova_documentale ---
 
 

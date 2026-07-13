@@ -1,10 +1,20 @@
 from pathlib import Path
 
+from openpyxl import Workbook
+
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine
 from gestionale_logistica.database.models import Ordine
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
 
 DATI_ESEMPIO = Path(__file__).parent.parent / "dati_esempio"
+
+
+def scrivi_xlsx(percorso: Path, righe: list[list]) -> None:
+    wb = Workbook()
+    ws = wb.active
+    for riga in righe:
+        ws.append(riga)
+    wb.save(percorso)
 
 
 def test_import_file_valido(session_factory):
@@ -237,3 +247,96 @@ def test_negozio_partner_viene_applicato_a_tutti_gli_ordini_importati(tmp_path, 
     with session_factory() as session:
         assert session.get(Ordine, "ORD-001").negozio_partner == "MediaWorld"
         assert session.get(Ordine, "ORD-002").negozio_partner == "MediaWorld"
+
+
+def test_import_file_xlsx_valido(tmp_path, session_factory):
+    xlsx_path = tmp_path / "ordini.xlsx"
+    scrivi_xlsx(
+        xlsx_path,
+        [
+            ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume", "Provincia"],
+            ["ORD-001", "Mario Bianchi", "Via Roma 1, Ancona", "BordoStrada", 10.5, 0.2, "AN"],
+            ["ORD-002", "Anna Verdi", "Via Torino 3, Ancona", "Incasso", 15.0, 0.4, "AN"],
+        ],
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    risultato = gestore.importa_ordini(xlsx_path, "Unieuro")
+
+    assert risultato.ordini_creati == 2
+    assert risultato.errori == []
+
+    with session_factory() as session:
+        ordine = session.get(Ordine, "ORD-001")
+        assert ordine is not None
+        assert ordine.indirizzo == "Via Roma 1"
+        assert ordine.comune == "Ancona"
+        assert ordine.provincia == "AN"
+        assert ordine.cliente == "Mario Bianchi"
+        assert ordine.peso == 10.5
+        assert ordine.volume_cargo == 0.2
+        assert ordine.categoria_consegna == CategoriaConsegna.BORDO_STRADA
+        assert ordine.stato_ordine == StatoOrdine.RICEVUTO
+        assert ordine.negozio_partner == "Unieuro"
+
+
+def test_import_xlsx_header_non_riconosciuto_rifiuta_intero_file(tmp_path, session_factory):
+    xlsx_path = tmp_path / "ordini.xlsx"
+    scrivi_xlsx(
+        xlsx_path,
+        [
+            ["Codice", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume"],
+            ["ORD-001", "Mario Bianchi", "Via Roma 1, Ancona", "BordoStrada", 10.5, 0.2],
+        ],
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    risultato = gestore.importa_ordini(xlsx_path, "Unieuro")
+
+    assert risultato.ordini_creati == 0
+    assert len(risultato.errori) == 1
+
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-001") is None
+
+
+def test_import_xlsx_riga_malformata_viene_scartata(tmp_path, session_factory):
+    xlsx_path = tmp_path / "ordini.xlsx"
+    scrivi_xlsx(
+        xlsx_path,
+        [
+            ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume", "Provincia"],
+            ["ORD-001", "Mario Bianchi", "Via Roma 1, Ancona", "BordoStrada", 10.5, 0.2, "AN"],
+            ["ORD-002", "Luca Neri", "Via Milano 2, Ancona", "BordoStrada", "non-numerico", 0.3, "AN"],
+        ],
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    risultato = gestore.importa_ordini(xlsx_path, "Unieuro")
+
+    assert risultato.ordini_creati == 1
+    assert len(risultato.errori) == 1
+    assert risultato.errori[0].riga == 3
+
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-001") is not None
+        assert session.get(Ordine, "ORD-002") is None
+
+
+def test_import_xlsx_id_ordine_duplicato_viene_scartato(tmp_path, session_factory):
+    xlsx_path = tmp_path / "ordini.xlsx"
+    scrivi_xlsx(
+        xlsx_path,
+        [
+            ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume", "Provincia"],
+            ["ORD-001", "Mario Bianchi", "Via Roma 1, Ancona", "BordoStrada", 10.5, 0.2, "AN"],
+            ["ORD-001", "Luca Neri", "Via Milano 2, Ancona", "Incasso", 15.0, 0.4, "AN"],
+        ],
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    risultato = gestore.importa_ordini(xlsx_path, "Unieuro")
+
+    assert risultato.ordini_creati == 1
+    assert len(risultato.errori) == 1
+    assert risultato.errori[0].riga == 3

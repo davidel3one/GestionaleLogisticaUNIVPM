@@ -32,3 +32,8 @@ def get_email_config() -> EmailConfig:
         smtp_app_password=os.environ["SMTP_APP_PASSWORD"],
         smtp_mittente_nome=os.environ["SMTP_MITTENTE_NOME"],
     )
+
+
+def get_db_encryption_key() -> str:
+    load_dotenv()
+    return os.environ["DB_ENCRYPTION_KEY"]
