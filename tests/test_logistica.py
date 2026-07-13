@@ -2,11 +2,16 @@ from datetime import datetime, timedelta
 
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Squadra, Viaggio
-from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.logistica.gestore_logistica import (
+    GestoreLogistica,
+    valida_ordine_per_viaggio,
+    verifica_idoneita_risorsa,
+)
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione
+from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
 
 
-def crea_dipendente(id_, certificazione_gas=False):
+def crea_dipendente(id_, certificazione_gas=False, attivo=True):
     return Dipendente(
         id=id_,
         nome="Nome",
@@ -14,12 +19,12 @@ def crea_dipendente(id_, certificazione_gas=False):
         codice_fiscale=f"CF-{id_}",
         data_assunzione=datetime(2020, 1, 1),
         data_licenziamento=None,
-        flg_attivo=True,
+        flg_attivo=attivo,
         flg_certificazione_gas=certificazione_gas,
     )
 
 
-def crea_camion(id_, peso_massimo=100.0, volume_massimo=5.0, sponda_idraulica=False):
+def crea_camion(id_, peso_massimo=100.0, volume_massimo=5.0, sponda_idraulica=False, attivo=True):
     return Camion(
         id=id_,
         targa=f"TARGA-{id_}",
@@ -29,7 +34,7 @@ def crea_camion(id_, peso_massimo=100.0, volume_massimo=5.0, sponda_idraulica=Fa
         flg_sponda_idraulica=sponda_idraulica,
         data_acquisizione=datetime(2020, 1, 1),
         data_dismissione=None,
-        flg_attivo=True,
+        flg_attivo=attivo,
     )
 
 
@@ -302,6 +307,101 @@ def test_chiusura_senza_ordini_rifiutata(session_factory):
     with session_factory() as session:
         viaggio = session.get(Viaggio, viaggio_id)
         assert viaggio.stato_viaggio == StatoViaggio.IN_COMPOSIZIONE
+
+
+# --- verifica_idoneita_risorsa: esclusione risorse disattivate (RF3/RF6) ---
+
+
+def test_verifica_idoneita_risorsa_rifiuta_camion_dismesso_indipendentemente_dalla_categoria():
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.BORDO_STRADA)
+    camion_dismesso = crea_camion("C1", attivo=False)
+    dipendenti = [crea_dipendente("D1"), crea_dipendente("D2")]
+
+    assert verifica_idoneita_risorsa(ordine, camion_dismesso, dipendenti) is False
+
+
+def test_verifica_idoneita_risorsa_rifiuta_dipendente_licenziato_indipendentemente_dalla_categoria():
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.BORDO_STRADA)
+    camion = crea_camion("C1")
+    dipendenti = [crea_dipendente("D1"), crea_dipendente("D2", attivo=False)]
+
+    assert verifica_idoneita_risorsa(ordine, camion, dipendenti) is False
+
+
+def test_valida_ordine_per_viaggio_motivo_camion_dismesso_non_e_fuorviante():
+    # Senza un controllo dedicato, un camion dismesso su un ordine Big finirebbe nel ramo
+    # "categoria" e restituirebbe "non ha la sponda idraulica" anche se il camion ce l'ha mai
+    # avuta - il vero motivo (dismesso) andrebbe perso.
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.BIG)
+    camion_dismesso = crea_camion("C1", sponda_idraulica=True, attivo=False)
+    dipendenti = [crea_dipendente("D1"), crea_dipendente("D2")]
+
+    esito = valida_ordine_per_viaggio(ordine, camion_dismesso, dipendenti, peso_occupato=0.0, volume_occupato=0.0)
+
+    assert not esito.ammesso
+    assert "servizio" in esito.motivo
+    assert "sponda idraulica" not in esito.motivo
+
+
+def test_valida_ordine_per_viaggio_motivo_dipendente_licenziato_non_e_fuorviante():
+    ordine = crea_ordine("ORD-1", categoria=CategoriaConsegna.CERTIFICAZIONE_GAS)
+    camion = crea_camion("C1")
+    dipendenti = [crea_dipendente("D1", certificazione_gas=True, attivo=False), crea_dipendente("D2")]
+
+    esito = valida_ordine_per_viaggio(ordine, camion, dipendenti, peso_occupato=0.0, volume_occupato=0.0)
+
+    assert not esito.ammesso
+    assert "servizio" in esito.motivo
+    assert "certificazione gas" not in esito.motivo
+
+
+def test_licenziamento_dipendente_disattiva_composizione_e_evita_viaggio_zombie(session_factory):
+    # Riproduce lo scenario segnalato: senza la disattivazione a cascata in licenzia_dipendente,
+    # avvia_composizione_viaggio accetterebbe comunque la composizione (composizione.flg_attiva
+    # ancora True), producendo un Viaggio IN_COMPOSIZIONE che nessun ordine potrebbe mai
+    # raggiungere (verifica_idoneita_risorsa rifiuta sempre il dipendente licenziato) e che
+    # chiudi_composizione_viaggio non potrebbe mai chiudere (richiede almeno un ordine) - uno
+    # stato "zombie" indefinito, che occuperebbe anche lo slot-giorno per calcola_piano (RF13).
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        session.add(crea_ordine("ORD-1", peso=10.0, volume=0.5))
+        session.commit()
+
+    GestoreDipendenti(session_factory).licenzia_dipendente("C1-D1")
+
+    gestore = GestoreLogistica(session_factory)
+    avvio = gestore.avvia_composizione_viaggio("C1", datetime(2026, 7, 20, 8, 0))
+
+    assert not avvio.ok
+    assert "non attiva" in avvio.motivo
+
+    with session_factory() as session:
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is False
+
+
+def test_licenziamento_rifiutato_se_viaggio_in_composizione_gia_aperto_sulla_squadra(session_factory):
+    # Variante dello scenario zombie non coperta dal fix precedente: qui avvia_composizione_viaggio
+    # viene chiamato *prima* del licenziamento, quindi al momento del licenziamento esiste gia' un
+    # Viaggio IN_COMPOSIZIONE (senza ordini) agganciato alla composizione. La sola cascata su
+    # ComposizioneSquadra non lo tocca (aggiungi_ordine_a_viaggio controlla solo
+    # viaggio.stato_viaggio, mai composizione.flg_attiva): il licenziamento va quindi rifiutato a
+    # monte, non solo la composizione disattivata a valle.
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    avvio = gestore.avvia_composizione_viaggio("C1", datetime(2026, 7, 20, 8, 0))
+    assert avvio.ok
+
+    risultato = GestoreDipendenti(session_factory).licenzia_dipendente("C1-D1")
+
+    assert not risultato.ok
+    assert avvio.viaggio_id in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Dipendente, "C1-D1").flg_attivo is True
+        assert session.get(ComposizioneSquadra, "C1").flg_attiva is True
+        assert session.get(Viaggio, avvio.viaggio_id).stato_viaggio == StatoViaggio.IN_COMPOSIZIONE
 
 
 # --- Invarianti verso RF12/RF13 ---

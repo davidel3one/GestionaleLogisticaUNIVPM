@@ -52,7 +52,12 @@ class RisultatoOperazioneViaggio:
 
 
 def verifica_idoneita_risorsa(ordine: Ordine, camion: Camion, dipendenti: list[Dipendente]) -> bool:
-    """Idoneita' categoria<->risorsa (RF11): sponda idraulica per Big, certificazione gas per CertificazioneGas."""
+    """Idoneita' categoria<->risorsa (RF11): sponda idraulica per Big, certificazione gas per
+    CertificazioneGas. Include anche RF3/RF6: un camion dismesso o un dipendente licenziato
+    (flg_attivo=False, soft delete) non sono mai idonei per un nuovo viaggio qualunque sia la
+    categoria dell'ordine - i viaggi gia' pianificati/in corso non vengono toccati retroattivamente."""
+    if not camion.flg_attivo or not all(dipendente.flg_attivo for dipendente in dipendenti):
+        return False
     if ordine.categoria_consegna == CategoriaConsegna.BIG:
         return camion.flg_sponda_idraulica
     if ordine.categoria_consegna == CategoriaConsegna.CERTIFICAZIONE_GAS:
@@ -68,6 +73,12 @@ def valida_ordine_per_viaggio(
     volume_occupato: float,
 ) -> EsitoValidazioneOrdine:
     """Validazione RF11 completa (idoneita' + capacita' residua) con motivo del rifiuto."""
+    if not camion.flg_attivo:
+        return EsitoValidazioneOrdine(ammesso=False, motivo="Il camion non e' piu' in servizio")
+    if not all(dipendente.flg_attivo for dipendente in dipendenti):
+        return EsitoValidazioneOrdine(
+            ammesso=False, motivo="Un membro della squadra non e' piu' in servizio (licenziato)"
+        )
     if not verifica_idoneita_risorsa(ordine, camion, dipendenti):
         if ordine.categoria_consegna == CategoriaConsegna.BIG:
             return EsitoValidazioneOrdine(
