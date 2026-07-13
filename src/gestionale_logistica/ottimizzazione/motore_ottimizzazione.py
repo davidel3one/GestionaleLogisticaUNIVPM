@@ -73,6 +73,14 @@ class MotoreOttimizzazione:
     def suggerisci_ordini(self, viaggio_id: str) -> SuggerimentoOrdini:
         with self.session_factory() as session:
             viaggio = session.get(Viaggio, viaggio_id)
+            if viaggio is None:
+                return SuggerimentoOrdini(
+                    ordini_suggeriti=[],
+                    peso_utilizzato=0.0,
+                    volume_utilizzato=0.0,
+                    peso_disponibile=0.0,
+                    volume_disponibile=0.0,
+                )
             composizione = viaggio.composizione
             camion = composizione.camion
             dipendenti = [composizione.dipendente_1, composizione.dipendente_2]
@@ -373,7 +381,7 @@ class MotoreOttimizzazione:
 
         with self.session_factory() as session:
             for assegnazione in piano.assegnazioni:
-                viaggio_id = crea_viaggio_persistito(
+                viaggio_id, agganciati = crea_viaggio_persistito(
                     session,
                     ora_partenza=ora_partenza,
                     data_arrivo_prevista=ora_partenza + durata_viaggio,
@@ -383,7 +391,7 @@ class MotoreOttimizzazione:
                 )
 
                 viaggi_creati.append(viaggio_id)
-                ordini_assegnati += len(assegnazione.ordini_ids)
+                ordini_assegnati += agganciati
 
             session.commit()
 

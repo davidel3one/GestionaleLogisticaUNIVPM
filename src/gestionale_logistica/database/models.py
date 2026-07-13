@@ -107,6 +107,7 @@ class Ordine(Base):
     stato_ordine: Mapped[StatoOrdine] = _enum_column(StatoOrdine)
     data_consegna: Mapped[Optional[datetime]]
     viaggio_id: Mapped[Optional[str]] = mapped_column(ForeignKey("viaggi.id"))
+    negozio_partner: Mapped[Optional[str]]
 
     viaggio: Mapped[Optional["Viaggio"]] = relationship(back_populates="ordini")
     esito: Mapped[Optional["EsitoConsegna"]] = relationship(back_populates="ordine")

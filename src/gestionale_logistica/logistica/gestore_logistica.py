@@ -20,6 +20,15 @@ ordine = CRUDBase[Ordine](Ordine)
 viaggio = CRUDBase[Viaggio](Viaggio)
 
 
+def _negozio_da_nome_file(percorso_file: Path) -> str:
+    """RF19: il negozio partner non e' una colonna del CSV, ma e' codificato nel nome del file
+    che ciascun negozio invia (convenzione osservata in dati_esempio/, es. Ordini_Unieuro_*.csv).
+    """
+    parti = percorso_file.stem.split("_")
+    return parti[1] if len(parti) > 1 else percorso_file.stem
+    ##### DA CAMBIARE
+
+
 @dataclass
 class ErroreImport:
     riga: int
@@ -46,7 +55,12 @@ class RisultatoOperazioneViaggio:
 
 
 def verifica_idoneita_risorsa(ordine: Ordine, camion: Camion, dipendenti: list[Dipendente]) -> bool:
-    """Idoneita' categoria<->risorsa (RF11): sponda idraulica per Big, certificazione gas per CertificazioneGas."""
+    """Idoneita' categoria<->risorsa (RF11): sponda idraulica per Big, certificazione gas per
+    CertificazioneGas. Include anche RF3/RF6: un camion dismesso o un dipendente licenziato
+    (flg_attivo=False, soft delete) non sono mai idonei per un nuovo viaggio qualunque sia la
+    categoria dell'ordine - i viaggi gia' pianificati/in corso non vengono toccati retroattivamente."""
+    if not camion.flg_attivo or not all(dipendente.flg_attivo for dipendente in dipendenti):
+        return False
     if ordine.categoria_consegna == CategoriaConsegna.BIG:
         return camion.flg_sponda_idraulica
     if ordine.categoria_consegna == CategoriaConsegna.CERTIFICAZIONE_GAS:
@@ -62,6 +76,12 @@ def valida_ordine_per_viaggio(
     volume_occupato: float,
 ) -> EsitoValidazioneOrdine:
     """Validazione RF11 completa (idoneita' + capacita' residua) con motivo del rifiuto."""
+    if not camion.flg_attivo:
+        return EsitoValidazioneOrdine(ammesso=False, motivo="Il camion non e' piu' in servizio")
+    if not all(dipendente.flg_attivo for dipendente in dipendenti):
+        return EsitoValidazioneOrdine(
+            ammesso=False, motivo="Un membro della squadra non e' piu' in servizio (licenziato)"
+        )
     if not verifica_idoneita_risorsa(ordine, camion, dipendenti):
         if ordine.categoria_consegna == CategoriaConsegna.BIG:
             return EsitoValidazioneOrdine(
@@ -90,12 +110,17 @@ def crea_viaggio_persistito(
     composizione_id: str,
     stato_viaggio: StatoViaggio,
     ordini_ids: tuple[str, ...] = (),
-) -> str:
+) -> tuple[str, int]:
     """Genera il prossimo id sequenziale V-YYYYMMDD-NN per il giorno e persiste il Viaggio
     (piu' l'aggancio degli ordini indicati, se presenti) sulla session gia' aperta passata come
     parametro. Non apre una sessione propria e non fa commit: il chiamante controlla i confini
     della transazione (necessario per preservare l'atomicita' di un batch multi-viaggio in
     MotoreOttimizzazione.applica_piano).
+
+    Aggancia solo gli ordini ancora disponibili (stato RICEVUTO e viaggio_id None): tra il calcolo
+    di un piano e la sua applicazione un ordine candidato puo' essere stato agganciato altrove (es.
+    a una bozza manuale RF10), e riassegnarlo qui lo ruberebbe silenziosamente. Restituisce l'id del
+    viaggio e il numero di ordini effettivamente agganciati.
     """
     prefisso = f"V-{ora_partenza:%Y%m%d}-"
     progressivo = len(session.scalars(select(Viaggio.id).where(Viaggio.id.like(f"{prefisso}%"))).all()) + 1
@@ -111,13 +136,21 @@ def crea_viaggio_persistito(
             composizione_id=composizione_id,
         )
     )
+    ordini_agganciati = 0
     if ordini_ids:
-        ordini_da_agganciare = session.scalars(select(Ordine).where(Ordine.id.in_(ordini_ids))).all()
+        ordini_da_agganciare = session.scalars(
+            select(Ordine).where(
+                Ordine.id.in_(ordini_ids),
+                Ordine.stato_ordine == StatoOrdine.RICEVUTO,
+                Ordine.viaggio_id.is_(None),
+            )
+        ).all()
         for o in ordini_da_agganciare:
             o.viaggio_id = viaggio_id
             o.stato_ordine = StatoOrdine.PIANIFICATO
+        ordini_agganciati = len(ordini_da_agganciare)
     session.flush()
-    return viaggio_id
+    return viaggio_id, ordini_agganciati
 
 
 class GestoreLogistica:
@@ -137,6 +170,7 @@ class GestoreLogistica:
                     ]
                 )
 
+            negozio_partner = _negozio_da_nome_file(percorso_file)
             risultato = RisultatoImport()
             with self.session_factory() as session:
                 id_esistenti = set(session.scalars(select(Ordine.id)))
@@ -154,7 +188,10 @@ class GestoreLogistica:
                         peso = float(riga["Peso"])
                         volume = float(riga["Volume"])
                         categoria = CategoriaConsegna(riga["Categoria"])
-                    except ValueError as errore:
+                    except (ValueError, TypeError) as errore:
+                        # TypeError: riga con meno colonne dell'header -> csv.DictReader
+                        # riempie i campi mancanti con None (float(None)/Enum(None) sollevano
+                        # TypeError). Va scartata come riga malformata, non deve interrompere l'import.
                         risultato.errori.append(ErroreImport(numero_riga, str(errore)))
                         continue
 
@@ -165,6 +202,16 @@ class GestoreLogistica:
                         )
                         continue
                     indirizzo, comune = parti
+                    if riga["Provincia"] is None:
+                        # Riga con meno colonne dell'header in cui manca solo l'ultima
+                        # (Provincia): Peso/Volume/Categoria sono presenti e superano il
+                        # parsing sopra, quindi il TypeError non scatta e riga["Provincia"]
+                        # resta None (restval di csv.DictReader). Va scartata, non deve
+                        # far crashare l'import con AttributeError su None.strip().
+                        risultato.errori.append(
+                            ErroreImport(numero_riga, "Riga con colonne mancanti: 'Provincia' assente")
+                        )
+                        continue
                     provincia = riga["Provincia"].strip()
                     coordinate = geocodifica_comune(comune, provincia)
                     lat, lon = coordinate if coordinate is not None else (None, None)
@@ -184,6 +231,7 @@ class GestoreLogistica:
                             stato_ordine=StatoOrdine.RICEVUTO,
                             data_consegna=None,
                             viaggio_id=None,
+                            negozio_partner=negozio_partner,
                         )
                     )
                     id_esistenti.add(id_ordine)
@@ -244,7 +292,7 @@ class GestoreLogistica:
                     ok=False, motivo="Composizione gia' occupata in questa data"
                 )
 
-            viaggio_id = crea_viaggio_persistito(
+            viaggio_id, _ = crea_viaggio_persistito(
                 session,
                 ora_partenza=ora_partenza,
                 data_arrivo_prevista=ora_partenza + durata_prevista,
@@ -311,3 +359,22 @@ class GestoreLogistica:
             viaggio.stato_viaggio = StatoViaggio.PIANIFICATO
             session.commit()
             return RisultatoOperazioneViaggio(ok=True, viaggio_id=viaggio_id)
+
+    def verifica_partenze(self, ora_riferimento: datetime | None = None) -> list[str]:
+        """RF14: al superamento dell'orario di partenza programmato, porta i viaggi Pianificato
+        a InCorso (inibendo cosi' ulteriori modifiche al carico, gia' possibili solo su viaggi
+        IN_COMPOSIZIONE). Pensato per essere invocato periodicamente dallo scheduler interno
+        (config.ini [scheduler].verifica_partenza_intervallo_minuti). Ritorna gli id dei viaggi avviati.
+        """
+        ora_riferimento = ora_riferimento or datetime.now()
+        with self.session_factory() as session:
+            viaggi_da_avviare = session.scalars(
+                select(Viaggio).where(
+                    Viaggio.stato_viaggio == StatoViaggio.PIANIFICATO,
+                    Viaggio.data_partenza_prevista <= ora_riferimento,
+                )
+            ).all()
+            for viaggio in viaggi_da_avviare:
+                viaggio.stato_viaggio = StatoViaggio.IN_CORSO
+            session.commit()
+            return [viaggio.id for viaggio in viaggi_da_avviare]

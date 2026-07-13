@@ -425,6 +425,52 @@ def test_applica_piano_atomico_nessun_viaggio_parziale_su_fallimento_a_meta_batc
         assert ordine_2.stato_ordine == StatoOrdine.RICEVUTO
 
 
+def test_applica_piano_non_ruba_ordine_agganciato_tra_calcolo_e_apply(session_factory):
+    # TOCTOU: calcola_piano e applica_piano girano in transazioni separate. Se tra i due un
+    # ordine candidato viene agganciato altrove (qui: a una bozza manuale RF10 su un'altra
+    # composizione), applica_piano non deve riassegnarlo silenziosamente sovrascrivendo
+    # viaggio_id/stato: lo salta, l'ordine resta sul viaggio manuale e il conteggio
+    # ordini_assegnati riflette solo cio' che e' stato realmente agganciato.
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        crea_flotta_semplice(session, "C2")
+        session.add(crea_ordine("ORD-1", peso=10.0))
+        session.commit()
+
+    motore = MotoreOttimizzazione(session_factory)
+    gestore = GestoreLogistica(session_factory)
+    ora_partenza = datetime(2026, 7, 10, 8, 0)
+
+    # Piano gia' calcolato che assegna ORD-1 a C1.
+    piano = PianoGiornaliero(
+        assegnazioni=[AssegnazioneViaggio(composizione_id="C1", ordini_ids=["ORD-1"])],
+        ordini_non_assegnati=[],
+    )
+
+    # Interferenza prima dell'apply: ORD-1 agganciato manualmente a un viaggio su C2.
+    bozza = gestore.avvia_composizione_viaggio("C2", ora_partenza)
+    esito = gestore.aggiungi_ordine_a_viaggio(bozza.viaggio_id, "ORD-1")
+    assert esito.ammesso
+
+    risultato = motore.applica_piano(piano, ora_partenza)
+
+    assert risultato.ordini_assegnati == 0
+    with session_factory() as session:
+        ordine = session.get(Ordine, "ORD-1")
+        assert ordine.viaggio_id == bozza.viaggio_id
+        assert ordine.stato_ordine == StatoOrdine.PIANIFICATO
+
+
+def test_suggerisci_ordini_viaggio_inesistente_ritorna_vuoto_senza_crash(session_factory):
+    # Guardia difensiva: un id di viaggio inesistente non deve sollevare AttributeError
+    # accedendo a viaggio.composizione su None; ritorna un suggerimento vuoto.
+    motore = MotoreOttimizzazione(session_factory)
+
+    suggerimento = motore.suggerisci_ordini("VIAGGIO-INESISTENTE")
+
+    assert suggerimento.ordini_suggeriti == []
+
+
 # --- Coerenza incrociata verifica_idoneita_risorsa (RF11) ---
 
 
