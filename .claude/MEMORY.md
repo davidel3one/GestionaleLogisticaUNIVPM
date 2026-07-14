@@ -15,5 +15,6 @@ KB condivisa via git — chiunque lavori su questo repo con Claude Code (Davide 
 - RF15-RF18 (registrazione esito, ripianificazione, prove documentali, consegne in transito) mergiate in `main` (PR #17), poi consolidate su un'unica `GestoreRendicontazione` (branch `feat/gestore-rendicontazione`) — nessuna divergenza EA residua sul naming dei controller, dettagli in `knowledge/stato-e-prossimi-passi.md`
 - RNF3 (multithreading, nuovo `concorrenza.py`) implementato su branch `feat/multithreading-rnf3`, mergiato `main` al suo interno per risolvere i conflitti (PR #14, in attesa del merge finale) — dettagli in `knowledge/stato-e-prossimi-passi.md` e `knowledge/divergenze-ea.md` (punto 20)
 - [Stato e prossimi passi](knowledge/stato-e-prossimi-passi.md) — cosa è fatto, cosa manca, ordine consigliato
+- [Componenti GUI riusabili](knowledge/componenti-gui.md) — Button (5 varianti), Card (container), icone Lucide (`load_lucide_icon`), come aggiungere un nuovo componente. Libreria avviata prima del completamento del backend (override consapevole di "backend prima, GUI dopo", vedi sopra)
 
 Handoff di sessioni precedenti: `.claude/handoff/` (in questa stessa cartella).

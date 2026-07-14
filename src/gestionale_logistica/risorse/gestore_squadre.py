@@ -1,14 +1,32 @@
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import func, select
+from sqlalchemy.orm import aliased, sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
-from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra
+from gestionale_logistica.database.enums import StatoViaggio
+from gestionale_logistica.database.models import (
+    Camion,
+    ComposizioneSquadra,
+    Dipendente,
+    Ordine,
+    Squadra,
+    Viaggio,
+)
 
 squadra = CRUDBase[Squadra](Squadra)
 composizione_squadra = CRUDBase[ComposizioneSquadra](ComposizioneSquadra)
+
+# Segnaposto usato quando una squadra non ha una composizione attiva da cui ricavare membri/camion.
+MEMBRI_ASSENTI = "—"
+
+# Stati derivati esposti dalla vista (usati anche come valori del filtro stato).
+STATO_ATTIVA = "Attiva"
+STATO_IN_VIAGGIO = "In viaggio"
+STATO_NON_ATTIVA = "Non attiva"
+FILTRO_TUTTE = "Tutte"
 
 
 @dataclass
@@ -23,6 +41,76 @@ class RisultatoOperazioneComposizione:
     ok: bool
     composizione_id: str | None = None
     motivo: str | None = None
+
+
+@dataclass
+class SquadraVista:
+    id: str
+    membri: str
+    camion: str
+    data_creazione: datetime
+    stato: str
+
+
+@dataclass
+class PaginaSquadre:
+    """Pagina di risultati di visualizza_squadre: solo la fetta richiesta + il totale filtrato."""
+
+    squadre: list[SquadraVista]
+    totale: int
+
+
+@dataclass
+class ViaggioDiSquadraVista:
+    id_viaggio: str
+    n_ordini: int
+    stato_viaggio: StatoViaggio
+    data_partenza_prevista: datetime
+
+
+@dataclass
+class DettaglioSquadra:
+    id: str
+    membri: str
+    camion: str
+    stato: str
+    viaggi: list[ViaggioDiSquadraVista]
+
+
+def _stato_derivato(flg_attiva: bool, in_viaggio: bool) -> str:
+    """Stato mostrato in lista/dettaglio: Non attiva > In viaggio (solo IN_CORSO) > Attiva."""
+    if not flg_attiva:
+        return STATO_NON_ATTIVA
+    if in_viaggio:
+        return STATO_IN_VIAGGIO
+    return STATO_ATTIVA
+
+
+def _select_composizioni_attive():
+    """SELECT delle composizioni attive con targa e nomi dei 2 dipendenti gia' joinati, cosi'
+    membri/camion si ricavano senza lazy-loading per riga (niente N+1)."""
+    dipendente_1 = aliased(Dipendente)
+    dipendente_2 = aliased(Dipendente)
+    return (
+        select(
+            ComposizioneSquadra.squadra_id,
+            ComposizioneSquadra.data_inizio_validita,
+            Camion.targa,
+            dipendente_1.nome,
+            dipendente_1.cognome,
+            dipendente_2.nome,
+            dipendente_2.cognome,
+            ComposizioneSquadra.id_composizione,
+        )
+        .join(Camion, Camion.id == ComposizioneSquadra.camion_id)
+        .join(dipendente_1, dipendente_1.id == ComposizioneSquadra.dipendente_1_id)
+        .join(dipendente_2, dipendente_2.id == ComposizioneSquadra.dipendente_2_id)
+        .where(ComposizioneSquadra.flg_attiva.is_(True))
+    )
+
+
+def _membri_da_riga(riga) -> str:
+    return f"{riga[3]} {riga[4]}, {riga[5]} {riga[6]}"
 
 
 class GestoreSquadre:
@@ -102,3 +190,173 @@ class GestoreSquadre:
             )
             session.commit()
             return RisultatoOperazioneComposizione(ok=True, composizione_id=id_composizione)
+
+    def visualizza_squadre(
+        self,
+        ricerca: str | None = None,
+        filtro_stato: str = FILTRO_TUTTE,
+        pagina: int = 1,
+        dimensione_pagina: int = 20,
+        decrescente: bool = False,
+    ) -> PaginaSquadre:
+        """Elenco filtrato/ordinato/paginato delle squadre. Filtri: ricerca testuale (nome/cognome di
+        uno dei 2 dipendenti o targa del camion della composizione attiva piu' recente), filtro stato
+        (Tutte/Attiva/In viaggio/Non attiva), ordinamento per data_creazione, paginazione server-side.
+        Lo stato "In viaggio" e' calcolato con una sola query aggregata sui Viaggio IN_CORSO (niente
+        N+1); membri/camion con una sola query sulle composizioni attive."""
+        with self.session_factory() as session:
+            # Insieme delle squadre "in viaggio": composizione ATTIVA legata a un Viaggio IN_CORSO
+            # (solo IN_CORSO). Una query per tutte le squadre, non una per riga.
+            in_viaggio_ids = set(
+                session.scalars(
+                    select(ComposizioneSquadra.squadra_id)
+                    .join(Viaggio, Viaggio.composizione_id == ComposizioneSquadra.id_composizione)
+                    .where(
+                        ComposizioneSquadra.flg_attiva.is_(True),
+                        Viaggio.stato_viaggio == StatoViaggio.IN_CORSO,
+                    )
+                ).all()
+            )
+
+            # Composizione attiva piu' recente per squadra (max data_inizio_validita, tie-break su
+            # id_composizione per un ordine deterministico coerente con dettaglio_squadra), con membri+targa.
+            composizione_per_squadra: dict[str, tuple[datetime, str, str, str]] = {}
+            for riga in session.execute(_select_composizioni_attive()).all():
+                squadra_id = riga[0]
+                corrente = composizione_per_squadra.get(squadra_id)
+                if corrente is None or (riga[1], riga[7]) > (corrente[0], corrente[3]):
+                    composizione_per_squadra[squadra_id] = (riga[1], _membri_da_riga(riga), riga[2], riga[7])
+
+            ordine = Squadra.data_creazione.desc() if decrescente else Squadra.data_creazione.asc()
+            squadre = session.scalars(select(Squadra).order_by(ordine)).all()
+
+            righe: list[SquadraVista] = []
+            for squadra_obj in squadre:
+                dati = composizione_per_squadra.get(squadra_obj.id)
+                membri = dati[1] if dati is not None else MEMBRI_ASSENTI
+                camion = dati[2] if dati is not None else MEMBRI_ASSENTI
+                stato = _stato_derivato(squadra_obj.flg_attiva, squadra_obj.id in in_viaggio_ids)
+                righe.append(
+                    SquadraVista(
+                        id=squadra_obj.id,
+                        membri=membri,
+                        camion=camion,
+                        data_creazione=squadra_obj.data_creazione,
+                        stato=stato,
+                    )
+                )
+
+            if filtro_stato and filtro_stato != FILTRO_TUTTE:
+                righe = [r for r in righe if r.stato == filtro_stato]
+
+            if ricerca:
+                termine = ricerca.strip().lower()
+                if termine:
+                    righe = [
+                        r for r in righe if termine in r.membri.lower() or termine in r.camion.lower()
+                    ]
+
+            totale = len(righe)
+            if dimensione_pagina > 0:
+                inizio = max(pagina - 1, 0) * dimensione_pagina
+                righe = righe[inizio : inizio + dimensione_pagina]
+
+            return PaginaSquadre(squadre=righe, totale=totale)
+
+    def dettaglio_squadra(self, squadra_id: str) -> DettaglioSquadra | None:
+        """Dettaglio read-only di una squadra: membri/camion della composizione attiva piu' recente,
+        stato derivato e tutti i viaggi (su TUTTE le composizioni della squadra) con il numero di
+        ordini, ordinati per data_partenza_prevista decrescente. Ritorna None se la squadra non esiste."""
+        with self.session_factory() as session:
+            squadra_obj = session.get(Squadra, squadra_id)
+            if squadra_obj is None:
+                return None
+
+            riga = session.execute(
+                _select_composizioni_attive()
+                .where(ComposizioneSquadra.squadra_id == squadra_id)
+                .order_by(
+                    ComposizioneSquadra.data_inizio_validita.desc(),
+                    ComposizioneSquadra.id_composizione.desc(),
+                )
+            ).first()
+            membri = _membri_da_riga(riga) if riga is not None else MEMBRI_ASSENTI
+            camion = riga[2] if riga is not None else MEMBRI_ASSENTI
+
+            in_viaggio = (
+                session.scalar(
+                    select(ComposizioneSquadra.squadra_id)
+                    .join(Viaggio, Viaggio.composizione_id == ComposizioneSquadra.id_composizione)
+                    .where(
+                        ComposizioneSquadra.squadra_id == squadra_id,
+                        ComposizioneSquadra.flg_attiva.is_(True),
+                        Viaggio.stato_viaggio == StatoViaggio.IN_CORSO,
+                    )
+                )
+                is not None
+            )
+            stato = _stato_derivato(squadra_obj.flg_attiva, in_viaggio)
+
+            righe_viaggi = session.execute(
+                select(
+                    Viaggio.id,
+                    Viaggio.stato_viaggio,
+                    Viaggio.data_partenza_prevista,
+                    func.count(Ordine.id),
+                )
+                .join(ComposizioneSquadra, ComposizioneSquadra.id_composizione == Viaggio.composizione_id)
+                .outerjoin(Ordine, Ordine.viaggio_id == Viaggio.id)
+                .where(ComposizioneSquadra.squadra_id == squadra_id)
+                .group_by(Viaggio.id, Viaggio.stato_viaggio, Viaggio.data_partenza_prevista)
+                .order_by(Viaggio.data_partenza_prevista.desc())
+            ).all()
+            viaggi = [
+                ViaggioDiSquadraVista(
+                    id_viaggio=riga_viaggio[0],
+                    n_ordini=riga_viaggio[3],
+                    stato_viaggio=riga_viaggio[1],
+                    data_partenza_prevista=riga_viaggio[2],
+                )
+                for riga_viaggio in righe_viaggi
+            ]
+
+            return DettaglioSquadra(id=squadra_obj.id, membri=membri, camion=camion, stato=stato, viaggi=viaggi)
+
+    def elimina_squadra(self, squadra_id: str) -> RisultatoOperazioneSquadra:
+        """Soft-delete di una squadra: flg_attiva=False sulla squadra e a cascata sulle sue
+        ComposizioneSquadra ancora attive. Rifiuta se una composizione della squadra e' legata a un
+        Viaggio IN_CORSO (solo IN_CORSO blocca; IN_COMPOSIZIONE/PIANIFICATO no)."""
+        with self.session_factory() as session:
+            squadra_obj = session.get(Squadra, squadra_id)
+            if squadra_obj is None:
+                return RisultatoOperazioneSquadra(ok=False, motivo=f"Squadra '{squadra_id}' non trovata")
+            if not squadra_obj.flg_attiva:
+                return RisultatoOperazioneSquadra(ok=False, motivo="Squadra gia' non attiva")
+
+            viaggio_bloccante = session.scalar(
+                select(Viaggio.id)
+                .join(ComposizioneSquadra, ComposizioneSquadra.id_composizione == Viaggio.composizione_id)
+                .where(
+                    ComposizioneSquadra.squadra_id == squadra_id,
+                    Viaggio.stato_viaggio == StatoViaggio.IN_CORSO,
+                )
+            )
+            if viaggio_bloccante is not None:
+                return RisultatoOperazioneSquadra(
+                    ok=False,
+                    squadra_id=squadra_id,
+                    motivo=f"Impossibile eliminare: coinvolta nel viaggio '{viaggio_bloccante}' in corso",
+                )
+
+            squadra_obj.flg_attiva = False
+            composizioni = session.scalars(
+                select(ComposizioneSquadra).where(
+                    ComposizioneSquadra.squadra_id == squadra_id,
+                    ComposizioneSquadra.flg_attiva.is_(True),
+                )
+            ).all()
+            for composizione in composizioni:
+                composizione.flg_attiva = False
+
+            session.commit()
+            return RisultatoOperazioneSquadra(ok=True, squadra_id=squadra_id)
