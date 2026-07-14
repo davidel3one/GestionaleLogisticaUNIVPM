@@ -37,7 +37,6 @@ Ultimo aggiornamento: 2026-07-13 (PR #14 mergiata, così come la successiva PR #
 
 ## File morti / piccoli refusi da sistemare quando si torna su quella parte
 
-- `gui/style.py` (119 righe di costanti di stile PySide6) non è importato da nessuna parte — `main_window.py` è tornato a 8 righe dopo la richiesta di rimuovere la GUI da una PR. Da tenere in attesa della GUI vera, o rimuovere — non deciso.
 - `risorse/gestore_sqaudre.py` ha un refuso nel nome file (manca la "u": dovrebbe essere `gestore_squadre.py`).
 - `dati_esempio/Ordini_Expert_20260706.csv` ha un header diverso da quello atteso dall'import (`RequiereSponda;RequiereCertGas` invece di `Volume`) — con il codice attuale verrebbe scartato per intero. Il nuovo `Ordini_Expert_Nazionale.csv` (PR #11) usa invece l'header corretto.
 

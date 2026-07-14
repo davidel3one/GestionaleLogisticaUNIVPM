@@ -387,7 +387,8 @@ class GestoreLogistica:
     def verifica_partenze(self, ora_riferimento: datetime | None = None) -> list[str]:
         """RF14: al superamento dell'orario di partenza programmato, porta i viaggi Pianificato
         a InCorso (inibendo cosi' ulteriori modifiche al carico, gia' possibili solo su viaggi
-        IN_COMPOSIZIONE). Pensato per essere invocato periodicamente dallo scheduler interno
+        IN_COMPOSIZIONE) e i relativi Ordini da Pianificato a InConsegna. Pensato per essere
+        invocato periodicamente dallo scheduler interno
         (config.ini [scheduler].verifica_partenza_intervallo_minuti). Ritorna gli id dei viaggi avviati.
         """
         ora_riferimento = ora_riferimento or datetime.now()
@@ -399,6 +400,8 @@ class GestoreLogistica:
                 )
             ).all()
             for viaggio in viaggi_da_avviare:
+                for ordine in viaggio.ordini:
+                    ordine.stato_ordine = StatoOrdine.IN_CONSEGNA
                 viaggio.stato_viaggio = StatoViaggio.IN_CORSO
             session.commit()
             return [viaggio.id for viaggio in viaggi_da_avviare]

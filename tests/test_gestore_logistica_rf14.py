@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
-from gestionale_logistica.database.enums import StatoViaggio
-from gestionale_logistica.database.models import Viaggio
+from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
+from gestionale_logistica.database.models import Ordine, Viaggio
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
 
 
@@ -13,6 +13,24 @@ def crea_viaggio(id_, stato, data_partenza_prevista, composizione_id="C1"):
         km_percorsi=None,
         stato_viaggio=stato,
         composizione_id=composizione_id,
+    )
+
+
+def crea_ordine(id_, viaggio_id, stato=StatoOrdine.PIANIFICATO):
+    return Ordine(
+        id=id_,
+        indirizzo="Via Test 1",
+        comune="Ancona",
+        provincia="AN",
+        lat=None,
+        lon=None,
+        cliente="Cliente Test",
+        peso=10.0,
+        volume_cargo=0.1,
+        categoria_consegna=CategoriaConsegna.BORDO_STRADA,
+        stato_ordine=stato,
+        data_consegna=None,
+        viaggio_id=viaggio_id,
     )
 
 
@@ -66,6 +84,34 @@ def test_viaggio_gia_in_corso_non_riprocessato(session_factory):
     avviati = gestore.verifica_partenze(ora_riferimento=datetime(2026, 7, 20, 9, 0))
 
     assert avviati == []
+
+
+def test_ordini_del_viaggio_passano_a_in_consegna(session_factory):
+    with session_factory() as session:
+        session.add(crea_viaggio("V-1", StatoViaggio.PIANIFICATO, datetime(2026, 7, 20, 8, 0)))
+        session.add(crea_ordine("O-1", "V-1"))
+        session.add(crea_ordine("O-2", "V-1"))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    gestore.verifica_partenze(ora_riferimento=datetime(2026, 7, 20, 8, 1))
+
+    with session_factory() as session:
+        assert session.get(Ordine, "O-1").stato_ordine == StatoOrdine.IN_CONSEGNA
+        assert session.get(Ordine, "O-2").stato_ordine == StatoOrdine.IN_CONSEGNA
+
+
+def test_ordini_di_un_viaggio_non_scaduto_non_vengono_toccati(session_factory):
+    with session_factory() as session:
+        session.add(crea_viaggio("V-1", StatoViaggio.PIANIFICATO, datetime(2026, 7, 20, 8, 0)))
+        session.add(crea_ordine("O-1", "V-1"))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    gestore.verifica_partenze(ora_riferimento=datetime(2026, 7, 20, 7, 59))
+
+    with session_factory() as session:
+        assert session.get(Ordine, "O-1").stato_ordine == StatoOrdine.PIANIFICATO
 
 
 def test_piu_viaggi_scaduti_vengono_avviati_insieme(session_factory):
