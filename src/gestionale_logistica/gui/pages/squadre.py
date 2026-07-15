@@ -181,8 +181,7 @@ class SquadrePage(QWidget):
         return {f"{d.nome} {d.cognome} ({d.id})": d.id for d in dipendenti}
 
     def _prossimo_id_squadra(self) -> str:
-        totale = self._gestore.visualizza_squadre(dimensione_pagina=0).totale
-        return str(totale + 1)
+        return self._gestore.prossimo_id_squadra()
 
     def _reload(self) -> None:
         pagina = self._gestore.visualizza_squadre(
@@ -192,16 +191,20 @@ class SquadrePage(QWidget):
             dimensione_pagina=PAGE_SIZE,
             decrescente=self._decrescente,
         )
+        # "Squadra" mostra un numero progressivo di posizione, non l'id reale a DB: cosi' la lista
+        # resta senza buchi anche quando una squadra viene eliminata (l'id vero, usato per le azioni,
+        # resta comunque in "id" - vedi _elimina_riga/_apri_modale_dettaglio).
+        numero_base = max(self._pagina_corrente - 1, 0) * PAGE_SIZE
         righe = [
             {
                 "id": r.id,
-                "squadra": f"#{r.id}",
+                "squadra": f"#{numero_base + indice + 1}",
                 "membri": r.membri,
                 "camion": r.camion,
                 "creazione": r.data_creazione.strftime("%d/%m/%Y"),
                 "stato": r.stato,
             }
-            for r in pagina.squadre
+            for indice, r in enumerate(pagina.squadre)
         ]
         self._tabella.set_rows(righe)
         self._tabella.set_pagination(self._pagina_corrente, pagina.totale, PAGE_SIZE)
@@ -228,9 +231,17 @@ class SquadrePage(QWidget):
         self._reload()
 
     def _elimina_riga(self, riga: dict) -> None:
-        risultato = self._gestore.elimina_squadra(riga["id"])
+        # Prima eliminazione: soft-delete (la squadra sparisce dalla vista di default ma resta
+        # recuperabile filtrando per Stato "Non attiva"). Se invece e' gia' Non attiva, l'utente sta
+        # eliminando una riga gia' rimossa dalla vista di default: a quel punto e' definitivo.
+        if riga["stato"] == STATO_NON_ATTIVA:
+            risultato = self._gestore.elimina_squadra_definitivamente(riga["id"])
+            titolo_errore = "Impossibile eliminare definitivamente"
+        else:
+            risultato = self._gestore.elimina_squadra(riga["id"])
+            titolo_errore = "Impossibile eliminare"
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            QMessageBox.warning(self, titolo_errore, risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     # --- modali -------------------------------------------------------------

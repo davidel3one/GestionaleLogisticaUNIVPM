@@ -256,9 +256,13 @@ def test_visualizza_squadre_stato_non_attiva(session_factory):
         _squadra_con_composizione(session, "SQ1", flg_attiva_squadra=False)
         session.commit()
 
-    pagina = GestoreSquadre(session_factory).visualizza_squadre()
+    gestore = GestoreSquadre(session_factory)
 
-    assert pagina.squadre[0].stato == STATO_NON_ATTIVA
+    # Di default (nessun filtro / FILTRO_TUTTE) le squadre Non attiva restano nascoste: si vedono
+    # solo scegliendo esplicitamente il filtro Stato "Non attiva".
+    assert gestore.visualizza_squadre().totale == 0
+    pagina_non_attiva = gestore.visualizza_squadre(filtro_stato=STATO_NON_ATTIVA)
+    assert pagina_non_attiva.squadre[0].stato == STATO_NON_ATTIVA
 
 
 def test_visualizza_squadre_senza_composizione_placeholder(session_factory):
@@ -312,7 +316,8 @@ def test_visualizza_squadre_filtro_stato(session_factory):
     assert [s.id for s in gestore.visualizza_squadre(filtro_stato=STATO_IN_VIAGGIO).squadre] == ["SQ1"]
     assert [s.id for s in gestore.visualizza_squadre(filtro_stato=STATO_ATTIVA).squadre] == ["SQ2"]
     assert [s.id for s in gestore.visualizza_squadre(filtro_stato=STATO_NON_ATTIVA).squadre] == ["SQ3"]
-    assert gestore.visualizza_squadre().totale == 3
+    # Default (FILTRO_TUTTE): SQ3 (Non attiva) resta escluso, solo SQ1+SQ2.
+    assert gestore.visualizza_squadre().totale == 2
 
 
 def test_visualizza_squadre_ordinamento_per_data_creazione(session_factory):
@@ -461,6 +466,85 @@ def test_elimina_squadra_gia_non_attiva_rifiutata(session_factory):
 
     assert not risultato.ok
     assert "gia'" in risultato.motivo
+
+
+# ---------- elimina_squadra_definitivamente ----------
+
+
+def test_elimina_squadra_definitivamente_rimuove_squadra_e_composizioni(session_factory):
+    with session_factory() as session:
+        _squadra_con_composizione(session, "SQ1", flg_attiva_squadra=False)
+        inserisci_composizione(session, "C-SQ1-OLD", "SQ1", flg_attiva=False)
+        session.commit()
+
+    risultato = GestoreSquadre(session_factory).elimina_squadra_definitivamente("SQ1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.get(Squadra, "SQ1") is None
+        assert session.get(ComposizioneSquadra, "C-SQ1") is None
+        assert session.get(ComposizioneSquadra, "C-SQ1-OLD") is None
+
+
+def test_elimina_squadra_definitivamente_rifiutata_se_ancora_attiva(session_factory):
+    with session_factory() as session:
+        _squadra_con_composizione(session, "SQ1")
+        session.commit()
+
+    risultato = GestoreSquadre(session_factory).elimina_squadra_definitivamente("SQ1")
+
+    assert not risultato.ok
+    assert "ancora attiva" in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Squadra, "SQ1") is not None
+
+
+def test_elimina_squadra_definitivamente_rifiutata_con_storico_viaggi(session_factory):
+    with session_factory() as session:
+        comp = _squadra_con_composizione(session, "SQ1")
+        inserisci_viaggio(session, "V1", comp, StatoViaggio.COMPLETATO)
+        session.commit()
+
+    GestoreSquadre(session_factory).elimina_squadra("SQ1")
+    risultato = GestoreSquadre(session_factory).elimina_squadra_definitivamente("SQ1")
+
+    assert not risultato.ok
+    assert "storico" in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Squadra, "SQ1") is not None
+
+
+def test_elimina_squadra_definitivamente_inesistente_rifiutata(session_factory):
+    risultato = GestoreSquadre(session_factory).elimina_squadra_definitivamente("SQ-X")
+
+    assert not risultato.ok
+    assert "non trovata" in risultato.motivo
+
+
+# ---------- prossimo_id_squadra ----------
+
+
+def test_prossimo_id_squadra_senza_squadre(session_factory):
+    assert GestoreSquadre(session_factory).prossimo_id_squadra() == "1"
+
+
+def test_prossimo_id_squadra_dopo_creazioni(session_factory):
+    gestore = GestoreSquadre(session_factory)
+    gestore.crea_squadra("1")
+    gestore.crea_squadra("2")
+
+    assert gestore.prossimo_id_squadra() == "3"
+
+
+def test_prossimo_id_squadra_non_collide_con_squadra_non_attiva(session_factory):
+    gestore = GestoreSquadre(session_factory)
+    gestore.crea_squadra("1")
+    gestore.crea_squadra("2")
+    gestore.elimina_squadra("1")
+
+    # SQ "1" e' Non attiva (non piu' visibile in lista di default) ma resta a DB: il prossimo id
+    # deve comunque evitarla, non basarsi solo sul conteggio delle squadre visibili.
+    assert gestore.prossimo_id_squadra() == "3"
 
 
 def test_apri_composizione_dipendenti_uguali_rifiutata(session_factory):

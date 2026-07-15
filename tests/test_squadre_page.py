@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from gestionale_logistica.database.enums import StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra, Viaggio
 from gestionale_logistica.gui.pages import SquadrePage
-from gestionale_logistica.risorse.gestore_squadre import GestoreSquadre
+from gestionale_logistica.risorse.gestore_squadre import STATO_ATTIVA, STATO_NON_ATTIVA, GestoreSquadre
 
 
 @pytest.fixture(scope="module")
@@ -146,10 +146,30 @@ def test_squadre_page_elimina_riga_ricarica(app, session_factory):
         session.commit()
 
     pagina = SquadrePage(GestoreSquadre(session_factory))
-    pagina._elimina_riga({"id": "1"})
+    pagina._elimina_riga({"id": "1", "stato": STATO_ATTIVA})
 
+    # Soft-delete: la riga sparisce dalla vista di default (non un badge "Non attiva" in tabella).
+    assert pagina._etichetta_conteggio.text() == "0 squadre"
     testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "Non attiva" in testi
+    assert "Non attiva" not in testi
+
+
+def test_squadre_page_elimina_riga_gia_non_attiva_e_definitiva(app, session_factory):
+    with session_factory() as session:
+        crea_flotta(session, "1")
+        session.commit()
+
+    gestore = GestoreSquadre(session_factory)
+    pagina = SquadrePage(gestore)
+    pagina._elimina_riga({"id": "1", "stato": STATO_ATTIVA})
+    pagina._elimina_riga({"id": "1", "stato": STATO_NON_ATTIVA})
+
+    with session_factory() as session:
+        assert session.get(Squadra, "1") is None
+
+    pagina._select_stato.set_value(STATO_NON_ATTIVA)
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "0 squadre"
 
 
 def test_squadre_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
@@ -170,9 +190,28 @@ def test_squadre_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory,
         session.commit()
 
     pagina = SquadrePage(GestoreSquadre(session_factory))
-    pagina._elimina_riga({"id": "1"})
+    pagina._elimina_riga({"id": "1", "stato": STATO_ATTIVA})
 
     assert len(chiamate) == 1
+
+
+def test_squadre_page_numerazione_senza_buchi_dopo_eliminazione(app, session_factory):
+    with session_factory() as session:
+        crea_flotta(session, "1")
+        crea_flotta(session, "2")
+        crea_flotta(session, "3")
+        session.commit()
+
+    gestore = GestoreSquadre(session_factory)
+    gestore.elimina_squadra("2")
+    pagina = SquadrePage(gestore)
+
+    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
+    # Restano solo le squadre "1" e "3" (id reali), ma la colonna Squadra le mostra numerate
+    # in sequenza senza buchi: #1 e #2, non #1 e #3.
+    assert "#1" in testi
+    assert "#2" in testi
+    assert "#3" not in testi
 
 
 def test_squadre_page_ricerca_filtra_e_ricarica(app, session_factory):
@@ -211,9 +250,11 @@ def test_squadre_page_filtro_stato_si_puo_azzerare(app, session_factory):
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
 
+    # Azzerare il filtro torna a "Tutte", che pero' esclude comunque le Non attiva (squadra "2"):
+    # resta visibile solo la squadra "1".
     pagina._select_stato.set_value(None)
     pagina._on_filtro_cambiato()
-    assert pagina._etichetta_conteggio.text() == "2 squadre"
+    assert pagina._etichetta_conteggio.text() == "1 squadre"
 
 
 def test_squadre_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory):
@@ -237,4 +278,5 @@ def test_squadre_page_ripristina_filtri_azzera_tutto_insieme(app, session_factor
 
     assert pagina._campo_ricerca.value() == ""
     assert pagina._select_stato.value() is None
-    assert pagina._etichetta_conteggio.text() == "2 squadre"
+    # "Tutte" dopo il reset esclude comunque la squadra "2" (Non attiva): resta solo la "1".
+    assert pagina._etichetta_conteggio.text() == "1 squadre"

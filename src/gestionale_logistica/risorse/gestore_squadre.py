@@ -248,6 +248,11 @@ class GestoreSquadre:
 
             if filtro_stato and filtro_stato != FILTRO_TUTTE:
                 righe = [r for r in righe if r.stato == filtro_stato]
+            elif not filtro_stato or filtro_stato == FILTRO_TUTTE:
+                # A differenza di Dipendenti/Camion (dove "Tutti" include anche Cessato/Dismesso
+                # per lo storico), qui "Tutte" nasconde le squadre Non attiva: su richiesta esplicita
+                # dell'utente restano visibili in tabella solo scegliendo il filtro Stato "Non attiva".
+                righe = [r for r in righe if r.stato != STATO_NON_ATTIVA]
 
             if ricerca:
                 termine = ricerca.strip().lower()
@@ -360,3 +365,50 @@ class GestoreSquadre:
 
             session.commit()
             return RisultatoOperazioneSquadra(ok=True, squadra_id=squadra_id)
+
+    def elimina_squadra_definitivamente(self, squadra_id: str) -> RisultatoOperazioneSquadra:
+        """Hard-delete, irreversibile: rimuove dal database la Squadra e le sue ComposizioneSquadra.
+        Richiede che la squadra sia gia' stata soft-eliminata (elimina_squadra) e rifiuta se una sua
+        composizione, anche passata, e' mai stata legata a un Viaggio - lo storico viaggi/consegne
+        (RF8) non va spezzato solo perche' la squadra che li ha effettuati viene rimossa."""
+        with self.session_factory() as session:
+            squadra_obj = session.get(Squadra, squadra_id)
+            if squadra_obj is None:
+                return RisultatoOperazioneSquadra(ok=False, motivo=f"Squadra '{squadra_id}' non trovata")
+            if squadra_obj.flg_attiva:
+                return RisultatoOperazioneSquadra(
+                    ok=False, motivo="Squadra ancora attiva: eliminala prima di rimuoverla definitivamente"
+                )
+
+            viaggio_storico = session.scalar(
+                select(Viaggio.id)
+                .join(ComposizioneSquadra, ComposizioneSquadra.id_composizione == Viaggio.composizione_id)
+                .where(ComposizioneSquadra.squadra_id == squadra_id)
+            )
+            if viaggio_storico is not None:
+                return RisultatoOperazioneSquadra(
+                    ok=False,
+                    squadra_id=squadra_id,
+                    motivo="Impossibile eliminare definitivamente: la squadra ha viaggi nello storico",
+                )
+
+            composizioni = session.scalars(
+                select(ComposizioneSquadra).where(ComposizioneSquadra.squadra_id == squadra_id)
+            ).all()
+            for composizione in composizioni:
+                session.delete(composizione)
+            session.delete(squadra_obj)
+
+            session.commit()
+            return RisultatoOperazioneSquadra(ok=True, squadra_id=squadra_id)
+
+    def prossimo_id_squadra(self) -> str:
+        """Prossimo id numerico libero per una nuova squadra: max(id esistenti) + 1 su TUTTE le
+        squadre (attive e non), cosi' non collide mai con una gia' presente a DB anche se non piu'
+        visibile in lista di default - a differenza di un semplice conteggio (che si sarebbe potuto
+        ripetere dopo un'eliminazione)."""
+        with self.session_factory() as session:
+            ids_numerici = [
+                int(id_) for id_ in session.scalars(select(Squadra.id)).all() if id_.isdigit()
+            ]
+        return str(max(ids_numerici, default=0) + 1)
