@@ -2,7 +2,7 @@
 
 Libreria di componenti PySide6 in `src/gestionale_logistica/gui/components/`, pensata per non riscrivere lo stesso widget/QSS in ogni pagina. Fonte di verità per ogni dettaglio visivo (colori, spaziature, radius, font, icone): il file `sketch/gui-design.sketch` — ogni componente qui è stato costruito ispezionando le istanze reali nel mockup, non a memoria/a occhio.
 
-Import: `from gestionale_logistica.gui.components import BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, Modal, MultiSelect, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Tooltip, load_lucide_icon`.
+Import: `from gestionale_logistica.gui.components import AuthLogo, BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, LinkButton, Modal, MultiSelect, OtpInput, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Tooltip, load_lucide_icon`.
 
 ## Button
 
@@ -162,6 +162,8 @@ TextField("Targa", placeholder="es. AB123CD")
 **Valori esatti dal mockup**: container sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza fissa 34px, padding orizzontale 12px; testo/placeholder Inter 13px/Medium `#5B6472`; label sopra Inter 11px/SemiBold `#8A93A0`, gap verticale 4px tra label e campo (verificato su più istanze nel mockup, sempre 4px esatti). Il padding verticale (9px top/bottom nel mockup) non è impostato esplicitamente: l'altezza fissa di 34px più la centratura verticale automatica di Qt lo riproduce senza hardcodare margini che duplicherebbero il conteggio — stesso principio già usato in `Button` (es. `PRIMARY_LARGE`, altezza fissa senza padding verticale esplicito).
 
 **Assunzione segnalata**: il colore del placeholder è impostato uguale a quello del testo digitato (`#5B6472`) tramite `QPalette::PlaceholderText` — senza questo, Qt schiarirebbe automaticamente il placeholder. Il mockup non mostra uno stato "campo con testo digitato" separato da quello con placeholder, quindi non c'è modo di verificare che siano davvero identici; è l'assunzione più sicura (nessuna differenziazione esplicita nel mockup).
+
+**Parametro `password: bool = False`** (aggiunto 2026-07-15 per i campi Password/Conferma password delle schermate di autenticazione): se `True`, imposta `QLineEdit.EchoMode.Password` (testo mascherato a pallini, come nel mockup Login/Registrazione). Nessun impatto sui campi esistenti (default `False`, stesso comportamento di prima).
 
 ## Select
 
@@ -401,6 +403,50 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 4. Usalo con `load_lucide_icon("<nome-lucide>", colore, size)`.
 
 **Nota tecnica — perché non un semplice `QPixmap`**: la prima versione renderizzava l'SVG una volta sola in un `QPixmap` a dimensione fissa, che appariva sgranato su schermi Retina/HiDPI. `load_lucide_icon` ora restituisce un `QIcon` sostenuto da un `QIconEngine` custom (`_LucideIconEngine` in `icons.py`) che ridisegna l'SVG dal vettore ogni volta che Qt lo richiede, alla risoluzione effettiva — non un raster in cache. Qualunque nuovo loader di asset SVG dovrebbe seguire lo stesso pattern.
+
+## AuthLogo
+
+`AuthLogo(parent=None)` — sottoclasse di `QWidget`: tassello logo + "LogiPlan", centrati orizzontalmente, usati in cima alle 3 schermate di autenticazione (Login, Registrazione, Conferma OTP). Riusa l'helper/i token del logo della `Sidebar` (`_build_logo_badge`, `APP_NAME_COLOR`, `_make_font`) invece di ridefinirli — verificato via Sketch che sono lo stesso identico tassello (28×28 radius8 bg `#2563C9` + icona `route` bianca 16px, testo Inter 17px/Medium `#163A6B`), qui in riga centrata invece che nella logo row laterale.
+
+```python
+from gestionale_logistica.gui.components import AuthLogo
+AuthLogo()
+```
+
+## LinkButton
+
+`LinkButton(text, parent=None)` — sottoclasse di `QPushButton`: testo cliccabile in stile link, nessuna icona (unica istanza nel mockup: "Non hai ricevuto il codice? Invia di nuovo" nella schermata Conferma OTP). Valori misurati: Inter 12px/Medium, colore `#2563C9`, nessuno sfondo/bordo.
+
+```python
+from gestionale_logistica.gui.components import LinkButton
+resend = LinkButton("Non hai ricevuto il codice? Invia di nuovo")
+resend.clicked.connect(...)
+```
+
+- Usa il segnale `clicked` nativo di `QPushButton`, nessun segnale custom.
+- **Stato hover** (non nel mockup): colore scurito (`_darken`, stesso helper di `Button`).
+- **Nota**: solo la variante testo-senza-icona è implementata, perché è l'unica istanza usata finora. Se in futuro serve una variante con icona, va aggiunta come parametro opzionale ispezionando prima il mockup per quell'istanza specifica — non forzare/estrapolare da questa.
+
+## OtpInput
+
+`OtpInput(length=6, parent=None)` — sottoclasse di `QWidget`: N caselle a singolo carattere per un codice numerico (fonte: mockup Sketch, artboard "Conferma OTP"). Chrome della singola casella riusa i token di `TextField`/`Select` (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS` da `form_field.py`); testo Inter 20px/Medium `#2E2E2E` (misurato).
+
+```python
+from gestionale_logistica.gui.components import OtpInput
+otp = OtpInput()  # 6 caselle di default
+otp.valueChanged.connect(lambda codice: ...)
+otp.set_value("123456")
+otp.clear()  # svuota e rifocalizza la prima casella
+```
+
+- `otp.value()` — stringa con le cifre digitate finora (può essere più corta di `length`).
+- `otp.set_value(valore)` — popola le caselle (scarta silenziosamente i caratteri non numerici).
+- `otp.valueChanged` — `Signal(str)`, emesso a ogni digitazione/incolla/`set_value`.
+- `otp.clear()` — svuota tutte le caselle e rifocalizza la prima.
+
+**Comportamento** (non verificabile in un mockup statico, standard atteso per un input OTP — stesso principio già usato per "click sul backdrop chiude" in `Modal`): digitare una cifra avanza automaticamente alla casella successiva; backspace su una casella vuota torna alla precedente; incollare una stringa multi-cifra la distribuisce sulle caselle a partire da quella su cui si incolla.
+
+**Dimensioni della singola casella — assunzione dichiarata**: le 6 istanze nel mockup hanno larghezze leggermente incoerenti tra loro (37/37/30/30/30/30px, probabile artefatto di auto-layout in Sketch, non una misura intenzionale) — non pixel-perfect replicabile. Dimensione uniforme scelta in implementazione: 44×42px, gap 12px tra le caselle.
 
 ## Aggiungere un componente nuovo
 
