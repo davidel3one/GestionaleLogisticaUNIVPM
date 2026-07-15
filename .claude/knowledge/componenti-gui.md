@@ -184,6 +184,8 @@ tipo.valueChanged.connect(...)
 
 **Nota storica**: nella prima iterazione Multiselect e Date Picker erano stati rimandati (nessun frame del mockup li mostra aperti). L'utente ha poi deciso esplicitamente come implementarli senza aggiornare il mockup — vedi `## DatePicker` e `## MultiSelect` più sotto: non sono assunzioni di questa libreria, sono scelte confermate dall'utente.
 
+**Fix — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra).
+
 ## BooleanToggle
 
 `BooleanToggle(label: str, parent=None)` — sottoclasse di `QWidget`: label sopra + due pillole affiancate "Sì"/"No" (etichette fisse, **non** un segmented control generico a N opzioni — nel mockup è specificamente un toggle booleano).
@@ -361,6 +363,21 @@ ricerca.searchChanged.connect(lambda testo: ...)  # riquery/filtro lato chiamant
 **File a parte, non in `form_field.py` — motivo**: struttura diversa dagli altri field (niente label sopra, icona *dentro* il campo → un contenitore `QFrame` con la chrome + icona + `QLineEdit` senza bordo, invece di stilizzare direttamente il widget nativo con label sopra). La **chrome è però identica** a `TextField` e i token (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS`/`FIELD_HEIGHT`/`FIELD_PADDING_H`/`FIELD_TEXT_COLOR`) e l'helper `_field_font` sono **importati** da `form_field.py`, non ridefiniti.
 
 **Valori esatti dal mockup**: contenitore sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, padding orizzontale 12px; testo/placeholder Inter 13px/Medium `#5B6472` (stesso trattamento `QPalette::PlaceholderText` di `TextField`, così il placeholder non viene schiarito da Qt); icona `search` **`#8A93A0`** (= `LABEL_COLOR`), 16×16, a sinistra con gap 8px dal testo.
+
+## LinkButton
+
+`LinkButton(text: str, icon_name: str, parent=None)` — sottoclasse di `QPushButton` in `gui/components/link_button.py`: icona Lucide + testo in stile link (nessuno sfondo/bordo), usato per "Ripristina filtri" nelle Filter Card.
+
+```python
+link = LinkButton("Ripristina filtri", "rotate-ccw")
+link.clicked.connect(self._ripristina_filtri)  # segnale nativo QPushButton, nessun segnale custom
+```
+
+**Verificato nel mockup**: presente identico (stesso font/colore) in più artboard con Filter Card, inclusa "Squadre" — non un elemento specifico di una sola pagina. Da usare fin dall'inizio in ogni nuova pagina lista.
+
+**Valori esatti dal mockup**: icona 13×13, gap 6px dal testo, testo Inter-Medium 13px, colore `#2563C9` (stesso blu di `Button` PRIMARY) sia per icona che testo. Icona usata: `rotate-ccw`.
+
+**Assunzione segnalata**: stato hover non disegnato nel mockup (solo a riposo) — derivato scurendo il colore del testo (stesso principio di `Button._darken`), non misurato.
 
 ## EmptyState
 
