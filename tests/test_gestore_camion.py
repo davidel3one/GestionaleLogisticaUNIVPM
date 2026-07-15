@@ -196,7 +196,8 @@ def test_disattiva_camion_rifiutato_se_gia_coinvolto_in_viaggio_in_composizione(
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.IN_COMPOSIZIONE, composizione_id="C1",
             )
         )
@@ -229,7 +230,8 @@ def test_disattiva_camion_rifiutato_se_coinvolto_in_viaggio_in_corso(session_fac
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
             )
         )

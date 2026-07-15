@@ -15,6 +15,7 @@ from PySide6.QtCore import QDate, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDateEdit,
     QHBoxLayout,
     QLabel,
@@ -447,3 +448,80 @@ class MultiSelect(QWidget):
         self._values = [v for v in values if v in self._options]
         self._refresh_summary()
         self.valueChanged.emit(list(self._values))
+
+
+class EditableSelect(QWidget):
+    """Campo con label sopra: sceglie tra `options` o digita un valore nuovo non in elenco.
+
+    Non nel mockup (es. "Negozio partner" del modale Importa CSV, che non mostra questo campo):
+    decisione esplicita dell'utente di poter sia scegliere un valore già visto sia crearne uno
+    al volo. `QComboBox` nativo Qt (editabile) invece del popup custom di `Select`/`QMenu`, che
+    non supporta l'editing testuale - solo il chrome del campo chiuso replica gli stessi token
+    (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS`/`FIELD_HEIGHT`) del resto della libreria; la
+    freccia del drop-down resta quella nativa Qt, non il `chevron-down` vettoriale degli altri
+    campi (avrebbe richiesto un asset statico su disco per il QSS `image: url()`, fuori scope
+    per un campo che il mockup non disegna nemmeno)."""
+
+    valueChanged = Signal(str)
+
+    def __init__(
+        self,
+        label: str,
+        options: list[str],
+        placeholder: str = "",
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(LABEL_GAP)
+        layout.addWidget(_build_label(label))
+
+        self._combo = QComboBox(self)
+        self._combo.setEditable(True)
+        self._combo.addItems(options)
+        self._combo.setCurrentIndex(-1)
+        if placeholder:
+            self._combo.lineEdit().setPlaceholderText(placeholder)
+        self._combo.setFixedHeight(FIELD_HEIGHT)
+        self._combo.setFont(_field_font())
+        self._combo.lineEdit().setStyleSheet(
+            f"background: transparent; border: none; padding: 0; color: {FIELD_TEXT_COLOR};"
+        )
+        self._combo.setStyleSheet(
+            f"""
+            QComboBox {{
+                background-color: {FIELD_BG};
+                border: 1px solid {FIELD_BORDER};
+                border-radius: {FIELD_RADIUS}px;
+                padding: 0 {FIELD_PADDING_H}px;
+                color: {FIELD_TEXT_COLOR};
+            }}
+            QComboBox::drop-down {{
+                border: none;
+                width: 24px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {FIELD_BG};
+                border: 1px solid {FIELD_BORDER};
+                border-radius: {FIELD_RADIUS}px;
+                selection-background-color: {POPUP_HOVER_BG};
+                color: {FIELD_TEXT_COLOR};
+                padding: 4px;
+            }}
+            """
+        )
+        layout.addWidget(self._combo)
+
+        self._combo.currentTextChanged.connect(self.valueChanged)
+
+    def value(self) -> str:
+        return self._combo.currentText().strip()
+
+    def set_value(self, value: str) -> None:
+        index = self._combo.findText(value)
+        if index >= 0:
+            self._combo.setCurrentIndex(index)
+        else:
+            self._combo.setEditText(value)

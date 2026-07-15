@@ -52,6 +52,7 @@ def inserisci_viaggio(session, id_, composizione_id, stato, data_partenza=dateti
     session.add(
         Viaggio(
             id=id_, data_partenza_prevista=data_partenza, data_arrivo_prevista=data_partenza,
+            data_creazione=data_partenza,
             km_percorsi=None, stato_viaggio=stato, composizione_id=composizione_id,
         )
     )
@@ -63,6 +64,7 @@ def inserisci_ordine(session, id_, viaggio_id):
             id=id_, indirizzo="Via Roma 1", comune="Ancona", provincia="AN", lat=None, lon=None,
             cliente="ACME", peso=10.0, volume_cargo=1.0,
             categoria_consegna=CategoriaConsegna.BORDO_STRADA, stato_ordine=StatoOrdine.PIANIFICATO,
+            data_importazione=datetime.now(),
             data_consegna=None, viaggio_id=viaggio_id, negozio_partner=None,
         )
     )

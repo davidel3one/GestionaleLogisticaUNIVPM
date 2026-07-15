@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -171,6 +172,7 @@ def test_id_ordine_duplicato_viene_scartato(tmp_path, session_factory):
                 volume_cargo=0.1,
                 categoria_consegna=CategoriaConsegna.BORDO_STRADA,
                 stato_ordine=StatoOrdine.RICEVUTO,
+                data_importazione=datetime.now(),
                 data_consegna=None,
                 viaggio_id=None,
             )
@@ -340,3 +342,86 @@ def test_import_xlsx_id_ordine_duplicato_viene_scartato(tmp_path, session_factor
     assert risultato.ordini_creati == 1
     assert len(risultato.errori) == 1
     assert risultato.errori[0].riga == 3
+
+
+# --- anteprima_import_ordini (dry-run, RF9 GUI) ---
+
+
+def test_anteprima_non_scrive_nulla_sul_db(tmp_path, session_factory):
+    csv_path = tmp_path / "ordini.csv"
+    csv_path.write_text(
+        "ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia\n"
+        "ORD-001;Mario Bianchi;Via Roma 1, Ancona;BordoStrada;10.5;0.2;AN\n"
+        "ORD-002;Luca Neri;Via Milano 2, Ancona;Incasso;15.0;0.4;AN\n"
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    anteprima = gestore.anteprima_import_ordini(csv_path, "Unieuro")
+
+    assert anteprima.righe_valide == 2
+    assert anteprima.errori == []
+
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-001") is None
+        assert session.get(Ordine, "ORD-002") is None
+
+
+def test_anteprima_arricchisce_errori_con_id_e_cliente(tmp_path, session_factory):
+    csv_path = tmp_path / "ordini.csv"
+    csv_path.write_text(
+        "ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia\n"
+        "ORD-001;Mario Bianchi;Via Roma 1, Ancona;BordoStrada;non-numerico;0.2;AN\n"
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    anteprima = gestore.anteprima_import_ordini(csv_path, "Unieuro")
+
+    assert anteprima.righe_valide == 0
+    assert len(anteprima.errori) == 1
+    assert anteprima.errori[0].id_ordine == "ORD-001"
+    assert anteprima.errori[0].cliente == "Mario Bianchi"
+
+
+def test_anteprima_poi_commit_reale_importa_le_stesse_righe(tmp_path, session_factory):
+    csv_path = tmp_path / "ordini.csv"
+    csv_path.write_text(
+        "ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia\n"
+        "ORD-001;Mario Bianchi;Via Roma 1, Ancona;BordoStrada;10.5;0.2;AN\n"
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    anteprima = gestore.anteprima_import_ordini(csv_path, "Unieuro")
+    assert anteprima.righe_valide == 1
+
+    risultato = gestore.importa_ordini(csv_path, "Unieuro")
+    assert risultato.ordini_creati == 1
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-001") is not None
+
+
+# --- elenco_negozi_partner (RF9 GUI: suggerimenti per il selettore) ---
+
+
+def test_elenco_negozi_partner_distinti_e_ordinati(tmp_path, session_factory):
+    unieuro_csv = tmp_path / "unieuro.csv"
+    unieuro_csv.write_text(
+        "ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia\n"
+        "ORD-001;Mario Bianchi;Via Roma 1, Ancona;BordoStrada;10.5;0.2;AN\n"
+    )
+    mediaworld_csv = tmp_path / "mediaworld.csv"
+    mediaworld_csv.write_text(
+        "ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia\n"
+        "ORD-002;Luca Neri;Via Milano 2, Ancona;Incasso;15.0;0.4;AN\n"
+        "ORD-003;Anna Verdi;Via Torino 3, Ancona;Incasso;5.0;0.1;AN\n"
+    )
+
+    gestore = GestoreLogistica(session_factory)
+    gestore.importa_ordini(unieuro_csv, "Unieuro")
+    gestore.importa_ordini(mediaworld_csv, "MediaWorld")
+
+    assert gestore.elenco_negozi_partner() == ["MediaWorld", "Unieuro"]
+
+
+def test_elenco_negozi_partner_vuoto_se_nessun_ordine(session_factory):
+    gestore = GestoreLogistica(session_factory)
+    assert gestore.elenco_negozi_partner() == []

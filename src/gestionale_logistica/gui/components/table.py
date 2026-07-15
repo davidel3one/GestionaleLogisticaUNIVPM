@@ -356,7 +356,9 @@ class Table(QFrame):
     sortRequested = Signal(str, bool)  # colonna, ascending
     pageChanged = Signal(int)  # pagina 1-based richiesta
 
-    def __init__(self, columns: list[ColumnDef], parent: QWidget | None = None) -> None:
+    def __init__(
+        self, columns: list[ColumnDef], show_footer: bool = True, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         if not columns:
             raise ValueError("Table richiede almeno una colonna.")
@@ -367,6 +369,7 @@ class Table(QFrame):
         self._current_page = 1
         self._total_items = 0
         self._page_size = 1
+        self._show_footer = show_footer
 
         self._apply_style()
 
@@ -383,7 +386,8 @@ class Table(QFrame):
         self._rows_layout.setSpacing(0)
         outer_layout.addWidget(self._rows_container)
 
-        outer_layout.addWidget(self._build_footer())
+        if self._show_footer:
+            outer_layout.addWidget(self._build_footer())
 
     def set_rows(self, rows: list[dict]) -> None:
         _clear_layout(self._rows_layout)
@@ -396,7 +400,8 @@ class Table(QFrame):
         self._current_page = current_page
         self._total_items = total_items
         self._page_size = page_size
-        self._rebuild_footer()
+        if self._show_footer:
+            self._rebuild_footer()
 
     def _apply_style(self) -> None:
         self.setStyleSheet(

@@ -210,7 +210,8 @@ def test_licenzia_dipendente_rifiutato_se_gia_coinvolto_in_viaggio_in_composizio
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.IN_COMPOSIZIONE, composizione_id="C1",
             )
         )
@@ -235,7 +236,8 @@ def test_licenzia_dipendente_rifiutato_se_coinvolto_in_viaggio_in_corso(session_
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
             )
         )
@@ -260,7 +262,8 @@ def test_licenzia_dipendente_ammesso_se_viaggio_collegato_e_gia_pianificato(sess
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.PIANIFICATO, composizione_id="C1",
             )
         )

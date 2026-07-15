@@ -46,11 +46,21 @@ def _righe_da_xlsx(percorso_file: Path) -> tuple[list[str] | None, list[dict[str
 class ErroreImport:
     riga: int
     messaggio: str
+    id_ordine: str | None = None
+    cliente: str | None = None
 
 
 @dataclass
 class RisultatoImport:
     ordini_creati: int = 0
+    errori: list[ErroreImport] = field(default_factory=list)
+
+
+@dataclass
+class AnteprimaImport:
+    """Esito di una validazione a secco (RF9, GUI): nessuna riga viene persistita."""
+
+    righe_valide: int = 0
     errori: list[ErroreImport] = field(default_factory=list)
 
 
@@ -144,6 +154,7 @@ def crea_viaggio_persistito(
             id=viaggio_id,
             data_partenza_prevista=ora_partenza,
             data_arrivo_prevista=data_arrivo_prevista,
+            data_creazione=datetime.now(),
             km_percorsi=None,
             stato_viaggio=stato_viaggio,
             composizione_id=composizione_id,
@@ -166,105 +177,136 @@ def crea_viaggio_persistito(
     return viaggio_id, ordini_agganciati
 
 
+def _prepara_ordini_da_file(
+    percorso_file: Path, negozio_partner: str, id_esistenti: set[str]
+) -> tuple[list[Ordine], list[ErroreImport]]:
+    """Legge e valida le righe del file (RF9) senza persistere nulla: le righe valide diventano
+    `Ordine` pronti per una sessione, le righe scartate finiscono in `ErroreImport` (con
+    `id_ordine`/`cliente` quando disponibili, per la tabella di anteprima lato GUI). Riusata sia
+    dall'anteprima a secco sia dal commit reale, cosi' la validazione esiste in un solo posto -
+    non muta `id_esistenti` del chiamante (lavora su una copia)."""
+    if not negozio_partner.strip():
+        return [], [ErroreImport(riga=0, messaggio="Negozio partner obbligatorio")]
+
+    if percorso_file.suffix.lower() == ".xlsx":
+        header, righe = _righe_da_xlsx(percorso_file)
+    else:
+        with open(percorso_file, newline="", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f, delimiter=";")
+            header = reader.fieldnames
+            righe = list(reader)
+
+    if header != COLONNE_ATTESE:
+        return [], [
+            ErroreImport(
+                riga=0,
+                messaggio=f"Header non riconosciuto, attese colonne: {';'.join(COLONNE_ATTESE)}",
+            )
+        ]
+
+    negozio_partner = negozio_partner.strip()
+    id_esistenti = set(id_esistenti)
+    ordini_validi: list[Ordine] = []
+    errori: list[ErroreImport] = []
+
+    for numero_riga, riga in enumerate(righe, start=2):
+        id_ordine = riga["ID_Ordine"]
+        cliente = riga.get("Cliente")
+        if id_ordine in id_esistenti:
+            errori.append(ErroreImport(numero_riga, "ID duplicato", id_ordine, cliente))
+            continue
+
+        # TypeError: riga con meno colonne dell'header -> csv.DictReader riempie i campi
+        # mancanti con None (float(None)/Enum(None) sollevano TypeError). Un try/except per
+        # campo (non uno unico) per dare un motivo di scarto specifico (RF9, tabella di
+        # anteprima lato GUI) invece di un messaggio tecnico generico.
+        try:
+            peso = float(riga["Peso"])
+        except (ValueError, TypeError):
+            errori.append(ErroreImport(numero_riga, "Peso non valido", id_ordine, cliente))
+            continue
+        try:
+            volume = float(riga["Volume"])
+        except (ValueError, TypeError):
+            errori.append(ErroreImport(numero_riga, "Volume non valido", id_ordine, cliente))
+            continue
+        try:
+            categoria = CategoriaConsegna(riga["Categoria"])
+        except (ValueError, TypeError):
+            errori.append(ErroreImport(numero_riga, "Categoria non valida", id_ordine, cliente))
+            continue
+
+        parti = [parte.strip() for parte in riga["Indirizzo"].rsplit(",", 1)]
+        if len(parti) != 2:
+            errori.append(ErroreImport(numero_riga, "Indirizzo non valido", id_ordine, cliente))
+            continue
+        indirizzo, comune = parti
+        if riga["Provincia"] is None:
+            # Riga con meno colonne dell'header in cui manca solo l'ultima
+            # (Provincia): Peso/Volume/Categoria sono presenti e superano il
+            # parsing sopra, quindi il TypeError non scatta e riga["Provincia"]
+            # resta None (restval di csv.DictReader). Va scartata, non deve
+            # far crashare l'import con AttributeError su None.strip().
+            errori.append(ErroreImport(numero_riga, "Provincia mancante", id_ordine, cliente))
+            continue
+        provincia = riga["Provincia"].strip()
+        coordinate = geocodifica_comune(comune, provincia)
+        lat, lon = coordinate if coordinate is not None else (None, None)
+
+        ordini_validi.append(
+            Ordine(
+                id=id_ordine,
+                indirizzo=indirizzo,
+                comune=comune,
+                provincia=provincia,
+                lat=lat,
+                lon=lon,
+                cliente=cliente,
+                peso=peso,
+                volume_cargo=volume,
+                categoria_consegna=categoria,
+                stato_ordine=StatoOrdine.RICEVUTO,
+                data_importazione=datetime.now(),
+                data_consegna=None,
+                viaggio_id=None,
+                negozio_partner=negozio_partner,
+            )
+        )
+        id_esistenti.add(id_ordine)
+
+    return ordini_validi, errori
+
+
 class GestoreLogistica:
     def __init__(self, session_factory: sessionmaker = SessionLocal) -> None:
         self.session_factory = session_factory
 
     def importa_ordini(self, percorso_file: Path, negozio_partner: str) -> RisultatoImport:
-        if not negozio_partner.strip():
-            return RisultatoImport(
-                errori=[ErroreImport(riga=0, messaggio="Negozio partner obbligatorio")]
-            )
-
-        if percorso_file.suffix.lower() == ".xlsx":
-            header, righe = _righe_da_xlsx(percorso_file)
-        else:
-            with open(percorso_file, newline="", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f, delimiter=";")
-                header = reader.fieldnames
-                righe = list(reader)
-
-        if header != COLONNE_ATTESE:
-            return RisultatoImport(
-                errori=[
-                    ErroreImport(
-                        riga=0,
-                        messaggio=f"Header non riconosciuto, attese colonne: {';'.join(COLONNE_ATTESE)}",
-                    )
-                ]
-            )
-
-        negozio_partner = negozio_partner.strip()
-        risultato = RisultatoImport()
         with self.session_factory() as session:
             id_esistenti = set(session.scalars(select(Ordine.id)))
-            nuovi_ordini = []
-
-            for numero_riga, riga in enumerate(righe, start=2):
-                id_ordine = riga["ID_Ordine"]
-                if id_ordine in id_esistenti:
-                    risultato.errori.append(
-                        ErroreImport(numero_riga, f"ID_Ordine '{id_ordine}' gia' presente")
-                    )
-                    continue
-
-                try:
-                    peso = float(riga["Peso"])
-                    volume = float(riga["Volume"])
-                    categoria = CategoriaConsegna(riga["Categoria"])
-                except (ValueError, TypeError) as errore:
-                    # TypeError: riga con meno colonne dell'header -> csv.DictReader
-                    # riempie i campi mancanti con None (float(None)/Enum(None) sollevano
-                    # TypeError). Va scartata come riga malformata, non deve interrompere l'import.
-                    risultato.errori.append(ErroreImport(numero_riga, str(errore)))
-                    continue
-
-                parti = [parte.strip() for parte in riga["Indirizzo"].rsplit(",", 1)]
-                if len(parti) != 2:
-                    risultato.errori.append(
-                        ErroreImport(numero_riga, f"Indirizzo senza comune: '{riga['Indirizzo']}'")
-                    )
-                    continue
-                indirizzo, comune = parti
-                if riga["Provincia"] is None:
-                    # Riga con meno colonne dell'header in cui manca solo l'ultima
-                    # (Provincia): Peso/Volume/Categoria sono presenti e superano il
-                    # parsing sopra, quindi il TypeError non scatta e riga["Provincia"]
-                    # resta None (restval di csv.DictReader). Va scartata, non deve
-                    # far crashare l'import con AttributeError su None.strip().
-                    risultato.errori.append(
-                        ErroreImport(numero_riga, "Riga con colonne mancanti: 'Provincia' assente")
-                    )
-                    continue
-                provincia = riga["Provincia"].strip()
-                coordinate = geocodifica_comune(comune, provincia)
-                lat, lon = coordinate if coordinate is not None else (None, None)
-
-                nuovi_ordini.append(
-                    Ordine(
-                        id=id_ordine,
-                        indirizzo=indirizzo,
-                        comune=comune,
-                        provincia=provincia,
-                        lat=lat,
-                        lon=lon,
-                        cliente=riga["Cliente"],
-                        peso=peso,
-                        volume_cargo=volume,
-                        categoria_consegna=categoria,
-                        stato_ordine=StatoOrdine.RICEVUTO,
-                        data_consegna=None,
-                        viaggio_id=None,
-                        negozio_partner=negozio_partner,
-                    )
-                )
-                id_esistenti.add(id_ordine)
-
+            nuovi_ordini, errori = _prepara_ordini_da_file(percorso_file, negozio_partner, id_esistenti)
             session.add_all(nuovi_ordini)
             session.commit()
-            risultato.ordini_creati = len(nuovi_ordini)
+            return RisultatoImport(ordini_creati=len(nuovi_ordini), errori=errori)
 
-        return risultato
+    def anteprima_import_ordini(self, percorso_file: Path, negozio_partner: str) -> AnteprimaImport:
+        """RF9 (anteprima, GUI): valida il file come farebbe `importa_ordini`, ma senza
+        scrivere nulla sul DB - usata dallo step "Risultato" del modale Importa CSV prima che
+        l'utente confermi con "Importa N ordini"."""
+        with self.session_factory() as session:
+            id_esistenti = set(session.scalars(select(Ordine.id)))
+        nuovi_ordini, errori = _prepara_ordini_da_file(percorso_file, negozio_partner, id_esistenti)
+        return AnteprimaImport(righe_valide=len(nuovi_ordini), errori=errori)
+
+    def elenco_negozi_partner(self) -> list[str]:
+        """Valori distinti di `negozio_partner` gia' visti (RF9, GUI): suggerimenti per il
+        selettore "select o crea nuovo" del modale Importa CSV - non e' un'entita' a se' nel
+        modello dati, solo una stringa libera su `Ordine`."""
+        with self.session_factory() as session:
+            valori = session.scalars(
+                select(Ordine.negozio_partner).distinct().where(Ordine.negozio_partner.is_not(None))
+            ).all()
+            return sorted(v for v in valori if v)
 
     def importa_ordini_async(self, percorso_file: Path, negozio_partner: str) -> "Future[RisultatoImport]":
         """RNF3: come importa_ordini, ma eseguito su un thread separato per non bloccare la GUI
