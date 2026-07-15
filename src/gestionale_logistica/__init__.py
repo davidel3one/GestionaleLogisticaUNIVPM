@@ -11,6 +11,7 @@ from gestionale_logistica.autenticazione.gestore_autenticazione import GestoreAu
 from gestionale_logistica.concorrenza import arresta_esecutore
 from gestionale_logistica.gui.autenticazione import AutenticazionePage
 from gestionale_logistica.gui.components import EmptyState, SidebarItem
+from gestionale_logistica.gui.dashboard import DashboardPage
 from gestionale_logistica.gui.main_window import AppShell
 from gestionale_logistica.scheduler import avvia_scheduler
 
@@ -46,9 +47,8 @@ def main() -> None:
     auth_page.resize(1280, 800)
 
     # Voci di navigazione, ordine e icone verificati nel mockup Sketch (Sidebar, artboard
-    # Dashboard). Le pagine applicative non sono ancora integrate su questo branch:
-    # ogni voce mostra per ora un EmptyState placeholder, da sostituire quando verranno
-    # collegate le pagine vere.
+    # Dashboard). Solo "dashboard" ha una pagina vera integrata finora; le altre mostrano
+    # un EmptyState placeholder, da sostituire quando verranno collegate.
     sidebar_items = [
         SidebarItem("dashboard", "Dashboard", "layout-dashboard"),
         SidebarItem("ordini", "Ordini", "package"),
@@ -67,6 +67,9 @@ def main() -> None:
 
         shell = AppShell(sidebar_items)
         for item in sidebar_items:
+            if item.id == "dashboard":
+                shell.add_page(item.id, DashboardPage())
+                continue
             shell.add_page(
                 item.id,
                 EmptyState(

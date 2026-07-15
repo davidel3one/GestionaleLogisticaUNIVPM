@@ -2,7 +2,9 @@
 
 Libreria di componenti PySide6 in `src/gestionale_logistica/gui/components/`, pensata per non riscrivere lo stesso widget/QSS in ogni pagina. Fonte di verità per ogni dettaglio visivo (colori, spaziature, radius, font, icone): il file `sketch/gui-design.sketch` — ogni componente qui è stato costruito ispezionando le istanze reali nel mockup, non a memoria/a occhio.
 
-Import: `from gestionale_logistica.gui.components import AuthLogo, BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, LinkButton, Modal, MultiSelect, OtpInput, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Tooltip, load_lucide_icon`.
+Import: `from gestionale_logistica.gui.components import AuthLogo, BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, IconChip, IconChipVariant, LinkButton, Modal, MultiSelect, OtpInput, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Tooltip, load_lucide_icon`.
+
+**Nota sui componenti pagina-specifici**: questa libreria contiene solo componenti genuinamente **riusabili tra pagine diverse**. Componenti la cui forma è ritagliata esattamente su una pagina (es. `KpiCard`/`PlanningDayCard`/`ActivityRow` della Dashboard) vivono invece in `gui/<pagina>/components/`, non qui — vedi `## Componenti pagina-specifici` in fondo a questo file.
 
 ## Button
 
@@ -382,6 +384,36 @@ EmptyState("Nessun ordine", icon_name="package")     # icona parametrica
 
 **Valori esatti dal mockup**: icona **40×40 colore `#B7BEC7`** (`load_lucide_icon(icon_name, "#B7BEC7", 40)`); titolo Inter **14px SemiBold `#8A93A0`**; sottotitolo (se presente) Inter **12px Medium `#B7BEC7`**; gap icona→titolo 16px, titolo→sottotitolo 8px.
 
+## IconChip
+
+`IconChip(icon_name: str, variant: IconChipVariant, size: int = 16, parent=None)` — sottoclasse di `QLabel`: chip circolare colorato con un'icona Lucide dentro. Verificato nel mockup su KPI Card e Activity Row della Dashboard (stesse 4 combinazioni colore in entrambi i contesti).
+
+```python
+from gestionale_logistica.gui.components import IconChip, IconChipVariant
+
+IconChip("package", IconChipVariant.LIGHT_BLUE)
+IconChip("triangle-alert", IconChipVariant.RED, size=16)
+```
+
+- `IconChipVariant`: `LIGHT_BLUE`/`BLUE`/`GREEN`/`RED` — 4 combinazioni (colore icona, colore sfondo chip) misurate nel mockup, non stimate: `LIGHT_BLUE` icona `#3D9BE9` bg `#D6EAFB`; `BLUE` icona `#2563C9` bg `#D6E4F7`; `GREEN` icona `#1E8E3E` bg `#DFF5E5`; `RED` icona `#C0392B` bg `#FBE4E1`. Esposte come `VARIANT_COLORS` in `icon_chip.py` se serve leggerle programmaticamente (es. per colorare un testo collegato, vedi `KpiCard`).
+- Chip sempre circolare (`border-radius = size // 2`), sfondo e icona della stessa dimensione (`size`, default 16px come nel mockup) — non c'è un padding esplicito tra bordo del chip e glifo: i margini interni del grid Lucide 24×24 bastano a dare l'effetto visivo corretto.
+
+**Personalizzazione**: nessun colore libero — solo le 4 varianti misurate. Se in futuro serve una quinta combinazione, va prima verificata nel mockup, non estrapolata.
+
+## Scrollbar minimale: `MINIMAL_SCROLLBAR_QSS`
+
+`MINIMAL_SCROLLBAR_QSS` (stringa QSS, in `gui/components/scroll_style.py`) — scrollbar sottile (6px), trasparente, **senza le frecce sopra/sotto** (`::add-line`/`::sub-line` a 0px), handle grigio traslucido (`rgba(138,147,160,0.35)`, riuso di `LABEL_COLOR` in trasparenza) che si scurisce leggermente in hover. Non nel mockup (nessuna scrollbar in un mockup statico) — richiesta esplicita dell'utente (2026-07-15, Dashboard) di uno stile minimale coerente con la palette dell'app invece della scrollbar di sistema.
+
+```python
+from gestionale_logistica.gui.components import MINIMAL_SCROLLBAR_QSS
+
+scroll_area.setStyleSheet(f"QScrollArea {{ background: transparent; border: none; }} {MINIMAL_SCROLLBAR_QSS}")
+```
+
+- Va concatenata allo stylesheet del widget scrollabile (`QScrollArea`, o qualunque `QAbstractScrollArea`), non sostituita — le regole `QScrollBar` si applicano alla scrollbar interna del widget su cui è impostato lo stylesheet.
+- **Nessuna variante**: un solo stile per tutta l'app, non parametrico — se in futuro serve una scrollbar diversa (es. più spessa per un'area con contenuto denso), va discusso con l'utente prima di introdurre un parametro.
+- Usata per ora solo nell'area scrollabile di "Attività recente" nella Dashboard (vedi sotto); `Table` non ha ancora una propria area scrollabile (usa paginazione server-side) — se in futuro ne avrà una, riusare questo stesso stile.
+
 ## Icone: `load_lucide_icon`
 
 Le icone del mockup sono icone [Lucide](https://lucide.dev) (libreria open-source, licenza ISC) — confermato per confronto diretto byte-a-byte tra gli SVG esportati da Sketch e gli SVG reali di Lucide, non per somiglianza visiva.
@@ -394,7 +426,7 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 - `color`: colore esadecimale con cui ricolorare l'icona (le icone Lucide usano `stroke="currentColor"`, sostituito a runtime).
 - `size`: dimensione di default suggerita — il rendering reale è vettoriale e ridisegnato da Qt a qualunque risoluzione/devicePixelRatio venga effettivamente richiesta (vedi nota sotto), quindi resta nitido anche su schermi Retina o se il chiamante chiede una `QIcon.pixmap()` a una dimensione diversa da `size`.
 
-**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info` (`gui/assets/icons/`).
+**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info`, `package`, `package-search`, `users`, `truck`, `circle-check-big`, `triangle-alert`, `calendar` (`gui/assets/icons/`). Le ultime 7 (2026-07-15, Dashboard) sono state identificate per struttura del path SVG (numero/ordine di `path`/`circle`/`polyline`/`rect`, non dal nome del bottone/etichetta) e verificate scaricando l'SVG reale da `lucide-static@1.24.0` (stessa versione già vendorizzata nel progetto) per confronto diretto degli elementi.
 
 **Aggiungere una nuova icona**:
 1. Trova l'icona nel mockup Sketch, esportala come SVG (`sketch.export(layer, { formats: ['svg'], ... })` via MCP, o manualmente da Sketch).
@@ -459,3 +491,19 @@ Processo seguito finora per `Button` e `Card`, da ripetere per i prossimi (sideb
 5. Implementa in `gui/components/<nome>.py`, esporta da `gui/components/__init__.py`.
 6. Verifica visivamente con una finestra reale (non solo `pytest`) prima di darlo per concluso — uno script demo in una cartella temporanea è sufficiente, non serve committarlo.
 7. **Documenta qui** (questo file): API, esempi d'uso, eventuali scarti intenzionali dal mockup e il perché.
+
+**Trappola Qt — `QLabel` "stirata" mostra uno sfondo grigio non voluto** (trovata 2026-07-15 costruendo la Dashboard): un `QLabel` a cui è impostato solo `color:` nello stylesheet (senza `background:`) sembra trasparente finché resta piccola/aderente al testo — ma se viene aggiunta a un layout con **stretch factor** (es. `layout.addWidget(label, 1)`) o comunque si allarga oltre il proprio `sizeHint`, dipinge un riempimento grigio chiaro opaco su tutta la sua area, visibile perché lo stylesheet è attivo a livello app (`QStyleSheetStyle`). Non è mai capitato prima in questa libreria perché nessuna label esistente veniva mai stirata a riempire lo spazio disponibile. **Fix**: aggiungere sempre `background: transparent;` nello stylesheet di ogni `QLabel` di solo testo/icona che non deve avere un proprio sfondo — non fidarsi che "sembri già trasparente" in una preview con contenuto stretto, va verificato specificamente con una label stirata (es. dentro un `QHBoxLayout` con `addWidget(label, 1)`).
+
+## Componenti pagina-specifici
+
+Componenti la cui forma è ritagliata esattamente sul layout di **una** pagina (non genuinamente riusabili altrove) vivono in `gui/<pagina>/components/`, non in `gui/components/` — pattern deciso il 2026-07-15 costruendo la Dashboard. Stesso processo "Aggiungere un componente nuovo" sopra, stessa documentazione qui sotto, solo import path diverso.
+
+**Dashboard** (`gui/dashboard/components/`, import `from gestionale_logistica.gui.dashboard.components import ActivityRow, KpiCard, PlanningDayCard`):
+
+- **`KpiCard(value, label, icon_name, variant: IconChipVariant, trend: str | None = None, parent=None)`** — sottoclasse di `Card` (padding 20/18, spacing 12, riuso del preset già anticipato nella doc di `Card`): valore grande (Inter 28px Medium `#163A6B`) + trend opzionale in cima, `IconChip` + etichetta maiuscola (Inter 12px Medium `#5B6472`, uppercase forzato dal componente) sotto. Il testo del trend riusa il **colore icona della `variant`** (non un colore fisso positivo/negativo): nel mockup la card verde (consegnati) ha trend verde, la rossa (falliti) ha trend rosso — misurato, non assunto.
+- **`PlanningDayCard(day_label, count_label, parent=None)`** — sottoclasse di `Card`/`QFrame`: etichetta giorno (Inter 12px SemiBold `#5B6472`) + badge pillola col conteggio (bg `#D6EAFB`, testo Inter 11px SemiBold `#2563C9`, radius 7 = altezza/2). Sfondo card `#F7F9FC`, nessun bordo, radius 10.
+- **`ActivityRow(icon_name, variant: IconChipVariant, text, timestamp, parent=None)`** — riga: `IconChip` + testo evento (troncato con ellissi via `QFontMetrics.elidedText` a ogni `resizeEvent`, non nel mockup statico) + timestamp relativo a destra (Inter 12px Medium `#8A93A0`). Altezza fissa 52px. I divider 1px `#EDEFF3` tra le righe **non** sono nel componente: li disegna chi assembla la lista (stesso pattern già usato da `Modal`/`Table` per `DIVIDER_COLOR`, costante duplicata localmente per file, non condivisa).
+
+**Pannello "Attività recente" — altezza elastica, non fissa (corretto 2026-07-15).** Il contenitore delle righe (`QScrollArea`, `MINIMAL_SCROLLBAR_QSS`) ha solo un **minimo** di 296px (5 righe, il budget del mockup) via `setMinimumHeight`, non un `setFixedHeight`: la card riceve stretch factor 1 nel layout verticale della pagina (`outer.addWidget(self._activity_card, 1)`, **senza** un `addStretch(1)` finale dopo) così si allarga a riempire lo spazio verticale disponibile su schermi grandi/fullscreen invece di lasciare un'area grigia vuota sotto la card, e si comprime fino al minimo (con scroll interno) su finestre piccole. **Prima versione era sbagliata**: altezza fissa via `setFixedHeight` + `outer.addStretch(1)` finale — lo stretch finale assorbiva tutto lo spazio extra come'area grigia morta invece di farlo usare dal contenuto. Se in futuro un'altra pagina ha un pannello a lista simile, riusare questo pattern (min-height + stretch sul contenitore, non fixed-height + stretch finale).
+
+I dati reali (KPI aggregati, conteggio viaggi per i prossimi 7 giorni, feed attività) sono letti da `gui/dashboard/dashboard_data.py` — nessun RF1-RF19 definisce una Dashboard, le query aggregano dai modelli esistenti (vedi docstring del file per le assunzioni dichiarate: definizione di "disponibile", formula dei trend, provenienza dei 4 tipi di evento nel feed attività).

@@ -14,6 +14,7 @@ def _crea_viaggio(session, comp_id, viaggio_id, stato, ordini_ids=()):
             id=viaggio_id,
             data_partenza_prevista=data_partenza,
             data_arrivo_prevista=data_partenza + timedelta(hours=8),
+            data_creazione=data_partenza,
             km_percorsi=None,
             stato_viaggio=stato,
             composizione_id=comp_id,

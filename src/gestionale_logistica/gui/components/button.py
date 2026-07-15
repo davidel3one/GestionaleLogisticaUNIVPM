@@ -106,6 +106,7 @@ class Button(QPushButton):
         label = QLabel(self)
         label.setPixmap(icon.pixmap(QSize(size, size)))
         label.setFixedSize(size, size)
+        label.setStyleSheet("background: transparent;")
         return label
 
     def _text_label(self, text: str, color: str, weight: int, size: int) -> QLabel:
@@ -114,7 +115,7 @@ class Button(QPushButton):
         font.setWeight(QFont.Weight(weight))
         font.setPixelSize(size)
         label.setFont(font)
-        label.setStyleSheet(f"color: {color};")
+        label.setStyleSheet(f"color: {color}; background: transparent;")
         return label
 
     def _apply_style(self, background: str, border: str | None, radius: int) -> None:

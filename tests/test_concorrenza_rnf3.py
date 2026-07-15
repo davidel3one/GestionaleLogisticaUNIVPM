@@ -124,6 +124,7 @@ def test_calcola_piano_async_produce_lo_stesso_risultato_della_versione_sincrona
                 volume_cargo=0.1,
                 categoria_consegna=CategoriaConsegna.BORDO_STRADA,
                 stato_ordine=StatoOrdine.RICEVUTO,
+                data_importazione=datetime.now(),
                 data_consegna=None,
                 viaggio_id=None,
             )

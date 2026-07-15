@@ -72,6 +72,7 @@ def crea_ordine(id_, peso=10.0, volume=0.1, categoria=CategoriaConsegna.BORDO_ST
         volume_cargo=volume,
         categoria_consegna=categoria,
         stato_ordine=StatoOrdine.RICEVUTO,
+        data_importazione=datetime.now(),
         data_consegna=None,
         viaggio_id=None,
     )
