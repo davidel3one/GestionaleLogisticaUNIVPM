@@ -106,7 +106,13 @@ class TextField(QWidget):
 
     valueChanged = Signal(str)
 
-    def __init__(self, label: str, placeholder: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        label: str,
+        placeholder: str = "",
+        password: bool = False,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
 
         layout = QVBoxLayout(self)
@@ -118,6 +124,8 @@ class TextField(QWidget):
         self._input.setPlaceholderText(placeholder)
         self._input.setFixedHeight(FIELD_HEIGHT)
         self._input.setFont(_field_font())
+        if password:
+            self._input.setEchoMode(QLineEdit.EchoMode.Password)
 
         # Il mockup non differenzia il colore del testo digitato da quello del placeholder:
         # senza questo, Qt schiarirebbe automaticamente il placeholder rispetto al testo
