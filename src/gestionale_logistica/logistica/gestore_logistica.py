@@ -1,7 +1,7 @@
 import csv
 from concurrent.futures import Future
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -19,6 +19,20 @@ COLONNE_ATTESE = ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Vol
 
 ordine = CRUDBase[Ordine](Ordine)
 viaggio = CRUDBase[Viaggio](Viaggio)
+
+FILTRO_TUTTI = "Tutti"
+
+# Etichette italiane per la lista Ordini: gli enum StatoOrdine hanno valori CamelCase pensati per
+# la persistenza, non per la UI (es. RICEVUTO -> "Da pianificare", non "Ricevuto" - coerente col
+# mockup, dove un ordine appena importato/non ancora agganciato a un viaggio si legge come "in
+# attesa di essere pianificato", non come "ricevuto e basta").
+STATO_ORDINE_LABELS: dict[StatoOrdine, str] = {
+    StatoOrdine.RICEVUTO: "Da pianificare",
+    StatoOrdine.PIANIFICATO: "Pianificato",
+    StatoOrdine.IN_CONSEGNA: "In consegna",
+    StatoOrdine.COMPLETATO: "Consegnato",
+    StatoOrdine.FALLITO: "Fallito",
+}
 
 
 def _righe_da_xlsx(percorso_file: Path) -> tuple[list[str] | None, list[dict[str, str | None]]]:
@@ -65,6 +79,25 @@ class RisultatoOperazioneViaggio:
     ok: bool
     viaggio_id: str | None = None
     motivo: str | None = None
+
+
+@dataclass
+class OrdineVista:
+    id: str
+    cliente: str
+    indirizzo: str
+    peso: float
+    volume_cargo: float
+    stato: str
+    data_arrivo_viaggio: datetime | None
+
+
+@dataclass
+class PaginaOrdini:
+    """Pagina di risultati di visualizza_ordini: solo la fetta richiesta + il totale filtrato."""
+
+    ordini: list[OrdineVista]
+    totale: int
 
 
 def verifica_idoneita_risorsa(ordine: Ordine, camion: Camion, dipendenti: list[Dipendente]) -> bool:
@@ -405,3 +438,86 @@ class GestoreLogistica:
                 viaggio.stato_viaggio = StatoViaggio.IN_CORSO
             session.commit()
             return [viaggio.id for viaggio in viaggi_da_avviare]
+
+    def visualizza_ordini(
+        self,
+        ricerca: str | None = None,
+        filtro_stato: str = FILTRO_TUTTI,
+        filtro_data: date | None = None,
+        pagina: int = 1,
+        dimensione_pagina: int = 20,
+        decrescente: bool = False,
+    ) -> PaginaOrdini:
+        """Elenco filtrato/ordinato/paginato degli ordini. Filtri: ricerca testuale (cliente,
+        indirizzo o id), filtro stato (Tutti/Da pianificare/Pianificato/In consegna/Consegnato/
+        Fallito), filtro su un giorno esatto della data di arrivo del viaggio agganciato.
+        Ordinamento per data di arrivo del viaggio (non esiste un campo "data ordine" nel modello -
+        nessuna RF lo richiede - quindi l'unico riferimento temporale disponibile e' quello del
+        viaggio, coerente con la colonna DATA mostrata in tabella). Ordini senza viaggio agganciato
+        (data_arrivo_viaggio=None) restano sempre in coda, in entrambe le direzioni di
+        ordinamento - un "non ancora pianificato" non ha una posizione temporale sensata rispetto
+        agli altri."""
+        with self.session_factory() as session:
+            righe_grezze = session.execute(
+                select(
+                    Ordine.id,
+                    Ordine.cliente,
+                    Ordine.indirizzo,
+                    Ordine.comune,
+                    Ordine.peso,
+                    Ordine.volume_cargo,
+                    Ordine.stato_ordine,
+                    Viaggio.data_arrivo_prevista,
+                )
+                .outerjoin(Viaggio, Viaggio.id == Ordine.viaggio_id)
+                .order_by(Ordine.id)
+            ).all()
+
+            righe = [
+                OrdineVista(
+                    id=r[0],
+                    cliente=r[1],
+                    indirizzo=f"{r[2]}, {r[3]}",
+                    peso=r[4],
+                    volume_cargo=r[5],
+                    stato=STATO_ORDINE_LABELS[r[6]],
+                    data_arrivo_viaggio=r[7],
+                )
+                for r in righe_grezze
+            ]
+
+            con_data = sorted(
+                (r for r in righe if r.data_arrivo_viaggio is not None),
+                key=lambda r: r.data_arrivo_viaggio,
+                reverse=decrescente,
+            )
+            senza_data = [r for r in righe if r.data_arrivo_viaggio is None]
+            righe = con_data + senza_data
+
+            if filtro_stato and filtro_stato != FILTRO_TUTTI:
+                righe = [r for r in righe if r.stato == filtro_stato]
+
+            if filtro_data is not None:
+                righe = [
+                    r
+                    for r in righe
+                    if r.data_arrivo_viaggio is not None and r.data_arrivo_viaggio.date() == filtro_data
+                ]
+
+            if ricerca:
+                termine = ricerca.strip().lower()
+                if termine:
+                    righe = [
+                        r
+                        for r in righe
+                        if termine in r.id.lower()
+                        or termine in r.cliente.lower()
+                        or termine in r.indirizzo.lower()
+                    ]
+
+            totale = len(righe)
+            if dimensione_pagina > 0:
+                inizio = max(pagina - 1, 0) * dimensione_pagina
+                righe = righe[inizio : inizio + dimensione_pagina]
+
+            return PaginaOrdini(ordini=righe, totale=totale)

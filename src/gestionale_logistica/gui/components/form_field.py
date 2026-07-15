@@ -182,6 +182,13 @@ class _SelectBox(QPushButton):
             """
         )
 
+    def sizeHint(self) -> QSize:
+        # QPushButton calcola da solo un sizeHint basato su text()/icon() (entrambi vuoti qui,
+        # il contenuto vero vive nel layout interno) - senza questo override risulta troppo
+        # piccolo e comprime testo/icona sotto la larghezza reale, stesso motivo per cui Button
+        # ha lo stesso override (vedi button.py).
+        return self.layout().sizeHint()
+
 
 class Select(QWidget):
     """Campo a scelta singola con label sopra: chrome chiusa dal mockup, popup non verificato nel mockup.

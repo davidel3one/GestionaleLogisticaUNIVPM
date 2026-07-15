@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Squadra, Viaggio
 from gestionale_logistica.logistica.gestore_logistica import (
+    FILTRO_TUTTI,
     GestoreLogistica,
     valida_ordine_per_viaggio,
     verifica_idoneita_risorsa,
@@ -450,3 +451,182 @@ def test_bozza_aperta_blocca_composizione_per_calcola_piano_stesso_giorno(sessio
 
     assert piano.assegnazioni == []
     assert piano.ordini_non_assegnati == ["ORD-1"]
+
+
+# --- visualizza_ordini ---
+
+
+def test_visualizza_ordini_su_db_vuoto(session_factory):
+    gestore = GestoreLogistica(session_factory)
+
+    pagina = gestore.visualizza_ordini()
+
+    assert pagina.ordini == []
+    assert pagina.totale == 0
+
+
+def test_visualizza_ordini_campi_senza_viaggio(session_factory):
+    with session_factory() as session:
+        session.add(crea_ordine("ORD-1", peso=45.0, volume=0.3))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    pagina = gestore.visualizza_ordini()
+
+    assert pagina.totale == 1
+    riga = pagina.ordini[0]
+    assert riga.id == "ORD-1"
+    assert riga.cliente == "Cliente Test"
+    assert riga.indirizzo == "Via Test 1, Ancona"
+    assert riga.peso == 45.0
+    assert riga.volume_cargo == 0.3
+    assert riga.stato == "Da pianificare"
+    assert riga.data_arrivo_viaggio is None
+
+
+def test_visualizza_ordini_data_arrivo_da_viaggio_agganciato(session_factory):
+    with session_factory() as session:
+        crea_flotta_semplice(session, "SQ1")
+        session.add(Viaggio(
+            id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+            data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+            stato_viaggio=StatoViaggio.PIANIFICATO, composizione_id="SQ1",
+        ))
+        ordine_1 = crea_ordine("ORD-1")
+        ordine_1.viaggio_id = "V1"
+        ordine_1.stato_ordine = StatoOrdine.PIANIFICATO
+        session.add(ordine_1)
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    pagina = gestore.visualizza_ordini()
+
+    assert pagina.ordini[0].data_arrivo_viaggio == datetime(2026, 7, 20, 16, 0)
+    assert pagina.ordini[0].stato == "Pianificato"
+
+
+def test_visualizza_ordini_tutte_le_etichette_stato(session_factory):
+    with session_factory() as session:
+        for i, stato in enumerate([
+            StatoOrdine.RICEVUTO, StatoOrdine.PIANIFICATO, StatoOrdine.IN_CONSEGNA,
+            StatoOrdine.COMPLETATO, StatoOrdine.FALLITO,
+        ]):
+            o = crea_ordine(f"ORD-{i}")
+            o.stato_ordine = stato
+            session.add(o)
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    pagina = gestore.visualizza_ordini(dimensione_pagina=0)
+
+    etichette = {r.stato for r in pagina.ordini}
+    assert etichette == {"Da pianificare", "Pianificato", "In consegna", "Consegnato", "Fallito"}
+
+
+def test_visualizza_ordini_ricerca_su_cliente_indirizzo_id(session_factory):
+    with session_factory() as session:
+        o1 = crea_ordine("ORD-AAA")
+        o1.cliente = "Mario Rossi"
+        o1.indirizzo = "Via Roma 12"
+        o1.comune = "Ancona"
+        session.add(o1)
+        o2 = crea_ordine("ORD-BBB")
+        o2.cliente = "Bianchi S.r.l."
+        o2.indirizzo = "Via Milano 8"
+        o2.comune = "Jesi"
+        session.add(o2)
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+
+    assert [r.id for r in gestore.visualizza_ordini(ricerca="mario").ordini] == ["ORD-AAA"]
+    assert [r.id for r in gestore.visualizza_ordini(ricerca="bianchi").ordini] == ["ORD-BBB"]
+    assert [r.id for r in gestore.visualizza_ordini(ricerca="jesi").ordini] == ["ORD-BBB"]
+    assert [r.id for r in gestore.visualizza_ordini(ricerca="aaa").ordini] == ["ORD-AAA"]
+    assert gestore.visualizza_ordini(ricerca="nessuno").ordini == []
+
+
+def test_visualizza_ordini_filtro_stato(session_factory):
+    with session_factory() as session:
+        o1 = crea_ordine("ORD-1")
+        session.add(o1)
+        o2 = crea_ordine("ORD-2")
+        o2.stato_ordine = StatoOrdine.FALLITO
+        session.add(o2)
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+
+    solo_ricevuti = gestore.visualizza_ordini(filtro_stato="Da pianificare").ordini
+    solo_falliti = gestore.visualizza_ordini(filtro_stato="Fallito").ordini
+    tutti = gestore.visualizza_ordini(filtro_stato=FILTRO_TUTTI).ordini
+
+    assert [r.id for r in solo_ricevuti] == ["ORD-1"]
+    assert [r.id for r in solo_falliti] == ["ORD-2"]
+    assert len(tutti) == 2
+
+
+def test_visualizza_ordini_filtro_data(session_factory):
+    with session_factory() as session:
+        crea_flotta_semplice(session, "SQ1")
+        session.add(Viaggio(
+            id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+            data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+            stato_viaggio=StatoViaggio.PIANIFICATO, composizione_id="SQ1",
+        ))
+        session.add(Viaggio(
+            id="V2", data_partenza_prevista=datetime(2026, 7, 21, 8, 0),
+            data_arrivo_prevista=datetime(2026, 7, 21, 16, 0), km_percorsi=None,
+            stato_viaggio=StatoViaggio.PIANIFICATO, composizione_id="SQ1",
+        ))
+        ordine_1 = crea_ordine("ORD-1")
+        ordine_1.viaggio_id = "V1"
+        session.add(ordine_1)
+        ordine_2 = crea_ordine("ORD-2")
+        ordine_2.viaggio_id = "V2"
+        session.add(ordine_2)
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    pagina = gestore.visualizza_ordini(filtro_data=datetime(2026, 7, 20).date())
+
+    assert [r.id for r in pagina.ordini] == ["ORD-1"]
+
+
+def test_visualizza_ordini_senza_viaggio_sempre_in_coda(session_factory):
+    with session_factory() as session:
+        crea_flotta_semplice(session, "SQ1")
+        session.add(Viaggio(
+            id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+            data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+            stato_viaggio=StatoViaggio.PIANIFICATO, composizione_id="SQ1",
+        ))
+        ordine_con_data = crea_ordine("ORD-CON-DATA")
+        ordine_con_data.viaggio_id = "V1"
+        session.add(ordine_con_data)
+        session.add(crea_ordine("ORD-SENZA-DATA"))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+
+    crescente = gestore.visualizza_ordini().ordini
+    decrescente = gestore.visualizza_ordini(decrescente=True).ordini
+
+    assert [r.id for r in crescente] == ["ORD-CON-DATA", "ORD-SENZA-DATA"]
+    assert [r.id for r in decrescente] == ["ORD-CON-DATA", "ORD-SENZA-DATA"]
+
+
+def test_visualizza_ordini_paginazione(session_factory):
+    with session_factory() as session:
+        for i in range(5):
+            session.add(crea_ordine(f"ORD-{i}"))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+
+    pagina_1 = gestore.visualizza_ordini(pagina=1, dimensione_pagina=2)
+    pagina_2 = gestore.visualizza_ordini(pagina=2, dimensione_pagina=2)
+
+    assert pagina_1.totale == 5
+    assert [r.id for r in pagina_1.ordini] == ["ORD-0", "ORD-1"]
+    assert [r.id for r in pagina_2.ordini] == ["ORD-2", "ORD-3"]

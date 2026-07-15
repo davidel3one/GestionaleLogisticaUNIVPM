@@ -53,21 +53,24 @@ card.content_layout.addWidget(una_riga_orizzontale)
 
 ## TabBar
 
-`TabBar(labels: list[str], parent=None)` — selettore di tab orizzontale con indicatore ad underline animato. Componente puramente visivo: **non** gestisce il contenuto delle pagine (niente `QStackedWidget` integrato) — chi lo usa si iscrive al segnale per cambiare il contenuto altrove.
+`TabBar(labels: list[str], disabled: set[int] | None = None, parent=None)` — selettore di tab orizzontale con indicatore ad underline animato. Componente puramente visivo: **non** gestisce il contenuto delle pagine (niente `QStackedWidget` integrato) — chi lo usa si iscrive al segnale per cambiare il contenuto altrove.
 
 ```python
-tabs = TabBar(["Ordini", "Esiti"])
+tabs = TabBar(["Ordini", "Esiti"], disabled={1})  # "Esiti" visibile ma non cliccabile
 tabs.currentChanged.connect(lambda i: stacked_widget.setCurrentIndex(i))
 ```
 
 - `labels`: qualunque numero di etichette (verificato nel mockup sia con 2 che con 3 tab, stesso stile).
+- `disabled`: set di indici (0-based) da rendere non interattivi fin dalla costruzione — la tab resta **visibile e leggibile** (solo colore attenuato `#B0B6BF`), non sparisce dal layout come farebbe `QWidget.setDisabled`. Introdotto per Ordini: tab "Esiti" presente nel mockup ma non ancora collegata al lavoro RF15-RF18.
 - `tabs.current_index` — property di sola lettura con l'indice della tab attiva.
 - `tabs.set_current_index(i)` — imposta la tab attiva programmaticamente (solleva `ValueError` se fuori range); non ri-emette il segnale se `i` è già quello corrente.
-- `tabs.currentChanged` — `Signal(int)`, emesso quando l'utente clicca una tab diversa (o quando cambia via `set_current_index`).
+- `tabs.currentChanged` — `Signal(int)`, emesso quando l'utente clicca una tab diversa (o quando cambia via `set_current_index`) — una tab disabilitata non emette mai questo segnale.
 
-**Personalizzazione**: nessun parametro di stile esposto (colori/font/gap sono fissi, replicano il mockup) — se serve un aspetto visivo diverso, non forzare i valori interni: è una variante nuova da valutare con l'utente.
+**Personalizzazione**: nessun parametro di stile esposto oltre a `disabled` (colori/font/gap sono fissi, replicano il mockup) — se serve un aspetto visivo diverso, non forzare i valori interni: è una variante nuova da valutare con l'utente.
 
 **Stato hover** (non nel mockup): colore testo intermedio tra attivo e inattivo (`#22344D`, media tra `#163A6B` e `#2E2E2E` — nessun colore estraneo alla palette) + cursore a mano, stesso principio già usato in `Button`.
+
+**Stato disabilitato** (non nel mockup, nessun frame lo disegna): colore `#B0B6BF` derivato come via di mezzo verso il grigio neutro della palette, cursore a freccia invece che a mano, click ignorati silenziosamente (non solleva eccezioni, semplicemente non emette `clicked`/`currentChanged`).
 
 **Animazione underline**: lo spostamento/ridimensionamento dell'underline tra una tab e l'altra è animato (200ms, `QEasingCurve.OutCubic`) via due Qt `Property` (`underlineX`/`underlineWidth`) pilotate da `QPropertyAnimation` — richiesta esplicita dell'utente, il mockup statico non lo specifica (è un dettaglio di comportamento, non di stile visivo). Il cambio colore del testo resta istantaneo, non animato. Al primissimo render l'underline è già posizionata correttamente, senza scorrere da zero.
 
@@ -183,6 +186,8 @@ tipo.valueChanged.connect(...)
 - **Popup delle opzioni**: nessun frame del mockup disegna il Select aperto. Per coerenza con gli altri componenti già fatti, il popup (`QMenu`) è stilato con: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px (stessi token del resto), voce selezionata/hover con sfondo `#F7F9FC` (lo stesso grigio riusato per lo sfondo dei bottoni `SECONDARY` in `button.py`, per non introdurre un token nuovo), testo voci Inter 13px/Medium `#5B6472`. Scelta di implementazione non verificata, analoga a come `Modal` documenta "click sul backdrop chiude" come comportamento standard non nel mockup statico.
 
 **Nota storica**: nella prima iterazione Multiselect e Date Picker erano stati rimandati (nessun frame del mockup li mostra aperti). L'utente ha poi deciso esplicitamente come implementarli senza aggiornare il mockup — vedi `## DatePicker` e `## MultiSelect` più sotto: non sono assunzioni di questa libreria, sono scelte confermate dall'utente.
+
+**Fix — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra).
 
 ## BooleanToggle
 
@@ -362,6 +367,21 @@ ricerca.searchChanged.connect(lambda testo: ...)  # riquery/filtro lato chiamant
 
 **Valori esatti dal mockup**: contenitore sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, padding orizzontale 12px; testo/placeholder Inter 13px/Medium `#5B6472` (stesso trattamento `QPalette::PlaceholderText` di `TextField`, così il placeholder non viene schiarito da Qt); icona `search` **`#8A93A0`** (= `LABEL_COLOR`), 16×16, a sinistra con gap 8px dal testo.
 
+## LinkButton
+
+`LinkButton(text: str, icon_name: str, parent=None)` — sottoclasse di `QPushButton` in `gui/components/link_button.py`: icona Lucide + testo in stile link (nessuno sfondo/bordo), usato per "Ripristina filtri" nelle Filter Card.
+
+```python
+link = LinkButton("Ripristina filtri", "rotate-ccw")
+link.clicked.connect(self._ripristina_filtri)  # segnale nativo QPushButton, nessun segnale custom
+```
+
+**Verificato nel mockup**: presente identico (stesso font/colore) in più artboard con Filter Card, inclusa "Ordini" — non un elemento specifico di una sola pagina. Da usare fin dall'inizio in ogni nuova pagina lista.
+
+**Valori esatti dal mockup**: icona 13×13, gap 6px dal testo, testo Inter-Medium 13px, colore `#2563C9` (stesso blu di `Button` PRIMARY) sia per icona che testo. Icona usata: `rotate-ccw`.
+
+**Assunzione segnalata**: stato hover non disegnato nel mockup (solo a riposo) — derivato scurendo il colore del testo (stesso principio di `Button._darken`), non misurato.
+
 ## EmptyState
 
 `EmptyState(title: str, subtitle: str = "", icon_name: str = "inbox", parent=None)` — sottoclasse di `QWidget`: placeholder mostrato al posto di una lista/tabella quando non ci sono dati. Contenuto centrato orizzontalmente e verticalmente.
@@ -401,6 +421,25 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 4. Usalo con `load_lucide_icon("<nome-lucide>", colore, size)`.
 
 **Nota tecnica — perché non un semplice `QPixmap`**: la prima versione renderizzava l'SVG una volta sola in un `QPixmap` a dimensione fissa, che appariva sgranato su schermi Retina/HiDPI. `load_lucide_icon` ora restituisce un `QIcon` sostenuto da un `QIconEngine` custom (`_LucideIconEngine` in `icons.py`) che ridisegna l'SVG dal vettore ogni volta che Qt lo richiede, alla risoluzione effettiva — non un raster in cache. Qualunque nuovo loader di asset SVG dovrebbe seguire lo stesso pattern.
+
+## Lavoro deliberatamente rimandato — pagina Ordini
+
+Decisione esplicita dell'utente: la prima passata su `OrdiniPage` copre solo lista/filtri/tabella,
+senza le due feature più consistenti viste nel mockup:
+
+- **"Registra esito consegna"** (icona matita nel mockup, artboard "Ordini — Modifica (modale)"):
+  non è un editor di campi generico — è il front-end di `GestoreRendicontazione.registra_esito()`
+  (selettore Esito Completato/Fallito, dropdown causale condizionale, upload prova documentale via
+  `carica_prova_documentale()`). Richiede un componente Dropzone/file-attach non ancora costruito.
+  Applicabile solo a ordini "In consegna" (`registra_esito` rifiuta altrimenti). Da progettare come
+  feature a parte, componente per componente.
+- **"Importa CSV"** (bottone header, artboard "Ordini — Importa CSV — Seleziona file/Risultato"):
+  flusso a 2 passi (file-picker → riepilogo `ErroreImport(riga, messaggio)`), backend già pronto
+  (`GestoreLogistica.importa_ordini`/`importa_ordini_async`) ma nessun componente file-picker né
+  riepilogo-errori esiste ancora nella libreria.
+
+Entrambi visibili nel mockup ma **disabilitati** nell'implementazione attuale (tab "Esiti" e
+bottone "Importa CSV"), non rimossi — coerenza visiva con il mockup senza azioni finte.
 
 ## Aggiungere un componente nuovo
 
