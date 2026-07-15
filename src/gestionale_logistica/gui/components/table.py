@@ -80,6 +80,9 @@ class RowAction:
     callback: Callable[[dict], None]
     color: str = TEXT_SECONDARY_COLOR
     tooltip: str | None = None
+    predicate: Callable[[dict], bool] | None = None
+    """Se impostato, l'azione compare solo per le righe per cui predicate(riga) e' True
+    (es. un'icona "ripristina" visibile solo per righe con stato "Cessato")."""
 
 
 @dataclass
@@ -311,6 +314,8 @@ def _build_actions_cell(actions: list[RowAction], row: dict) -> QWidget:
     layout.setSpacing(4)
     layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     for action in actions:
+        if action.predicate is not None and not action.predicate(row):
+            continue
         icon = load_lucide_icon(action.icon_name, action.color, 14)
         button = _IconButton(icon, action.tooltip, container)
         button.clicked.connect(lambda checked=False, cb=action.callback, r=row: cb(r))

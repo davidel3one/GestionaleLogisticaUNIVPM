@@ -107,7 +107,9 @@ tabella.pageChanged.connect(lambda pagina: ...)                # riquery server-
 | `LINK` | identificativi (`#1040`, `V-20260707-01`) | sempre blu `#2563C9`, SemiBold — solo visivo, nessun'interazione integrata |
 | `STATUS_BADGE` | stato con pillola colorata | mappatura valore→(bg,testo) tramite `ColumnDef.status_colors` (dict), unita a una palette di default già pronta per 7 valori comuni (`Consegnato`/`Attivo`→verde, `Fallito`→rosso, `In consegna`→ambra, `Da pianificare`→grigio, `Pianificato`/`Proposto`→blu) — valori non mappati cadono sul grigio neutro |
 | `BOOLEAN_BADGE` | flag sì/no (es. certificazione gas, sponda idraulica) | vero→pillola grigia con `true_label` (default "Sì"); falso→testo semplice con `false_label` (default "No", usa "—" se serve) |
-| `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale — non limitato a modifica/elimina |
+| `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale, `predicate: Callable[[dict], bool]` opzionale — non limitato a modifica/elimina |
+
+**Fix (2026-07-15) — azioni condizionali per riga**: aggiunto `RowAction.predicate` — se impostato, l'icona compare solo per le righe dove `predicate(row)` è `True` (le altre non la mostrano affatto, non solo disabilitata). Introdotto per Dipendenti: "elimina" (licenzia) visibile solo per righe non-Cessato, "ripristina" (`rotate-ccw`) visibile solo per righe Cessato — due `RowAction` sulla stessa colonna, mutuamente esclusive per stato riga, invece di un'unica icona che cambia comportamento.
 
 **Personalizzazione**: `ColumnDef.width` (larghezza fissa in px) oppure `ColumnDef.stretch` (fattore di stretch, colonne più larghe in proporzione) — non impostare entrambi sulla stessa colonna, `width` vince se presente. `status_colors` sulla singola colonna sovrascrive/estende la palette di default senza doverla ridefinire tutta.
 
@@ -184,6 +186,8 @@ tipo.valueChanged.connect(...)
 
 **Nota storica**: nella prima iterazione Multiselect e Date Picker erano stati rimandati (nessun frame del mockup li mostra aperti). L'utente ha poi deciso esplicitamente come implementarli senza aggiornare il mockup — vedi `## DatePicker` e `## MultiSelect` più sotto: non sono assunzioni di questa libreria, sono scelte confermate dall'utente.
 
+**Fix (2026-07-15) — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra). Segnalato da un bug reale su `gui/pages/dipendenti.py` ("le squadre/gli stati non si vedono nel riquadro").
+
 ## BooleanToggle
 
 `BooleanToggle(label: str, parent=None)` — sottoclasse di `QWidget`: label sopra + due pillole affiancate "Sì"/"No" (etichette fisse, **non** un segmented control generico a N opzioni — nel mockup è specificamente un toggle booleano).
@@ -197,7 +201,9 @@ sponda.valueChanged.connect(...)
 - `toggle.set_value(True | False)` — seleziona programmaticamente la pillola corrispondente.
 - `toggle.valueChanged` — `Signal(bool)`, emesso al click su una pillola o a `set_value()` esplicito.
 
-**Valori esatti dal mockup**: due pillole 56×34px, gap 8px, border-radius 17px (capsula, = altezza/2); stato selezionato: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`; stato non selezionato: sfondo `#EAEAEA`, nessun bordo; testo in entrambi gli stati Inter 13px/Medium `#5B6472` (stesso colore, verificato — il mockup non differenzia il colore testo tra selezionato/non selezionato); label sopra Inter 11px/SemiBold `#8A93A0`, gap 4px.
+**Valori esatti dal mockup**: due pillole 56×34px, gap 8px, border-radius 17px (capsula, = altezza/2); testo in entrambi gli stati Inter 13px/Medium `#5B6472` (stesso colore, verificato — il mockup non differenzia il colore testo tra selezionato/non selezionato); label sopra Inter 11px/SemiBold `#8A93A0`, gap 4px.
+
+**Fix (2026-07-15)**: colori di selezione invertiti su richiesta esplicita dell'utente rispetto alla prima misurazione dal mockup — stato **selezionato**: sfondo `#EAEAEA` (grigio), bordo 1px `#E5EAF0`; stato **non selezionato**: sfondo `#FFFFFF`, nessun bordo. Vale per ogni uso del componente (es. "Certificazione gas" in Dipendenti, "Sponda idraulica" in Camion), non solo per quello segnalato.
 
 ## DatePicker
 
@@ -401,6 +407,31 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 4. Usalo con `load_lucide_icon("<nome-lucide>", colore, size)`.
 
 **Nota tecnica — perché non un semplice `QPixmap`**: la prima versione renderizzava l'SVG una volta sola in un `QPixmap` a dimensione fissa, che appariva sgranato su schermi Retina/HiDPI. `load_lucide_icon` ora restituisce un `QIcon` sostenuto da un `QIconEngine` custom (`_LucideIconEngine` in `icons.py`) che ridisegna l'SVG dal vettore ogni volta che Qt lo richiede, alla risoluzione effettiva — non un raster in cache. Qualunque nuovo loader di asset SVG dovrebbe seguire lo stesso pattern.
+
+## Lacune candidate nella libreria (non ancora verificate, da controllare quando servono davvero)
+
+Annotate durante la pianificazione delle pagine Dipendenti/Camion/Ordini/Viaggi (2026-07-15), non
+ancora affrontate — segnate qui perché non spariscano con la fine di quella sessione:
+
+- **Errore di validazione inline su un campo form** (es. "Peso massimo" del modale Camion — Aggiungi
+  digitato non numerico): nessun componente esistente mostra un messaggio di errore sotto/accanto
+  a un `TextField`. Prima di inventare una label rossa ad-hoc dentro una pagina, verificare contro
+  Sketch se esiste già una convenzione visiva per questo caso (in questo mockup o in altri form,
+  es. Autenticazione) — se sì, va costruito come componente riusabile seguendo il processo qui
+  sotto, non duplicato pagina per pagina.
+- **Flusso "Importa CSV" a due passi** (selezione file → riepilogo risultato/errori, artboard
+  "Ordini — Importa CSV — Seleziona file"/"— Risultato"): non esiste ancora né un componente
+  file-picker né un componente per mostrare l'elenco di `ErroreImport(riga, messaggio)` dopo un
+  `importa_ordini()`. Da trattare come nuovo componente (o coppia di componenti) quando si arriva
+  alla pagina Ordini, non come markup inline nella pagina.
+- **Messaggio di errore/conferma quando un'operazione viene rifiutata dal backend** (es.
+  `licenzia_dipendente`/`disattiva_camion`/`elimina_squadra` rifiutano con `ok=False, motivo=...`
+  se la risorsa è coinvolta in un viaggio non concluso): nessun componente di libreria per
+  mostrarlo. In `gui/pages/dipendenti.py` per ora si usa un `QMessageBox.warning()` nativo
+  (funzionale ma non uno stile Sketch) — trovato perché senza feedback il pulsante "elimina"
+  sembrava non fare nulla quando il backend rifiutava silenziosamente. Se lo stesso caso si
+  ripete per Camion/Squadre/Viaggi, vale la pena farne un componente riusabile invece di
+  ripetere `QMessageBox` pagina per pagina.
 
 ## Aggiungere un componente nuovo
 

@@ -87,6 +87,16 @@ def test_select_scegliere_una_voce_del_menu_emette_value_changed(app):
     assert ricevuti == ["Camion"]
 
 
+def test_select_box_sizehint_non_tronca_il_contenuto(app):
+    # Regressione (2026-07-15): QPushButton.sizeHint() di default si basa su text()/icon()
+    # propri (entrambi vuoti su _SelectBox, il contenuto vero vive nel layout interno), quindi
+    # senza l'override risultava troppo stretto e troncava/nascondeva il testo in qualunque
+    # layout che non forzasse una larghezza esplicita (bug reale trovato su gui/pages/dipendenti.py).
+    select = Select("Stato", options=["Attivo", "In viaggio", "Cessato"], placeholder="Cessato")
+    assert select._box.sizeHint() == select._box.layout().sizeHint()
+    assert select._box.sizeHint().width() >= select._box.text_label.sizeHint().width()
+
+
 # --- BooleanToggle ---------------------------------------------------------------------
 
 
