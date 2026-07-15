@@ -87,6 +87,12 @@ def test_select_scegliere_una_voce_del_menu_emette_value_changed(app):
     assert ricevuti == ["Camion"]
 
 
+def test_select_box_sizehint_non_tronca_il_contenuto(app):
+    select = Select("Stato", options=["Attivo", "In viaggio", "Cessato"], placeholder="Cessato")
+    assert select._box.sizeHint() == select._box.layout().sizeHint()
+    assert select._box.sizeHint().width() >= select._box.text_label.sizeHint().width()
+
+
 # --- BooleanToggle ---------------------------------------------------------------------
 
 

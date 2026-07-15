@@ -50,9 +50,11 @@ TOGGLE_PILL_WIDTH = 56
 TOGGLE_PILL_HEIGHT = 34
 TOGGLE_GAP = 8
 TOGGLE_RADIUS = 17
-TOGGLE_SELECTED_BG = "#FFFFFF"
+# Invertito su richiesta esplicita dell'utente: il grigio rappresenta lo stato selezionato,
+# non il contrario come misurato inizialmente dal mockup.
+TOGGLE_SELECTED_BG = "#EAEAEA"
 TOGGLE_SELECTED_BORDER = "#E5EAF0"
-TOGGLE_UNSELECTED_BG = "#EAEAEA"
+TOGGLE_UNSELECTED_BG = "#FFFFFF"
 
 
 def _field_font() -> QFont:
@@ -181,6 +183,13 @@ class _SelectBox(QPushButton):
             }}
             """
         )
+
+    def sizeHint(self) -> QSize:
+        # QPushButton calcola da solo un sizeHint basato su text()/icon() (entrambi vuoti qui,
+        # il contenuto vero vive nel layout interno) - senza questo override risulta troppo
+        # piccolo e comprime testo/icona sotto la larghezza reale, stesso motivo per cui Button
+        # ha lo stesso override (vedi button.py).
+        return self.layout().sizeHint()
 
 
 class Select(QWidget):

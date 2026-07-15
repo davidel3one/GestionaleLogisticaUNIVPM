@@ -107,7 +107,9 @@ tabella.pageChanged.connect(lambda pagina: ...)                # riquery server-
 | `LINK` | identificativi (`#1040`, `V-20260707-01`) | sempre blu `#2563C9`, SemiBold — solo visivo, nessun'interazione integrata |
 | `STATUS_BADGE` | stato con pillola colorata | mappatura valore→(bg,testo) tramite `ColumnDef.status_colors` (dict), unita a una palette di default già pronta per 7 valori comuni (`Consegnato`/`Attivo`→verde, `Fallito`→rosso, `In consegna`→ambra, `Da pianificare`→grigio, `Pianificato`/`Proposto`→blu) — valori non mappati cadono sul grigio neutro |
 | `BOOLEAN_BADGE` | flag sì/no (es. certificazione gas, sponda idraulica) | vero→pillola grigia con `true_label` (default "Sì"); falso→testo semplice con `false_label` (default "No", usa "—" se serve) |
-| `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale — non limitato a modifica/elimina |
+| `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale, `predicate: Callable[[dict], bool]` opzionale — non limitato a modifica/elimina |
+
+**Fix — azioni condizionali per riga**: aggiunto `RowAction.predicate` — se impostato, l'icona compare solo per le righe dove `predicate(row)` è `True` (le altre non la mostrano affatto, non solo disabilitata). Introdotto per Camion: "elimina" (dismetti) visibile solo per righe non-Dismesso, "ripristina" (`rotate-ccw`) visibile solo per righe Dismesso — due `RowAction` sulla stessa colonna, mutuamente esclusive per stato riga, invece di un'unica icona che cambia comportamento.
 
 **Personalizzazione**: `ColumnDef.width` (larghezza fissa in px) oppure `ColumnDef.stretch` (fattore di stretch, colonne più larghe in proporzione) — non impostare entrambi sulla stessa colonna, `width` vince se presente. `status_colors` sulla singola colonna sovrascrive/estende la palette di default senza doverla ridefinire tutta.
 
@@ -145,6 +147,14 @@ modal.show_over(main_window)                    # mostra l'overlay sopra main_wi
 - Margine close-button: assunto a soglia (`>= 900` → 32px, altrimenti 24px) perché nel mockup sono verificate solo le due famiglie di larghezza; se in futuro si introduce una terza larghezza, va verificato nel mockup e non assunto per estrapolazione.
 
 **Personalizzazione**: nessuna, oltre a `title`/`subtitle`/`width`/`footer_buttons` — tutto il resto (colori, radius, spaziature dell'header/footer) è fisso perché replica il mockup, sullo stesso principio di `Button`.
+
+**Fix — griglia 2 colonne nei form**: ogni modale "Aggiungi"/"Modifica" ispezionato nel mockup (es.
+"Camion — Aggiungi") dispone i campi in una griglia a 2 colonne (es. Targa/Tipo mezzo affiancati),
+non impilati verticalmente. Helper condiviso `riga_2_colonne(sinistra, destra)` in
+`gui/pages/_form_layout.py` (non in `gui/components/`, e' specifico all'assemblaggio dei modali
+nelle pagine): ritorna un `QHBoxLayout` con 2 campi a stretch uguale, o 1 campo + spazio vuoto se
+`destra=None` (riga con un solo campo). Usare `modale.content_layout.addLayout(riga_2_colonne(...))`
+invece di `modale.add_widget(...)` per ogni campo quando si costruisce un nuovo modale form.
 
 ## TextField
 
@@ -184,6 +194,8 @@ tipo.valueChanged.connect(...)
 
 **Nota storica**: nella prima iterazione Multiselect e Date Picker erano stati rimandati (nessun frame del mockup li mostra aperti). L'utente ha poi deciso esplicitamente come implementarli senza aggiornare il mockup — vedi `## DatePicker` e `## MultiSelect` più sotto: non sono assunzioni di questa libreria, sono scelte confermate dall'utente.
 
+**Fix — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra).
+
 ## BooleanToggle
 
 `BooleanToggle(label: str, parent=None)` — sottoclasse di `QWidget`: label sopra + due pillole affiancate "Sì"/"No" (etichette fisse, **non** un segmented control generico a N opzioni — nel mockup è specificamente un toggle booleano).
@@ -197,7 +209,9 @@ sponda.valueChanged.connect(...)
 - `toggle.set_value(True | False)` — seleziona programmaticamente la pillola corrispondente.
 - `toggle.valueChanged` — `Signal(bool)`, emesso al click su una pillola o a `set_value()` esplicito.
 
-**Valori esatti dal mockup**: due pillole 56×34px, gap 8px, border-radius 17px (capsula, = altezza/2); stato selezionato: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`; stato non selezionato: sfondo `#EAEAEA`, nessun bordo; testo in entrambi gli stati Inter 13px/Medium `#5B6472` (stesso colore, verificato — il mockup non differenzia il colore testo tra selezionato/non selezionato); label sopra Inter 11px/SemiBold `#8A93A0`, gap 4px.
+**Valori esatti dal mockup**: due pillole 56×34px, gap 8px, border-radius 17px (capsula, = altezza/2); testo in entrambi gli stati Inter 13px/Medium `#5B6472` (stesso colore, verificato — il mockup non differenzia il colore testo tra selezionato/non selezionato); label sopra Inter 11px/SemiBold `#8A93A0`, gap 4px.
+
+**Fix**: colori di selezione invertiti su richiesta esplicita dell'utente rispetto alla prima misurazione dal mockup — stato **selezionato**: sfondo `#EAEAEA` (grigio), bordo 1px `#E5EAF0`; stato **non selezionato**: sfondo `#FFFFFF`, nessun bordo. Vale per ogni uso del componente (es. "Sponda idraulica" in Camion).
 
 ## DatePicker
 
@@ -361,6 +375,21 @@ ricerca.searchChanged.connect(lambda testo: ...)  # riquery/filtro lato chiamant
 **File a parte, non in `form_field.py` — motivo**: struttura diversa dagli altri field (niente label sopra, icona *dentro* il campo → un contenitore `QFrame` con la chrome + icona + `QLineEdit` senza bordo, invece di stilizzare direttamente il widget nativo con label sopra). La **chrome è però identica** a `TextField` e i token (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS`/`FIELD_HEIGHT`/`FIELD_PADDING_H`/`FIELD_TEXT_COLOR`) e l'helper `_field_font` sono **importati** da `form_field.py`, non ridefiniti.
 
 **Valori esatti dal mockup**: contenitore sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, padding orizzontale 12px; testo/placeholder Inter 13px/Medium `#5B6472` (stesso trattamento `QPalette::PlaceholderText` di `TextField`, così il placeholder non viene schiarito da Qt); icona `search` **`#8A93A0`** (= `LABEL_COLOR`), 16×16, a sinistra con gap 8px dal testo.
+
+## LinkButton
+
+`LinkButton(text: str, icon_name: str, parent=None)` — sottoclasse di `QPushButton` in `gui/components/link_button.py`: icona Lucide + testo in stile link (nessuno sfondo/bordo), usato per "Ripristina filtri" nelle Filter Card.
+
+```python
+link = LinkButton("Ripristina filtri", "rotate-ccw")
+link.clicked.connect(self._ripristina_filtri)  # segnale nativo QPushButton, nessun segnale custom
+```
+
+**Verificato nel mockup**: presente identico (stesso font/colore) in più artboard con Filter Card — non solo Camion, lo stesso elemento ricorre ovunque c'è una lista filtrata. Da usare fin dall'inizio in ogni nuova pagina lista (non un workaround ad-hoc tipo opzione "Tutti" dentro le tendine).
+
+**Valori esatti dal mockup**: icona 13×13, gap 6px dal testo, testo Inter-Medium 13px, colore `#2563C9` (stesso blu di `Button` PRIMARY) sia per icona che testo. Icona usata: `rotate-ccw`.
+
+**Assunzione segnalata**: stato hover non disegnato nel mockup (solo a riposo) — derivato scurendo il colore del testo (stesso principio di `Button._darken`), non misurato.
 
 ## EmptyState
 

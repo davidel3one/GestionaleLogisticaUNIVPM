@@ -9,6 +9,7 @@ from gestionale_logistica.gui.components.form_field import (
     TextField,
 )
 from gestionale_logistica.gui.components.icons import load_lucide_icon
+from gestionale_logistica.gui.components.link_button import LinkButton
 from gestionale_logistica.gui.components.modal import Modal
 from gestionale_logistica.gui.components.page_header import PageHeader
 from gestionale_logistica.gui.components.search_field import SearchField
@@ -32,6 +33,7 @@ __all__ = [
     "ColumnType",
     "DatePicker",
     "EmptyState",
+    "LinkButton",
     "Modal",
     "MultiSelect",
     "PageHeader",

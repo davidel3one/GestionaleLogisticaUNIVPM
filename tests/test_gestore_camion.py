@@ -1,8 +1,16 @@
 from datetime import datetime
 
+import pytest
+
 from gestionale_logistica.database.enums import StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Squadra, Viaggio
-from gestionale_logistica.risorse.gestore_camion import GestoreCamion
+from gestionale_logistica.risorse.gestore_camion import (
+    FILTRO_TUTTI,
+    STATO_ATTIVO,
+    STATO_DISMESSO,
+    STATO_IN_VIAGGIO,
+    GestoreCamion,
+)
 
 
 def test_inserisci_camion(session_factory):
@@ -31,6 +39,31 @@ def test_inserisci_camion_id_duplicato_rifiutato(session_factory):
 
     assert not risultato.ok
     assert "gia'" in risultato.motivo
+
+
+@pytest.mark.parametrize(
+    "targa_non_valida",
+    ["AB123C", "A1234BC", "AB1234C", "AB123CDE", "1B123CD", "", "AB-123-CD"],
+)
+def test_inserisci_camion_targa_mal_formata_rifiutata(session_factory, targa_non_valida):
+    gestore = GestoreCamion(session_factory)
+
+    risultato = gestore.inserisci_camion(
+        "C1", targa_non_valida, "Furgone", datetime(2020, 1, 1), 100.0, 5.0
+    )
+
+    assert not risultato.ok
+    assert "non valida" in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Camion, "C1") is None
+
+
+def test_inserisci_camion_targa_minuscola_ammessa(session_factory):
+    gestore = GestoreCamion(session_factory)
+
+    risultato = gestore.inserisci_camion("C1", "ab123cd", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+
+    assert risultato.ok
 
 
 def test_inserisci_camion_targa_duplicata_rifiutata(session_factory):
@@ -67,6 +100,18 @@ def test_modifica_camion_targa_duplicata_rifiutata(session_factory):
     assert "Targa" in risultato.motivo
     with session_factory() as session:
         assert session.get(Camion, "C2").targa == "XY999ZZ"
+
+
+def test_modifica_camion_targa_mal_formata_rifiutata(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+
+    risultato = gestore.modifica_camion("C1", targa="INVALIDA")
+
+    assert not risultato.ok
+    assert "non valida" in risultato.motivo
+    with session_factory() as session:
+        assert session.get(Camion, "C1").targa == "AB123CD"
 
 
 def test_modifica_camion_non_espone_un_parametro_id(session_factory):
@@ -114,6 +159,39 @@ def test_disattiva_camion_inesistente_rifiutato(session_factory):
     gestore = GestoreCamion(session_factory)
 
     risultato = gestore.disattiva_camion("INESISTENTE")
+
+    assert not risultato.ok
+    assert "non trovato" in risultato.motivo
+
+
+def test_riattiva_camion(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+    gestore.disattiva_camion("C1", datetime(2026, 7, 20))
+
+    risultato = gestore.riattiva_camion("C1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        mezzo = session.get(Camion, "C1")
+        assert mezzo.flg_attivo is True
+        assert mezzo.data_dismissione is None
+
+
+def test_riattiva_camion_gia_attivo_rifiutato(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+
+    risultato = gestore.riattiva_camion("C1")
+
+    assert not risultato.ok
+    assert "gia'" in risultato.motivo
+
+
+def test_riattiva_camion_inesistente_rifiutato(session_factory):
+    gestore = GestoreCamion(session_factory)
+
+    risultato = gestore.riattiva_camion("INESISTENTE")
 
     assert not risultato.ok
     assert "non trovato" in risultato.motivo
@@ -243,3 +321,134 @@ def test_disattiva_camion_rifiutato_se_coinvolto_in_viaggio_in_corso(session_fac
     assert not risultato.ok
     with session_factory() as session:
         assert session.get(Camion, "CAM1").flg_attivo is True
+
+
+def test_visualizza_camion_su_db_vuoto(session_factory):
+    gestore = GestoreCamion(session_factory)
+
+    pagina = gestore.visualizza_camion()
+
+    assert pagina.camion == []
+    assert pagina.totale == 0
+
+
+def test_visualizza_camion_campi(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion(
+        "C1", "AB123CD", "Furgone", datetime(2020, 1, 1), peso_massimo=1200.0,
+        volume_massimo=8.0, flg_sponda_idraulica=True,
+    )
+
+    pagina = gestore.visualizza_camion()
+
+    assert pagina.totale == 1
+    riga = pagina.camion[0]
+    assert riga.id == "C1"
+    assert riga.targa == "AB123CD"
+    assert riga.tipo_mezzo == "Furgone"
+    assert riga.peso_massimo == 1200.0
+    assert riga.volume_massimo == 8.0
+    assert riga.flg_sponda_idraulica is True
+    assert riga.data_acquisizione == datetime(2020, 1, 1)
+    assert riga.stato == STATO_ATTIVO
+
+
+def test_visualizza_camion_stato_in_viaggio_solo_per_composizione_in_corso(session_factory):
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(crea_dipendente("D1"))
+        session.add(crea_dipendente("D2"))
+        session.add(
+            ComposizioneSquadra(
+                id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+                dipendente_1_id="D1", dipendente_2_id="D2",
+                data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+            )
+        )
+        session.add(
+            Viaggio(
+                id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
+            )
+        )
+        session.commit()
+
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("CAM1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+
+    pagina = gestore.visualizza_camion()
+
+    assert pagina.camion[0].stato == STATO_IN_VIAGGIO
+
+
+def test_visualizza_camion_stato_dismesso(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+    gestore.disattiva_camion("C1")
+
+    pagina = gestore.visualizza_camion()
+
+    assert pagina.camion[0].stato == STATO_DISMESSO
+
+
+def test_visualizza_camion_ricerca_su_targa_e_tipo_mezzo(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+    gestore.inserisci_camion("C2", "XY999ZZ", "Motrice", datetime(2020, 1, 1), 200.0, 10.0)
+
+    assert [r.id for r in gestore.visualizza_camion(ricerca="ab123").camion] == ["C1"]
+    assert [r.id for r in gestore.visualizza_camion(ricerca="motrice").camion] == ["C2"]
+    assert gestore.visualizza_camion(ricerca="nessuno").camion == []
+
+
+def test_visualizza_camion_filtro_tipo(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+    gestore.inserisci_camion("C2", "XY999ZZ", "Motrice", datetime(2020, 1, 1), 200.0, 10.0)
+
+    pagina = gestore.visualizza_camion(filtro_tipo="Furgone")
+
+    assert [r.id for r in pagina.camion] == ["C1"]
+
+
+def test_visualizza_camion_filtro_stato(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
+    gestore.inserisci_camion("C2", "XY999ZZ", "Motrice", datetime(2020, 1, 1), 200.0, 10.0)
+    gestore.disattiva_camion("C2")
+
+    solo_attivi = gestore.visualizza_camion(filtro_stato=STATO_ATTIVO).camion
+    solo_dismessi = gestore.visualizza_camion(filtro_stato=STATO_DISMESSO).camion
+    tutti = gestore.visualizza_camion(filtro_stato=FILTRO_TUTTI).camion
+
+    assert [r.id for r in solo_attivi] == ["C1"]
+    assert [r.id for r in solo_dismessi] == ["C2"]
+    assert len(tutti) == 2
+
+
+def test_visualizza_camion_ordinamento_per_data_acquisizione(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2022, 1, 1), 100.0, 5.0)
+    gestore.inserisci_camion("C2", "XY999ZZ", "Motrice", datetime(2020, 1, 1), 200.0, 10.0)
+
+    crescente = gestore.visualizza_camion().camion
+    decrescente = gestore.visualizza_camion(decrescente=True).camion
+
+    assert [r.id for r in crescente] == ["C2", "C1"]
+    assert [r.id for r in decrescente] == ["C1", "C2"]
+
+
+def test_visualizza_camion_paginazione(session_factory):
+    gestore = GestoreCamion(session_factory)
+    for i in range(5):
+        gestore.inserisci_camion(
+            f"C{i}", f"TG{i:03d}AA", "Furgone", datetime(2020, 1, 1 + i), 100.0, 5.0
+        )
+
+    pagina_1 = gestore.visualizza_camion(pagina=1, dimensione_pagina=2)
+    pagina_2 = gestore.visualizza_camion(pagina=2, dimensione_pagina=2)
+
+    assert pagina_1.totale == 5
+    assert [r.id for r in pagina_1.camion] == ["C0", "C1"]
+    assert [r.id for r in pagina_2.camion] == ["C2", "C3"]
