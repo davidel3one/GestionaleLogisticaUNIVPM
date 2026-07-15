@@ -1,24 +1,47 @@
 import csv
 from concurrent.futures import Future
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from gestionale_logistica.concorrenza import esegui_in_background
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.crud_base import CRUDBase
 from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
-from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Viaggio
+from gestionale_logistica.database.models import (
+    Camion,
+    ComposizioneSquadra,
+    Dipendente,
+    Ordine,
+    Viaggio,
+)
 from gestionale_logistica.logistica.geocoding import geocodifica_comune
 
 COLONNE_ATTESE = ["ID_Ordine", "Cliente", "Indirizzo", "Categoria", "Peso", "Volume", "Provincia"]
 
 ordine = CRUDBase[Ordine](Ordine)
 viaggio = CRUDBase[Viaggio](Viaggio)
+
+FILTRO_TUTTI = "Tutti"
+
+# Etichette italiane per la lista Viaggi: gli enum StatoViaggio hanno valori CamelCase
+# ("InComposizione") pensati per la persistenza, non per la UI. Non c'e' un campo "stato" derivato
+# gia' in italiano come per Dipendenti/Camion (lo stato del viaggio e' gia' un campo diretto del
+# modello), quindi serve una mappa esplicita anche per il testo, non solo per il colore.
+STATO_VIAGGIO_LABELS: dict[StatoViaggio, str] = {
+    StatoViaggio.IN_COMPOSIZIONE: "In composizione",
+    StatoViaggio.PIANIFICATO: "Pianificato",
+    StatoViaggio.IN_CORSO: "In corso",
+    StatoViaggio.COMPLETATO: "Completato",
+    StatoViaggio.ANNULLATO: "Annullato",
+}
+
+ORDINA_PER_PARTENZA = "data_partenza_prevista"
+ORDINA_PER_ARRIVO = "data_arrivo_prevista"
 
 
 def _righe_da_xlsx(percorso_file: Path) -> tuple[list[str] | None, list[dict[str, str | None]]]:
@@ -65,6 +88,24 @@ class RisultatoOperazioneViaggio:
     ok: bool
     viaggio_id: str | None = None
     motivo: str | None = None
+
+
+@dataclass
+class ViaggioVista:
+    id: str
+    squadra_id: str
+    n_ordini: int
+    data_partenza_prevista: datetime
+    data_arrivo_prevista: datetime
+    stato: str
+
+
+@dataclass
+class PaginaViaggi:
+    """Pagina di risultati di visualizza_viaggi: solo la fetta richiesta + il totale filtrato."""
+
+    viaggi: list[ViaggioVista]
+    totale: int
 
 
 def verifica_idoneita_risorsa(ordine: Ordine, camion: Camion, dipendenti: list[Dipendente]) -> bool:
@@ -405,3 +446,164 @@ class GestoreLogistica:
                 viaggio.stato_viaggio = StatoViaggio.IN_CORSO
             session.commit()
             return [viaggio.id for viaggio in viaggi_da_avviare]
+
+    def visualizza_viaggi(
+        self,
+        ricerca: str | None = None,
+        filtro_stato: str = FILTRO_TUTTI,
+        filtro_data: date | None = None,
+        pagina: int = 1,
+        dimensione_pagina: int = 20,
+        decrescente: bool = False,
+        ordina_per: str = ORDINA_PER_PARTENZA,
+    ) -> PaginaViaggi:
+        """Elenco filtrato/ordinato/paginato dei viaggi. Filtri: ricerca testuale (id viaggio o
+        squadra), filtro stato (Tutti/In composizione/Pianificato/In corso/Completato/Annullato),
+        filtro su un giorno esatto di data_partenza_prevista, ordinamento su partenza O arrivo
+        (entrambe le colonne sono sortable nel mockup, non solo una come per Dipendenti/Camion),
+        paginazione server-side. N. ordini calcolato con una query aggregata (func.count via
+        outerjoin, stessa tecnica di dettaglio_squadra in gestore_squadre.py - niente N+1)."""
+        with self.session_factory() as session:
+            squadra_per_composizione = dict(
+                session.execute(
+                    select(ComposizioneSquadra.id_composizione, ComposizioneSquadra.squadra_id)
+                ).all()
+            )
+
+            righe_grezze = session.execute(
+                select(
+                    Viaggio.id,
+                    Viaggio.composizione_id,
+                    Viaggio.stato_viaggio,
+                    Viaggio.data_partenza_prevista,
+                    Viaggio.data_arrivo_prevista,
+                    func.count(Ordine.id),
+                )
+                .outerjoin(Ordine, Ordine.viaggio_id == Viaggio.id)
+                .group_by(
+                    Viaggio.id,
+                    Viaggio.composizione_id,
+                    Viaggio.stato_viaggio,
+                    Viaggio.data_partenza_prevista,
+                    Viaggio.data_arrivo_prevista,
+                )
+            ).all()
+
+            righe = [
+                ViaggioVista(
+                    id=r[0],
+                    squadra_id=squadra_per_composizione.get(r[1], "—"),
+                    n_ordini=r[5],
+                    data_partenza_prevista=r[3],
+                    data_arrivo_prevista=r[4],
+                    stato=STATO_VIAGGIO_LABELS[r[2]],
+                )
+                for r in righe_grezze
+            ]
+
+            campo_ordinamento = (
+                (lambda r: r.data_arrivo_prevista)
+                if ordina_per == ORDINA_PER_ARRIVO
+                else (lambda r: r.data_partenza_prevista)
+            )
+            righe.sort(key=campo_ordinamento, reverse=decrescente)
+
+            if filtro_stato and filtro_stato != FILTRO_TUTTI:
+                righe = [r for r in righe if r.stato == filtro_stato]
+
+            if filtro_data is not None:
+                righe = [r for r in righe if r.data_partenza_prevista.date() == filtro_data]
+
+            if ricerca:
+                termine = ricerca.strip().lower()
+                if termine:
+                    righe = [
+                        r
+                        for r in righe
+                        if termine in r.id.lower() or termine in r.squadra_id.lower()
+                    ]
+
+            totale = len(righe)
+            if dimensione_pagina > 0:
+                inizio = max(pagina - 1, 0) * dimensione_pagina
+                righe = righe[inizio : inizio + dimensione_pagina]
+
+            return PaginaViaggi(viaggi=righe, totale=totale)
+
+    def annulla_viaggio(self, viaggio_id: str) -> RisultatoOperazioneViaggio:
+        """Annulla un viaggio (soft-mark ANNULLATO), consentito anche da IN_CORSO - non solo da
+        IN_COMPOSIZIONE/PIANIFICATO - bloccato solo se gia' COMPLETATO o gia' ANNULLATO (decisione
+        esplicita dell'utente, diverso dal blocco piu' stretto di licenzia_dipendente/
+        disattiva_camion). Gli Ordine agganciati tornano RICEVUTO con viaggio_id=None, stesso
+        comportamento gia' usato in GestoreRendicontazione.registra_esito per un esito Fallito
+        (pattern esistente riusato, non reinventato)."""
+        with self.session_factory() as session:
+            viaggio_obj = session.get(Viaggio, viaggio_id)
+            if viaggio_obj is None:
+                return RisultatoOperazioneViaggio(ok=False, motivo=f"Viaggio '{viaggio_id}' non trovato")
+            if viaggio_obj.stato_viaggio in (StatoViaggio.COMPLETATO, StatoViaggio.ANNULLATO):
+                return RisultatoOperazioneViaggio(
+                    ok=False,
+                    motivo=f"Impossibile annullare: viaggio gia' {STATO_VIAGGIO_LABELS[viaggio_obj.stato_viaggio].lower()}",
+                )
+
+            for o in viaggio_obj.ordini:
+                o.stato_ordine = StatoOrdine.RICEVUTO
+                o.viaggio_id = None
+
+            viaggio_obj.stato_viaggio = StatoViaggio.ANNULLATO
+            session.commit()
+            return RisultatoOperazioneViaggio(ok=True, viaggio_id=viaggio_id)
+
+    def modifica_date_viaggio(
+        self,
+        viaggio_id: str,
+        data_partenza_prevista: datetime | None = None,
+        data_arrivo_prevista: datetime | None = None,
+    ) -> RisultatoOperazioneViaggio:
+        """Modifica minimale non presente nel mockup Sketch: non esiste un artboard "Viaggi —
+        Modifica (modale)" ne' un'operazione di modifica viaggio nelle RF - l'icona matita in
+        tabella e' disegnata ma senza specifica. Su decisione esplicita dell'utente, l'icona apre
+        un modale minimale che permette di correggere solo le due date previste (l'unico dato
+        semplice modificabile senza toccare composizione/ordini, fuori scope qui). Bloccata se il
+        viaggio e' gia' COMPLETATO o ANNULLATO (stesso principio di annulla_viaggio: uno stato
+        terminale non si corregge piu')."""
+        with self.session_factory() as session:
+            viaggio_obj = session.get(Viaggio, viaggio_id)
+            if viaggio_obj is None:
+                return RisultatoOperazioneViaggio(ok=False, motivo=f"Viaggio '{viaggio_id}' non trovato")
+            if viaggio_obj.stato_viaggio in (StatoViaggio.COMPLETATO, StatoViaggio.ANNULLATO):
+                return RisultatoOperazioneViaggio(
+                    ok=False,
+                    motivo=f"Impossibile modificare: viaggio gia' {STATO_VIAGGIO_LABELS[viaggio_obj.stato_viaggio].lower()}",
+                )
+
+            if data_partenza_prevista is not None:
+                viaggio_obj.data_partenza_prevista = data_partenza_prevista
+            if data_arrivo_prevista is not None:
+                viaggio_obj.data_arrivo_prevista = data_arrivo_prevista
+
+            session.commit()
+            return RisultatoOperazioneViaggio(ok=True, viaggio_id=viaggio_id)
+
+    def ripristina_viaggio(self, viaggio_id: str) -> RisultatoOperazioneViaggio:
+        """Annulla un annullamento fatto per errore. Non esiste uno stato "precedente" salvato
+        (poteva essere IN_COMPOSIZIONE, PIANIFICATO o IN_CORSO) e gli Ordine staccati da
+        annulla_viaggio() non vengono ricollegati automaticamente (potrebbero nel frattempo essere
+        stati presi da un altro viaggio) - su decisione esplicita dell'utente il viaggio torna
+        sempre a IN_COMPOSIZIONE, l'unico stato che ammette 0 ordini senza violare l'invariante di
+        chiudi_composizione_viaggio ("richiede almeno un ordine" per passare a PIANIFICATO).
+        L'operatore poi ri-aggancia gli ordini a mano con aggiungi_ordine_a_viaggio()."""
+        with self.session_factory() as session:
+            viaggio_obj = session.get(Viaggio, viaggio_id)
+            if viaggio_obj is None:
+                return RisultatoOperazioneViaggio(ok=False, motivo=f"Viaggio '{viaggio_id}' non trovato")
+            if viaggio_obj.stato_viaggio != StatoViaggio.ANNULLATO:
+                return RisultatoOperazioneViaggio(
+                    ok=False,
+                    motivo=f"Impossibile ripristinare: viaggio non annullato (gia' {STATO_VIAGGIO_LABELS[viaggio_obj.stato_viaggio].lower()})",
+                )
+
+            viaggio_obj.stato_viaggio = StatoViaggio.IN_COMPOSIZIONE
+            session.commit()
+            return RisultatoOperazioneViaggio(ok=True, viaggio_id=viaggio_id)
