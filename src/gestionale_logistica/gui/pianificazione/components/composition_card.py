@@ -1,9 +1,10 @@
 """CompositionCard: card "Viaggio in composizione", condivisa da Pianificazione — Manuale
 (RF10/RF11) e Assistita (RF12) — stesso layout misurato su entrambi i mockup Sketch: intestazione
-(squadra/camion/partenza), barre Peso/Volume, elenco ordini nel viaggio (con badge categoria),
-sezione "Aggiungi ordine" (tabella paginata di candidati, non la select del mockup — vedi nota
-su `_CANDIDATI_TABLE_COLUMNS`), messaggio di rifiuto opzionale (RF11), footer Annulla/Chiudi
-viaggio.
+(squadra/camion/partenza), barre Peso/Volume, elenco "Ordini nel viaggio" e sezione "Aggiungi
+ordine" (entrambe la stessa Table - stesse colonne Ordine/Cliente/Peso/Volume/Categoria, vedi
+`_ORDINE_TABLE_COLUMNS`) - non la select/le righe di testo del mockup: deviazione concordata
+con l'utente 2026-07-16/17, stesso motivo di leggibilita' gia' affrontato in SuggestionSection.
+Messaggio di rifiuto opzionale (RF11), footer Annulla/Chiudi viaggio.
 
 `add_extra_section(widget)` inserisce un blocco aggiuntivo prima della sezione "Aggiungi ordine"
 (usato da Assistita per il blocco "Suggerimento automatico" — non ancora costruito)."""
@@ -12,9 +13,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from gestionale_logistica.gui.components import (
     Button,
@@ -26,7 +27,6 @@ from gestionale_logistica.gui.components import (
     RowAction,
     Table,
     Tooltip,
-    load_lucide_icon,
 )
 from gestionale_logistica.gui.components.table import FOOTER_HEIGHT, HEADER_HEIGHT, ROW_HEIGHT
 
@@ -39,24 +39,22 @@ BAR_WIDTH = 350
 BAR_HEIGHT = 7
 BAR_COLUMN_GAP = 46
 
-# Icona "annulla inserimento" (undo-2) per le righe di "Ordini nel viaggio": non nel mockup
-# (nessun frame la disegna), stessa dimensione/stile dei bottoni icona di Table (28px, sfondo
-# trasparente, icona 14px) per coerenza con il resto dell'app - colore HINT_COLOR (gia' usato
-# per peso/volume nella stessa riga) invece di un colore nuovo.
-RIMUOVI_ICON_SIZE = 14
-RIMUOVI_BUTTON_SIZE = 28
-
 # Pagina della tabella "Aggiungi ordine": stessa dimensione di SuggestionSection.PAGE_SIZE per
 # coerenza fra le tabelle di Pianificazione (Manuale/Assistita).
 PAGE_SIZE = 20
 
-# Altezza minima della tabella "Aggiungi ordine": ~4 righe visibili prima di dover scorrere
-# (nel suo QScrollArea interno) invece di affidarsi solo allo spazio residuo della Card, che il
-# suo stesso addStretch(1) finale assorbe per intero prima che arrivi qui sotto.
+# Altezza minima delle due tabelle (candidati/ordini nel viaggio): senza un minimo esplicito la
+# QScrollArea interna di Table collassa a un'altezza minima anche con una sola riga - la Card le
+# ospita in un content_layout che termina con un addStretch(1) (vedi sotto), che assorbe da solo
+# tutto lo spazio verticale in eccesso prima che arrivi a loro. "Ordini nel viaggio" non ha
+# footer/paginazione (lista limitata alla capacita' del camion, non un elenco da scandagliare
+# come i candidati) quindi il suo minimo non include FOOTER_HEIGHT.
 _CANDIDATI_TABLE_MIN_VISIBLE_ROWS = 4
 CANDIDATI_TABLE_MIN_HEIGHT = (
     HEADER_HEIGHT + _CANDIDATI_TABLE_MIN_VISIBLE_ROWS * ROW_HEIGHT + FOOTER_HEIGHT
 )
+_ORDINI_TABLE_MIN_VISIBLE_ROWS = 3
+ORDINI_TABLE_MIN_HEIGHT = HEADER_HEIGHT + _ORDINI_TABLE_MIN_VISIBLE_ROWS * ROW_HEIGHT
 
 # "Standard" raggruppa le categorie senza vincoli particolari (BordoStrada/InstallazioneSemplice
 # AlPiano/Incasso): il mockup mostra solo badge "Standard"/"Big" — nessuna istanza con
@@ -75,12 +73,13 @@ CATEGORIA_BADGE_COLORS = {
     "Certificazione Gas": ("#FEF3C7", "#B45309"),
 }
 
-# Colonne fisse della tabella "Aggiungi ordine" (deviazione dal mockup, che mostra una select a
-# singola riga di testo: concordata con l'utente 2026-07-16 per lo stesso motivo già affrontato in
-# SuggestionSection — una select con centinaia di candidati senza peso/volume/categoria è difficile
-# da scandagliare). Stesse colonne di SuggestionSection.TABLE_COLUMNS, duplicate qui invece che
-# condivise (stesso principio di CATEGORIA_BADGE_COLORS, vedi componenti-gui.md).
-_CANDIDATI_TABLE_COLUMNS = [
+# Colonne condivise dalle due tabelle della card, "Ordini nel viaggio" e "Aggiungi ordine"
+# (deviazione dal mockup, che mostra righe di testo/una select a riga singola: concordata con
+# l'utente 2026-07-16/17 per lo stesso motivo già affrontato in SuggestionSection — senza
+# peso/volume/categoria in colonna è difficile scandagliare gli ordini). Stesse colonne di
+# SuggestionSection.TABLE_COLUMNS, duplicate qui invece che condivise (stesso principio di
+# CATEGORIA_BADGE_COLORS, vedi componenti-gui.md).
+_ORDINE_TABLE_COLUMNS = [
     ColumnDef(key="ordine_id", label="Ordine", width=90),
     ColumnDef(key="cliente", label="Cliente", stretch=2),
     ColumnDef(key="peso", label="Peso", width=90),
@@ -93,7 +92,7 @@ _CANDIDATI_TABLE_COLUMNS = [
         width=140,
     ),
 ]
-_CANDIDATI_ACTION_COLUMN_WIDTH = 40
+_ORDINE_ACTION_COLUMN_WIDTH = 40
 
 
 def _heading(text: str = "") -> QLabel:
@@ -131,38 +130,6 @@ def _divider() -> QFrame:
     line.setFixedHeight(1)
     line.setStyleSheet(f"background-color: {DIVIDER_COLOR}; border: none;")
     return line
-
-
-def _badge(categoria_label: str) -> QLabel:
-    bg, color = CATEGORIA_BADGE_COLORS.get(categoria_label, CATEGORIA_BADGE_COLORS["Standard"])
-    label = QLabel(categoria_label)
-    font = QFont("Inter")
-    font.setWeight(QFont.Weight(600))
-    font.setPixelSize(12)
-    label.setFont(font)
-    label.setFixedWidth(90)
-    label.setStyleSheet(
-        f"background-color: {bg}; color: {color}; border-radius: 7px; padding: 4px 12px;"
-    )
-    return label
-
-
-def _build_rimuovi_ordine_button(parent: QWidget) -> QPushButton:
-    button = QPushButton(parent)
-    button.setFixedSize(RIMUOVI_BUTTON_SIZE, RIMUOVI_BUTTON_SIZE)
-    button.setIcon(load_lucide_icon("undo-2", HINT_COLOR, RIMUOVI_ICON_SIZE))
-    button.setIconSize(QSize(RIMUOVI_ICON_SIZE, RIMUOVI_ICON_SIZE))
-    button.setCursor(Qt.CursorShape.PointingHandCursor)
-    button.setToolTip("Annulla inserimento")
-    button.setStyleSheet(
-        """
-        QPushButton {
-            background-color: transparent;
-            border: none;
-        }
-        """
-    )
-    return button
 
 
 @dataclass
@@ -203,10 +170,38 @@ class CompositionCard(Card):
         self._ordini_heading = _heading()
         self.content_layout.addWidget(self._ordini_heading)
 
-        self._ordini_layout = QVBoxLayout()
-        self._ordini_layout.setContentsMargins(0, 0, 0, 0)
-        self._ordini_layout.setSpacing(0)
-        self.content_layout.addLayout(self._ordini_layout)
+        # Stessa tabella (stesse colonne Ordine/Cliente/Peso/Volume/Categoria) della sezione
+        # "Aggiungi ordine" sotto - solo l'azione cambia (rimuovi al posto di aggiungi), e senza
+        # paginazione: la lista e' limitata alla capacita' del camion, non un elenco da
+        # scandagliare come i candidati (stesso motivo per cui dettaglio_viaggio_modal.py e la
+        # sezione "Ordini nel viaggio" di ViaggiPage usano show_footer=False).
+        colonne_ordini = [
+            *_ORDINE_TABLE_COLUMNS,
+            ColumnDef(
+                key="azioni",
+                label="",
+                column_type=ColumnType.ACTIONS,
+                width=_ORDINE_ACTION_COLUMN_WIDTH,
+                actions=[
+                    RowAction(
+                        "undo-2",
+                        self._on_rimuovi_clicked,
+                        color=HINT_COLOR,
+                        tooltip="Annulla inserimento",
+                        # Letto ad ogni set_rows(), non fissato alla costruzione: qui
+                        # self._mostra_rimuovi_ordine e' ancora False (impostato di default in
+                        # __init__), diventa True dopo set_rimozione_ordine_abilitata(True) -
+                        # richiamato dal chiamante (Manuale) subito dopo aver creato la card, ma
+                        # sempre prima della prima set_ordini().
+                        predicate=lambda _row: self._mostra_rimuovi_ordine,
+                    )
+                ],
+            ),
+        ]
+        self._tabella_ordini = Table(colonne_ordini, show_footer=False)
+        self._tabella_ordini.setMinimumHeight(ORDINI_TABLE_MIN_HEIGHT)
+        self._tabella_ordini.hide()
+        self.content_layout.addWidget(self._tabella_ordini)
 
         self.content_layout.addWidget(_divider())
 
@@ -234,12 +229,12 @@ class CompositionCard(Card):
         self._pagina_disponibili = 1
 
         colonne_disponibili = [
-            *_CANDIDATI_TABLE_COLUMNS,
+            *_ORDINE_TABLE_COLUMNS,
             ColumnDef(
                 key="azioni",
                 label="",
                 column_type=ColumnType.ACTIONS,
-                width=_CANDIDATI_ACTION_COLUMN_WIDTH,
+                width=_ORDINE_ACTION_COLUMN_WIDTH,
                 actions=[RowAction("circle-plus", self._on_aggiungi_clicked, tooltip="Aggiungi al viaggio")],
             ),
         ]
@@ -354,46 +349,22 @@ class CompositionCard(Card):
 
     def set_ordini(self, righe: list[RigaOrdineComposizione]) -> None:
         self._ordini_heading.setText(f"Ordini nel viaggio ({len(righe)})")
-        while self._ordini_layout.count():
-            item = self._ordini_layout.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
+        self._tabella_ordini.setVisible(bool(righe))
+        self._tabella_ordini.set_rows(
+            [
+                {
+                    "ordine_id": riga.ordine_id,
+                    "cliente": riga.cliente,
+                    "peso": f"{riga.peso:g} kg",
+                    "volume": f"{riga.volume:g} m³",
+                    "categoria_label": riga.categoria_label,
+                }
+                for riga in righe
+            ]
+        )
 
-        for indice, riga in enumerate(righe):
-            if indice > 0:
-                self._ordini_layout.addWidget(_divider())
-            self._ordini_layout.addWidget(self._build_ordine_row(riga))
-
-    def _build_ordine_row(self, riga: RigaOrdineComposizione) -> QWidget:
-        row = QWidget()
-        row.setFixedHeight(40)
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(16)
-
-        id_cliente = QLabel(f"{riga.ordine_id}  ·  {riga.cliente}")
-        id_font = QFont("Inter")
-        id_font.setWeight(QFont.Weight(500))
-        id_font.setPixelSize(12)
-        id_cliente.setFont(id_font)
-        id_cliente.setStyleSheet(f"color: {TITLE_COLOR}; background: transparent;")
-        layout.addWidget(id_cliente, 1)
-
-        peso_volume = _hint(f"{riga.peso:g} kg · {riga.volume:g} m³")
-        peso_volume.setFixedWidth(140)
-        layout.addWidget(peso_volume)
-
-        layout.addWidget(_badge(riga.categoria_label))
-
-        if self._mostra_rimuovi_ordine:
-            rimuovi_button = _build_rimuovi_ordine_button(row)
-            rimuovi_button.clicked.connect(
-                lambda checked=False, ordine_id=riga.ordine_id: self.rimuoviOrdineRequested.emit(ordine_id)
-            )
-            layout.addWidget(rimuovi_button)
-
-        return row
+    def _on_rimuovi_clicked(self, row: dict) -> None:
+        self.rimuoviOrdineRequested.emit(row["ordine_id"])
 
     def set_rimozione_ordine_abilitata(self, abilitata: bool) -> None:
         """Mostra un'icona "annulla inserimento" (freccia indietro `undo-2`) per ogni riga di

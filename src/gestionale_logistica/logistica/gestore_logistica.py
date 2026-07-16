@@ -30,6 +30,13 @@ viaggio = CRUDBase[Viaggio](Viaggio)
 
 FILTRO_TUTTI = "Tutti"
 
+# Motivi di rifiuto RF11 legati all'idoneita' categoria<->risorsa (non a peso/volume residuo):
+# estratti come costanti (invece che inline in valida_ordine_per_viaggio) cosi' la GUI puo'
+# distinguerli senza duplicare il testo — vedi ManualeTab._aggiungi_ordine, che li mostra come
+# toast invece dell'alert sotto la tabella "Aggiungi ordine".
+MOTIVO_SPONDA_IDRAULICA_MANCANTE = "Il camion non ha la sponda idraulica necessaria per ordini di categoria Big"
+MOTIVO_CERTIFICAZIONE_GAS_MANCANTE = "Nessun membro della squadra ha la certificazione gas necessaria"
+
 
 def _normalizza_filtro_multiplo(valore: str | list[str] | None, sentinella: str | None) -> set[str] | None:
     """Vedi _normalizza_filtro_multiplo in gestore_dipendenti.py: stessa logica, duplicata perche'
@@ -222,14 +229,8 @@ def valida_ordine_per_viaggio(
         )
     if not verifica_idoneita_risorsa(ordine, camion, dipendenti):
         if ordine.categoria_consegna == CategoriaConsegna.BIG:
-            return EsitoValidazioneOrdine(
-                ammesso=False,
-                motivo="Il camion non ha la sponda idraulica necessaria per ordini di categoria Big",
-            )
-        return EsitoValidazioneOrdine(
-            ammesso=False,
-            motivo="Nessun membro della squadra ha la certificazione gas necessaria",
-        )
+            return EsitoValidazioneOrdine(ammesso=False, motivo=MOTIVO_SPONDA_IDRAULICA_MANCANTE)
+        return EsitoValidazioneOrdine(ammesso=False, motivo=MOTIVO_CERTIFICAZIONE_GAS_MANCANTE)
     if peso_occupato + ordine.peso > camion.peso_massimo:
         return EsitoValidazioneOrdine(
             ammesso=False, motivo="Il peso dell'ordine supererebbe la capacita' massima del camion"

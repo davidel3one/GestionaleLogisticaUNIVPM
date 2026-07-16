@@ -227,6 +227,13 @@ class ToastManager(QWidget):
         self.setFixedWidth(WIDTH)
 
         parent.installEventFilter(self)
+        # Senza questa chiamata l'altezza resta quella di default di un QWidget vuoto
+        # (100x30, ridotta in larghezza da `setFixedWidth`): un rettangolo fantasma di
+        # 360x30 in alto a destra della pagina, sopra ogni altro widget (`raise_()` sotto),
+        # che intercetta hover/click di qualunque bottone si trovi in quella zona - tipicamente
+        # proprio i bottoni di azione dell'header - finche' non viene mostrato il primo toast
+        # (che triggera `adjustSize()` in `show_toast`).
+        self.adjustSize()
         self._reposition()
         self.raise_()
         self.show()

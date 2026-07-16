@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from sqlalchemy.orm import sessionmaker
 
@@ -20,11 +21,23 @@ from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     elenca_composizioni_disponibili,
     elenca_ordini_candidati,
 )
-from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.logistica.gestore_logistica import (
+    MOTIVO_CERTIFICAZIONE_GAS_MANCANTE,
+    MOTIVO_SPONDA_IDRAULICA_MANCANTE,
+    GestoreLogistica,
+)
 from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
+
+# Le due sole cause di rifiuto RF11 legate all'idoneita' categoria<->risorsa (non a peso/volume
+# residuo): su richiesta esplicita dell'utente (2026-07-16) queste vanno segnalate con un toast
+# invece del solito alert sotto la tabella "Aggiungi ordine" — piu' vistose perche' indicano un
+# problema di composizione squadra/camion scelta all'avvio, non del singolo ordine.
+_MOTIVI_IDONEITA_COME_TOAST = {MOTIVO_SPONDA_IDRAULICA_MANCANTE, MOTIVO_CERTIFICAZIONE_GAS_MANCANTE}
 
 
 class ManualeTab(QWidget):
+    ordineNonIdoneo = Signal(str)  # motivo, per un toast (vedi _MOTIVI_IDONEITA_COME_TOAST)
+
     def __init__(self, session_factory: sessionmaker = SessionLocal, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._session_factory = session_factory
@@ -139,7 +152,11 @@ class ManualeTab(QWidget):
             return
         esito = self._gestore.aggiungi_ordine_a_viaggio(self._viaggio_id, ordine_id)
         if not esito.ammesso:
-            self._card.show_alert(esito.motivo or "Ordine non ammesso")
+            if esito.motivo in _MOTIVI_IDONEITA_COME_TOAST:
+                self._card.hide_alert()
+                self.ordineNonIdoneo.emit(esito.motivo)
+            else:
+                self._card.show_alert(esito.motivo or "Ordine non ammesso")
             return
         self._card.hide_alert()
         self._refresh_composizione_card()

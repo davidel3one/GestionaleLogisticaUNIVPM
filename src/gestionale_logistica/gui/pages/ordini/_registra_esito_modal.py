@@ -288,6 +288,11 @@ class RegistraEsitoModal(Modal):
         while self._lista_prove_layout.count():
             item = self._lista_prove_layout.takeAt(0)
             if item.widget() is not None:
+                # hide() subito: deleteLater() e' differita al prossimo giro di event loop e
+                # takeAt() scollega il widget dal layout ma non lo nasconde - senza hide() le
+                # vecchie chip prova restano a schermo sovrapposte a quelle ricostruite nello
+                # stesso layout a ogni aggiungi/rimuovi prova (stesso fix di table._clear_layout).
+                item.widget().hide()
                 item.widget().deleteLater()
 
         for allegato in self._allegati_esistenti:

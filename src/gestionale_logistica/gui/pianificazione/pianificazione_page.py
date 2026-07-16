@@ -51,7 +51,9 @@ class PianificazionePage(QWidget):
         assistita_tab.viaggioChiuso.connect(self._on_viaggio_chiuso)
         self._stack.addWidget(assistita_tab)
 
-        self._stack.addWidget(ManualeTab(session_factory))
+        manuale_tab = ManualeTab(session_factory)
+        manuale_tab.ordineNonIdoneo.connect(self._on_ordine_non_idoneo)
+        self._stack.addWidget(manuale_tab)
 
         self._toasts = ToastManager(self)
 
@@ -72,3 +74,6 @@ class PianificazionePage(QWidget):
 
     def _on_viaggio_chiuso(self) -> None:
         self._toasts.show_success("Viaggio aggiunto")
+
+    def _on_ordine_non_idoneo(self, motivo: str) -> None:
+        self._toasts.show_error("Ordine non ammesso", motivo)

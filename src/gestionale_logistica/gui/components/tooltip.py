@@ -78,7 +78,16 @@ class Popover(QLabel):
         # per questo un ID corto come "V-STORICO-20260715-03" veniva comunque spezzato
         # dopo il primo "-" anche forzando la larghezza del widget. Disabilitare il
         # word wrap quando non serve evita del tutto quel percorso euristico.
-        content_width = QFontMetrics(font).horizontalAdvance(text) + 2 * POPOVER_PADDING_H
+        #
+        # +4px di margine di sicurezza: su finestra reale (font Inter effettivo, non il
+        # fallback usato offscreen) `horizontalAdvance` misura l'avanzamento del cursore,
+        # non il bounding box visivo del glyph renderizzato - su schermi ad alto DPI lo
+        # scarto di arrotondamento (sub-pixel) tra le due misure tronca l'ultimo carattere
+        # contro il bordo destro del popover (verificato su ID reali, es.
+        # "V-STORICO-20260715-03" con la "3" finale tagliata).
+        content_width = (
+            QFontMetrics(font).horizontalAdvance(text) + 2 * POPOVER_PADDING_H + 4
+        )
         if content_width <= POPOVER_MAX_WIDTH:
             self.setWordWrap(False)
             self.setFixedWidth(content_width)

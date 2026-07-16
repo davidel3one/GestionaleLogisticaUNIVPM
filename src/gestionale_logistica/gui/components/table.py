@@ -173,6 +173,12 @@ def _clear_layout(layout: QLayout) -> None:
         item = layout.takeAt(0)
         widget = item.widget()
         if widget is not None:
+            # hide() subito: deleteLater() e' differita al prossimo giro di event loop, e un
+            # widget rimosso dal layout con takeAt() resta visibile alla sua ultima geometria
+            # finche' non viene nascosto o distrutto - senza hide() le vecchie righe restano
+            # a schermo, sovrapposte alle nuove appena aggiunte nello stesso layout (stesso bug
+            # gia' risolto in ManualeTab._clear_composizione_container).
+            widget.hide()
             widget.deleteLater()
 
 

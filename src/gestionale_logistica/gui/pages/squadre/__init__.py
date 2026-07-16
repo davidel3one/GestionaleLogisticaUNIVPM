@@ -3,8 +3,10 @@ Sketch, artboard "Squadre" / "Squadre — Aggiungi (modale)" / "Squadre — Dett
 "Squadre — Dettaglio vuoto (modale)").
 
 Il dettaglio READ-ONLY (membri/camion/stato + storico viaggi) si apre cliccando l'ID della squadra
-(colonna LINK), non piu' dall'icona matita: quella ora cambia solo lo stato della squadra
-(elimina/riattiva), stesso redesign applicato a tutti i domini (vedi componenti-gui.md)."""
+(colonna LINK), non piu' da un'icona "modifica": quella ora cambia solo lo stato della squadra
+(elimina/riattiva) - icona "arrow-left-right" verde/rossa in base allo stato (2026-07-16, su
+richiesta esplicita dell'utente, stessa icona gia' usata da Camion per lo stesso pattern), stesso
+redesign applicato a tutti i domini (vedi componenti-gui.md)."""
 
 from __future__ import annotations
 
@@ -197,7 +199,25 @@ class SquadrePage(QWidget):
                     column_type=ColumnType.ACTIONS,
                     width=76,
                     actions=[
-                        RowAction("pencil", self._modifica_riga, tooltip="Modifica stato"),
+                        # Icona "arrow-left-right" al posto della precedente matita generica
+                        # (2026-07-16, su richiesta esplicita dell'utente: stessa icona/colore gia'
+                        # usati da Camion per lo stesso identico pattern - toggle Attivo/Dismesso
+                        # in un click, senza modale). Solo per Attiva -> Non attiva: per In viaggio
+                        # l'icona non compare (bug corretto in bug-bounty: prima il predicate
+                        # `!= STATO_NON_ATTIVA` la mostrava anche su righe In viaggio con tooltip
+                        # "Attiva" - stato sbagliato - e il click chiamava comunque elimina_squadra,
+                        # che rifiuta sempre una squadra coinvolta in un viaggio in corso, quindi
+                        # l'azione offerta non poteva mai riuscire).
+                        RowAction(
+                            "arrow-left-right", self._modifica_riga, color="#1E8E3E",
+                            tooltip="Attiva — clicca per disattivare",
+                            predicate=lambda riga: riga["stato"] == STATO_ATTIVA,
+                        ),
+                        RowAction(
+                            "arrow-left-right", self._modifica_riga, color="#BF392A",
+                            tooltip="Non attiva — clicca per riattivare",
+                            predicate=lambda riga: riga["stato"] == STATO_NON_ATTIVA,
+                        ),
                         RowAction("trash-2", self._elimina_riga),
                     ],
                 ),
