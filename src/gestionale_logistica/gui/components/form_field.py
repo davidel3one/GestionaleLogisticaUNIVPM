@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QFont, QPalette, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDateEdit,
     QHBoxLayout,
     QLabel,
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
+from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 
 FONT_FAMILY = "Inter"
 
@@ -73,6 +75,20 @@ def _build_label(text: str) -> QLabel:
     label.setFont(font)
     label.setStyleSheet(f"color: {LABEL_COLOR};")
     return label
+
+
+def _item_view_qss() -> str:
+    """Corpo QSS condiviso dalle liste popup di `EditableSelect` (dropdown nativo del
+    `QComboBox` e popup di completamento del `QCompleter`, che sono due `QAbstractItemView`
+    distinti da stilare separatamente) - stessi token del resto della libreria."""
+    return f"""
+        background-color: {FIELD_BG};
+        border: 1px solid {FIELD_BORDER};
+        border-radius: {FIELD_RADIUS}px;
+        selection-background-color: {POPUP_HOVER_BG};
+        color: {FIELD_TEXT_COLOR};
+        padding: 4px;
+    """
 
 
 def _build_popup_chrome(parent: QWidget) -> QMenu:
@@ -547,7 +563,17 @@ class EditableSelect(QWidget):
     (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS`/`FIELD_HEIGHT`) del resto della libreria; la
     freccia del drop-down resta quella nativa Qt, non il `chevron-down` vettoriale degli altri
     campi (avrebbe richiesto un asset statico su disco per il QSS `image: url()`, fuori scope
-    per un campo che il mockup non disegna nemmeno)."""
+    per un campo che il mockup non disegna nemmeno).
+
+    Il completamento (2026-07-16, richiesta esplicita dell'utente) usa `QCompleter` in
+    `PopupCompletion` invece del default Qt (`InlineCompletion`, un solo suggerimento inline
+    senza lista): mentre si digita appare un popup con tutte le opzioni che contengono il testo
+    (`MatchContains`, non solo prefisso - utile qui perché i negozi combinano catena+città, es.
+    "Unieuro Ancona", e si può cercare per l'una o l'altra), selezionabile senza scrivere tutto.
+    Se il testo digitato coincide (case-insensitive) con un'opzione esistente, Invio la sostituisce
+    con il valore canonico già in elenco - comportamento nativo di `QComboBox` editabile, nessun
+    codice aggiuntivo necessario. Popup stilato con `_item_view_qss()`, stessi token del dropdown
+    nativo del combo, per coerenza visiva con il resto della libreria."""
 
     valueChanged = Signal(str)
 
@@ -590,16 +616,20 @@ class EditableSelect(QWidget):
                 width: 24px;
             }}
             QComboBox QAbstractItemView {{
-                background-color: {FIELD_BG};
-                border: 1px solid {FIELD_BORDER};
-                border-radius: {FIELD_RADIUS}px;
-                selection-background-color: {POPUP_HOVER_BG};
-                color: {FIELD_TEXT_COLOR};
-                padding: 4px;
+                {_item_view_qss()}
             }}
+            {MINIMAL_SCROLLBAR_QSS}
             """
         )
         layout.addWidget(self._combo)
+
+        completer = self._combo.completer()
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.popup().setFont(_field_font())
+        completer.popup().setStyleSheet(
+            f"QAbstractItemView {{ {_item_view_qss()} }} {MINIMAL_SCROLLBAR_QSS}"
+        )
 
         self._combo.currentTextChanged.connect(self.valueChanged)
 

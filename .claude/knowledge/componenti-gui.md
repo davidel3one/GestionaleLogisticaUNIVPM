@@ -224,6 +224,22 @@ tipo.valueChanged.connect(...)
 
 **Fix (2026-07-15) — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra). Segnalato da un bug reale su `gui/pages/dipendenti.py` ("le squadre/gli stati non si vedono nel riquadro"), poi ritrovato identico anche su Camion, Viaggi e Squadre.
 
+## EditableSelect
+
+`EditableSelect(label: str, options: list[str], placeholder: str = "", parent=None)` — sottoclasse di `QWidget` in `form_field.py`: campo con label sopra che permette sia di scegliere un'opzione esistente sia di digitarne una nuova al volo. Unica istanza: "Negozio partner" del modale Importa CSV (`import_csv_modal.py`) — non nel mockup (nessun frame disegna questo campo), decisione esplicita dell'utente di poter creare un valore nuovo oltre a scegliere tra quelli già visti (`GestoreLogistica.elenco_negozi_partner()`).
+
+```python
+from gestionale_logistica.gui.components import EditableSelect
+campo = EditableSelect("Negozio partner", ["Unieuro Ancona", "MediaWorld Bari"], placeholder="Scegli o scrivi un nuovo negozio")
+campo.valueChanged.connect(...)
+campo.value()          # str, testo corrente (strip)
+campo.set_value("...") # programmatico: seleziona se in elenco, altrimenti lo scrive come testo libero
+```
+
+Implementato con `QComboBox` nativo Qt editabile (non il popup custom `QMenu` di `Select`/`MultiSelect`, che non supporta l'editing testuale) — solo il chrome del campo chiuso replica gli stessi token (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS`/`FIELD_HEIGHT`) del resto della libreria; la freccia del drop-down resta quella nativa Qt (avrebbe richiesto un asset SVG statico su disco per sostituirla via QSS, fuori scope per un campo assente dal mockup).
+
+**Completamento a popup filtrato (2026-07-16, richiesta esplicita dell'utente)**: di default un `QComboBox` editabile usa `QCompleter` in modalità `InlineCompletion` (un solo suggerimento inline, nessuna lista). Qui il completer è riconfigurato in `PopupCompletion` con `filterMode=Qt.MatchContains`: mentre si digita appare un popup con **tutte** le opzioni che contengono il testo (non solo quelle che iniziano per — utile perché i negozi combinano catena+città, es. "Unieuro Ancona", cercabile per l'una o l'altra), cliccabili senza scrivere il nome per intero. Se il testo digitato coincide (case-insensitive) con un'opzione già in elenco, Invio la sostituisce col valore canonico salvato — comportamento nativo di `QComboBox` editabile, nessun codice scritto per ottenerlo. Il popup del completer è un `QAbstractItemView` distinto dal dropdown nativo del combo (quello aperto cliccando la freccia, con tutte le opzioni non filtrate) — stilati entrambi con lo stesso corpo QSS condiviso (`_item_view_qss()`, stessi token `FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS`/`POPUP_HOVER_BG`/`FIELD_TEXT_COLOR`) più `MINIMAL_SCROLLBAR_QSS` (altrimenti una lista lunga mostrerebbe la scrollbar di sistema, stonata rispetto al resto dell'app).
+
 ## BooleanToggle
 
 `BooleanToggle(label: str, parent=None)` — sottoclasse di `QWidget`: label sopra + due pillole affiancate "Sì"/"No" (etichette fisse, **non** un segmented control generico a N opzioni — nel mockup è specificamente un toggle booleano).
