@@ -11,6 +11,9 @@ from sqlalchemy.orm import sessionmaker
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.gui.components import EmptyState
 from gestionale_logistica.gui.pianificazione.components import AvvioCard, CompositionCard
+from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+    evidenzia_giorni_con_squadre_attive,
+)
 from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     costruisci_stato_composizione,
     descrizione_composizioni_disponibili,
@@ -36,6 +39,7 @@ class ManualeTab(QWidget):
         self._avvio_card = AvvioCard()
         self._avvio_card.avviaRequested.connect(self._avvia_composizione)
         self._avvio_card.dataChanged.connect(self._on_data_changed)
+        evidenzia_giorni_con_squadre_attive(self._avvio_card.calendario(), self._session_factory)
         outer.addWidget(self._avvio_card)
 
         self._composizione_container = QVBoxLayout()
@@ -82,7 +86,9 @@ class ManualeTab(QWidget):
     def _show_composizione_card(self) -> None:
         self._clear_composizione_container()
         self._card = CompositionCard()
+        self._card.set_rimozione_ordine_abilitata(True)
         self._card.aggiungiOrdineRequested.connect(self._aggiungi_ordine)
+        self._card.rimuoviOrdineRequested.connect(self._rimuovi_ordine)
         self._card.annullaRequested.connect(self._annulla)
         self._card.chiudiViaggioRequested.connect(self._chiudi_viaggio)
         self._composizione_container.addWidget(self._card)
@@ -134,6 +140,16 @@ class ManualeTab(QWidget):
         esito = self._gestore.aggiungi_ordine_a_viaggio(self._viaggio_id, ordine_id)
         if not esito.ammesso:
             self._card.show_alert(esito.motivo or "Ordine non ammesso")
+            return
+        self._card.hide_alert()
+        self._refresh_composizione_card()
+
+    def _rimuovi_ordine(self, ordine_id: str) -> None:
+        if self._viaggio_id is None:
+            return
+        esito = self._gestore.rimuovi_ordine_da_viaggio(self._viaggio_id, ordine_id)
+        if not esito.ok:
+            self._card.show_alert(esito.motivo or "Impossibile rimuovere l'ordine")
             return
         self._card.hide_alert()
         self._refresh_composizione_card()

@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from gestionale_logistica.gui.components import (
     Button,
@@ -26,7 +26,9 @@ from gestionale_logistica.gui.components import (
     RowAction,
     Table,
     Tooltip,
+    load_lucide_icon,
 )
+from gestionale_logistica.gui.components.table import FOOTER_HEIGHT, HEADER_HEIGHT, ROW_HEIGHT
 
 TITLE_COLOR = "#2E2E2E"
 HINT_COLOR = "#9AA1AA"
@@ -37,9 +39,24 @@ BAR_WIDTH = 350
 BAR_HEIGHT = 7
 BAR_COLUMN_GAP = 46
 
+# Icona "annulla inserimento" (undo-2) per le righe di "Ordini nel viaggio": non nel mockup
+# (nessun frame la disegna), stessa dimensione/stile dei bottoni icona di Table (28px, sfondo
+# trasparente, icona 14px) per coerenza con il resto dell'app - colore HINT_COLOR (gia' usato
+# per peso/volume nella stessa riga) invece di un colore nuovo.
+RIMUOVI_ICON_SIZE = 14
+RIMUOVI_BUTTON_SIZE = 28
+
 # Pagina della tabella "Aggiungi ordine": stessa dimensione di SuggestionSection.PAGE_SIZE per
 # coerenza fra le tabelle di Pianificazione (Manuale/Assistita).
-PAGE_SIZE = 10
+PAGE_SIZE = 20
+
+# Altezza minima della tabella "Aggiungi ordine": ~4 righe visibili prima di dover scorrere
+# (nel suo QScrollArea interno) invece di affidarsi solo allo spazio residuo della Card, che il
+# suo stesso addStretch(1) finale assorbe per intero prima che arrivi qui sotto.
+_CANDIDATI_TABLE_MIN_VISIBLE_ROWS = 4
+CANDIDATI_TABLE_MIN_HEIGHT = (
+    HEADER_HEIGHT + _CANDIDATI_TABLE_MIN_VISIBLE_ROWS * ROW_HEIGHT + FOOTER_HEIGHT
+)
 
 # "Standard" raggruppa le categorie senza vincoli particolari (BordoStrada/InstallazioneSemplice
 # AlPiano/Incasso): il mockup mostra solo badge "Standard"/"Big" — nessuna istanza con
@@ -130,6 +147,24 @@ def _badge(categoria_label: str) -> QLabel:
     return label
 
 
+def _build_rimuovi_ordine_button(parent: QWidget) -> QPushButton:
+    button = QPushButton(parent)
+    button.setFixedSize(RIMUOVI_BUTTON_SIZE, RIMUOVI_BUTTON_SIZE)
+    button.setIcon(load_lucide_icon("undo-2", HINT_COLOR, RIMUOVI_ICON_SIZE))
+    button.setIconSize(QSize(RIMUOVI_ICON_SIZE, RIMUOVI_ICON_SIZE))
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
+    button.setToolTip("Annulla inserimento")
+    button.setStyleSheet(
+        """
+        QPushButton {
+            background-color: transparent;
+            border: none;
+        }
+        """
+    )
+    return button
+
+
 @dataclass
 class RigaOrdineComposizione:
     ordine_id: str
@@ -141,11 +176,13 @@ class RigaOrdineComposizione:
 
 class CompositionCard(Card):
     aggiungiOrdineRequested = Signal(str)  # ordine_id scelto nella tabella "Aggiungi ordine"
+    rimuoviOrdineRequested = Signal(str)  # ordine_id da rimuovere da "Ordini nel viaggio"
     annullaRequested = Signal()
     chiudiViaggioRequested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(padding_horizontal=24, padding_vertical=20, spacing=16, parent=parent)
+        self._mostra_rimuovi_ordine = False
 
         self._title = _heading()
         self.content_layout.addWidget(self._title)
@@ -209,7 +246,17 @@ class CompositionCard(Card):
         self._tabella_disponibili = Table(colonne_disponibili)
         self._tabella_disponibili.pageChanged.connect(self._on_pagina_disponibili_cambiata)
         self._tabella_disponibili.hide()
-        manual_add_layout.addWidget(self._tabella_disponibili)
+        # Table ora scorre al suo interno con una QScrollArea (per le pagine Ordini/Viaggi/
+        # Dipendenti, dove riceve tutta l'altezza residua della pagina). Qui invece e' annidata
+        # dentro la Card, il cui content_layout termina con un addStretch(1) che assorbe lui
+        # stesso tutto lo spazio verticale in eccesso (apposta, per tenere compatte le sezioni
+        # sopra) - senza un minimo esplicito la QScrollArea interna collassava a un'altezza
+        # minima anche con una sola riga candidata: il bottone "Aggiungi" restava tecnicamente
+        # cliccabile ma la tabella appariva come una striscia quasi invisibile (causa reale del
+        # bottone "che non funziona più" - non lo stretch mancante, provato e verificato che da
+        # solo non basta). Altezza minima per ~4 righe visibili prima di dover scorrere.
+        self._tabella_disponibili.setMinimumHeight(CANDIDATI_TABLE_MIN_HEIGHT)
+        manual_add_layout.addWidget(self._tabella_disponibili, 1)
 
         self._disponibili_hint = _hint("Nessun ordine disponibile da aggiungere")
         self._disponibili_hint.hide()
@@ -338,7 +385,22 @@ class CompositionCard(Card):
         layout.addWidget(peso_volume)
 
         layout.addWidget(_badge(riga.categoria_label))
+
+        if self._mostra_rimuovi_ordine:
+            rimuovi_button = _build_rimuovi_ordine_button(row)
+            rimuovi_button.clicked.connect(
+                lambda checked=False, ordine_id=riga.ordine_id: self.rimuoviOrdineRequested.emit(ordine_id)
+            )
+            layout.addWidget(rimuovi_button)
+
         return row
+
+    def set_rimozione_ordine_abilitata(self, abilitata: bool) -> None:
+        """Mostra un'icona "annulla inserimento" (freccia indietro `undo-2`) per ogni riga di
+        "Ordini nel viaggio", che rimuove l'ordine dal viaggio in composizione — non nel mockup
+        (nessun frame la disegna): richiesta esplicita dell'utente, solo per Manuale (Assistita
+        non la abilita, resta con la sola vista di sola lettura gia' esistente)."""
+        self._mostra_rimuovi_ordine = abilitata
 
     def set_ordini_disponibili(self, ordini: list[RigaOrdineComposizione]) -> None:
         """`ordini`: righe candidate per la tabella "Aggiungi ordine"."""

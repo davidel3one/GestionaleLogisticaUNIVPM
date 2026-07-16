@@ -22,12 +22,15 @@ from PySide6.QtWidgets import (
     QLabel,
     QLayout,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
 from gestionale_logistica.gui.components.progress_bar import ProgressBar
+from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 from gestionale_logistica.gui.components.tooltip import Popover
 
 TOOLTIP_GAP = 6
@@ -539,6 +542,23 @@ def _build_cell(column: ColumnDef, row: dict) -> QWidget:
     raise ValueError(f"Tipo colonna non supportato: {column.column_type}")
 
 
+class _RowsScrollArea(QScrollArea):
+    """QScrollArea che riporta come sizeHint l'altezza reale del contenuto (somma delle righe),
+    non il default generico di QScrollArea (~288px fissi, cfr. Qt) che sottostimerebbe la Table
+    ogni volta che nessuno le impone un vincolo di altezza (es. dentro un Modal senza stretch) -
+    senza questo fix la Table si "accorciava" da sola in quei casi, tagliando l'ultima riga sotto
+    il footer. Quando invece un genitore le assegna meno spazio del sizeHint (stretch di pagina,
+    o un maxHeight esplicito) la QScrollArea scorre comunque normalmente: sizeHint è solo la
+    dimensione desiderata, non un vincolo."""
+
+    def sizeHint(self) -> QSize:
+        content = self.widget()
+        if content is None:
+            return super().sizeHint()
+        frame = 2 * self.frameWidth()
+        return QSize(content.sizeHint().width() + frame, content.sizeHint().height() + frame)
+
+
 class Table(QFrame):
     """Tabella dati riusabile: colonne configurabili, ordinamento/paginazione server-side.
 
@@ -566,6 +586,7 @@ class Table(QFrame):
         self._show_footer = show_footer
 
         self._apply_style()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
@@ -578,7 +599,25 @@ class Table(QFrame):
         self._rows_layout = QVBoxLayout(self._rows_container)
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.setSpacing(0)
-        outer_layout.addWidget(self._rows_container)
+
+        # Righe in una QScrollArea interna (stesso stile MINIMAL_SCROLLBAR_QSS gia' usato per
+        # "Attivita' recente" della Dashboard e per le mini-tabelle nei modali) cosi' che sia la
+        # Table stessa a scorrere in verticale quando il numero di righe eccede lo spazio
+        # disponibile - header e footer (paginazione) restano sempre visibili, fuori dall'area
+        # che scorre. Stretch 1 nell'outer_layout: quando la pagina che la ospita le da' piu'
+        # spazio del minimo (vedi `layout.addWidget(self._tabella, 1)` nelle pagine), e' l'area
+        # scorrevole a occupare lo spazio in piu', non le righe a stirarsi.
+        self._rows_scroll = _RowsScrollArea(self)
+        self._rows_scroll.setWidgetResizable(True)
+        self._rows_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._rows_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._rows_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._rows_scroll.setStyleSheet(
+            f"QScrollArea {{ background: transparent; border: none; }} {MINIMAL_SCROLLBAR_QSS}"
+        )
+        self._rows_scroll.viewport().setStyleSheet("background: transparent;")
+        self._rows_scroll.setWidget(self._rows_container)
+        outer_layout.addWidget(self._rows_scroll, 1)
 
         if self._show_footer:
             outer_layout.addWidget(self._build_footer())

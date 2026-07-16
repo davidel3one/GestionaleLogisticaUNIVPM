@@ -60,6 +60,8 @@ class SquadraVista:
     camion: str
     data_creazione: datetime
     stato: str
+    flg_certificazione_gas: bool
+    flg_sponda_idraulica: bool
 
 
 @dataclass
@@ -98,7 +100,11 @@ def _stato_derivato(flg_attiva: bool, in_viaggio: bool) -> str:
 
 def _select_composizioni_attive():
     """SELECT delle composizioni attive con targa e nomi dei 2 dipendenti gia' joinati, cosi'
-    membri/camion si ricavano senza lazy-loading per riga (niente N+1)."""
+    membri/camion si ricavano senza lazy-loading per riga (niente N+1). Include anche i due flag
+    derivati mostrati in lista/dettaglio: `flg_sponda_idraulica` del camion e
+    `flg_certificazione_gas` di almeno uno dei 2 dipendenti (basta un membro certificato perche'
+    la squadra possa gestire ordini CertificazioneGas - stessa idoneita' gia' verificata da
+    GestoreLogistica.verifica_idoneita_risorsa per RF11, qui solo esposta come colonna)."""
     dipendente_1 = aliased(Dipendente)
     dipendente_2 = aliased(Dipendente)
     return (
@@ -111,6 +117,9 @@ def _select_composizioni_attive():
             dipendente_2.nome,
             dipendente_2.cognome,
             ComposizioneSquadra.id_composizione,
+            Camion.flg_sponda_idraulica,
+            dipendente_1.flg_certificazione_gas,
+            dipendente_2.flg_certificazione_gas,
         )
         .join(Camion, Camion.id == ComposizioneSquadra.camion_id)
         .join(dipendente_1, dipendente_1.id == ComposizioneSquadra.dipendente_1_id)
@@ -121,6 +130,10 @@ def _select_composizioni_attive():
 
 def _membri_da_riga(riga) -> str:
     return f"{riga[3]} {riga[4]}, {riga[5]} {riga[6]}"
+
+
+def _certificazione_gas_da_riga(riga) -> bool:
+    return bool(riga[9]) or bool(riga[10])
 
 
 class GestoreSquadre:
@@ -205,15 +218,20 @@ class GestoreSquadre:
         self,
         ricerca: str | None = None,
         filtro_stato: str | list[str] = FILTRO_TUTTE,
+        filtro_certificazione_gas: bool | None = None,
+        filtro_sponda_idraulica: bool | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
         decrescente: bool = False,
     ) -> PaginaSquadre:
         """Elenco filtrato/ordinato/paginato delle squadre. Filtri: ricerca testuale (nome/cognome di
         uno dei 2 dipendenti o targa del camion della composizione attiva piu' recente), filtro stato
-        (Tutte/Attiva/In viaggio/Non attiva), ordinamento per data_creazione, paginazione server-side.
-        Lo stato "In viaggio" e' calcolato con una sola query aggregata sui Viaggio IN_CORSO (niente
-        N+1); membri/camion con una sola query sulle composizioni attive."""
+        (Tutte/Attiva/In viaggio/Non attiva), filtro certificazione gas/sponda idraulica (stesso
+        pattern bool | None gia' usato da GestoreDipendenti.visualizza_dipendenti/
+        GestoreCamion.visualizza_camion: None = nessun filtro), ordinamento per data_creazione,
+        paginazione server-side. Lo stato "In viaggio" e' calcolato con una sola query aggregata
+        sui Viaggio IN_CORSO (niente N+1); membri/camion con una sola query sulle composizioni
+        attive."""
         with self.session_factory() as session:
             # Insieme delle squadre "in viaggio": composizione ATTIVA legata a un Viaggio IN_CORSO
             # (solo IN_CORSO). Una query per tutte le squadre, non una per riga.
@@ -229,13 +247,22 @@ class GestoreSquadre:
             )
 
             # Composizione attiva piu' recente per squadra (max data_inizio_validita, tie-break su
-            # id_composizione per un ordine deterministico coerente con dettaglio_squadra), con membri+targa.
-            composizione_per_squadra: dict[str, tuple[datetime, str, str, str]] = {}
+            # id_composizione per un ordine deterministico coerente con dettaglio_squadra), con
+            # membri+targa+i due flag derivati (sponda idraulica del camion, certificazione gas di
+            # almeno uno dei 2 dipendenti).
+            composizione_per_squadra: dict[str, tuple[datetime, str, str, str, bool, bool]] = {}
             for riga in session.execute(_select_composizioni_attive()).all():
                 squadra_id = riga[0]
                 corrente = composizione_per_squadra.get(squadra_id)
                 if corrente is None or (riga[1], riga[7]) > (corrente[0], corrente[3]):
-                    composizione_per_squadra[squadra_id] = (riga[1], _membri_da_riga(riga), riga[2], riga[7])
+                    composizione_per_squadra[squadra_id] = (
+                        riga[1],
+                        _membri_da_riga(riga),
+                        riga[2],
+                        riga[7],
+                        bool(riga[8]),
+                        _certificazione_gas_da_riga(riga),
+                    )
 
             ordine = Squadra.data_creazione.desc() if decrescente else Squadra.data_creazione.asc()
             squadre = session.scalars(select(Squadra).order_by(ordine)).all()
@@ -245,6 +272,8 @@ class GestoreSquadre:
                 dati = composizione_per_squadra.get(squadra_obj.id)
                 membri = dati[1] if dati is not None else MEMBRI_ASSENTI
                 camion = dati[2] if dati is not None else MEMBRI_ASSENTI
+                sponda_idraulica = dati[4] if dati is not None else False
+                certificazione_gas = dati[5] if dati is not None else False
                 stato = _stato_derivato(squadra_obj.flg_attiva, squadra_obj.id in in_viaggio_ids)
                 righe.append(
                     SquadraVista(
@@ -253,6 +282,8 @@ class GestoreSquadre:
                         camion=camion,
                         data_creazione=squadra_obj.data_creazione,
                         stato=stato,
+                        flg_certificazione_gas=certificazione_gas,
+                        flg_sponda_idraulica=sponda_idraulica,
                     )
                 )
 
@@ -272,6 +303,11 @@ class GestoreSquadre:
                     righe = [
                         r for r in righe if termine in r.membri.lower() or termine in r.camion.lower()
                     ]
+
+            if filtro_certificazione_gas is not None:
+                righe = [r for r in righe if r.flg_certificazione_gas == filtro_certificazione_gas]
+            if filtro_sponda_idraulica is not None:
+                righe = [r for r in righe if r.flg_sponda_idraulica == filtro_sponda_idraulica]
 
             totale = len(righe)
             if dimensione_pagina > 0:

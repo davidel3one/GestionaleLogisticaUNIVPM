@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -76,7 +76,13 @@ from gestionale_logistica.logistica.gestore_logistica import (
     GestoreLogistica,
 )
 
-PAGE_SIZE = 12
+PAGE_SIZE = 20
+# La lista "Aggiungi ordini" nel modale di modifica includeva TUTTI gli ordini Ricevuti in una
+# sola Table non paginata (dimensione_pagina=0): con un database reale da ~1000 ordini Ricevuti
+# questo significava costruire ~1000 righe (ognuna con due action-icon) a ogni apertura del
+# modale e a ogni ricerca/aggiunta/rimozione - la vera causa della lentezza percepita, non
+# risolta dal solo debounce sulla ricerca. Paginata come le altre Table dell'app.
+CANDIDATI_PAGE_SIZE = 10
 
 # Stati per cui la matita "Modifica" compare in Azioni (decisione esplicita dell'utente): un
 # viaggio In corso/Completato/Annullato resta visualizzabile ma non piu' modificabile, quindi
@@ -109,6 +115,11 @@ def _datetime_a_qdate(valore: datetime) -> QDate:
 
 
 class ViaggiPage(QWidget):
+    # Stesso segnale/pattern del bottone "Nuova pianificazione" della Dashboard
+    # (DashboardPage.nuovaPianificazioneRequested): il composition root (src/__init__.py) lo
+    # collega a PianificazionePage.mostra_tab_automatica + AppShell.navigate_to("pianificazione").
+    nuovaPianificazioneRequested = Signal()
+
     def __init__(self, gestore: GestoreLogistica, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._gestore = gestore
@@ -132,15 +143,16 @@ class ViaggiPage(QWidget):
     # --- costruzione UI -------------------------------------------------------------
 
     def _costruisci_header(self, layout: QVBoxLayout) -> None:
-        # "Nuova pianificazione" lancia il wizard di pianificazione, non ancora costruito (per
-        # decisione esplicita: prima la lista Viaggi, poi il wizard a parte). Visibile ma
-        # disabilitato per ora, stesso trattamento gia' deciso per la tab "Esiti" in Ordini.
+        # "Nuova pianificazione" apre la pagina Pianificazione sulla tab Automatica - stesso
+        # comportamento e stesso segnale del bottone equivalente in Dashboard (2026-07-16, su
+        # richiesta esplicita dell'utente di riprendere quel pattern qui invece di lasciarlo
+        # disabilitato in attesa di un wizard dedicato).
         bottone_pianificazione = Button(
             ButtonVariant.SECONDARY_HEADER_ADD,
             "Nuova pianificazione",
             load_lucide_icon("calendar-plus", "#2E2E2E", 13),
         )
-        bottone_pianificazione.setEnabled(False)
+        bottone_pianificazione.clicked.connect(self.nuovaPianificazioneRequested)
         layout.addWidget(PageHeader("Viaggi", [bottone_pianificazione]))
 
     def _costruisci_filtri(self, layout: QVBoxLayout) -> None:
@@ -226,7 +238,7 @@ class ViaggiPage(QWidget):
         )
         self._tabella.sortRequested.connect(self._on_sort_richiesto)
         self._tabella.pageChanged.connect(self._on_pagina_richiesta)
-        layout.addWidget(self._tabella)
+        layout.addWidget(self._tabella, 1)
 
     # --- dati -------------------------------------------------------------
 
@@ -465,17 +477,20 @@ class ViaggiPage(QWidget):
             modale.add_widget(campo_ricerca_ordini)
 
             candidati_attuali: list[dict] = []
+            pagina_candidati_corrente = 1
 
-            def _righe_candidati(testo: str) -> list[dict]:
-                pagina = self._gestore.visualizza_ordini(
+            def _righe_candidati(testo: str, pagina: int) -> tuple[list[dict], int]:
+                risultato = self._gestore.visualizza_ordini(
                     ricerca=testo or None,
                     filtro_stato=STATO_ORDINE_LABELS[StatoOrdine.RICEVUTO],
-                    dimensione_pagina=0,
+                    pagina=pagina,
+                    dimensione_pagina=CANDIDATI_PAGE_SIZE,
                 )
-                return [
+                righe = [
                     {"id": o.id, "cliente": o.cliente, "indirizzo": o.indirizzo, "aggiunto": False}
-                    for o in pagina.ordini
+                    for o in risultato.ordini
                 ]
+                return righe, risultato.totale
 
             def _aggiungi_ordine(riga_candidato: dict) -> None:
                 esito = self._gestore.aggiungi_ordine_a_viaggio(viaggio_id, riga_candidato["id"])
@@ -512,9 +527,18 @@ class ViaggiPage(QWidget):
                 _aggiorna_ordini_nel_viaggio()
 
             def _ricarica_candidati(testo: str = "") -> None:
-                nonlocal candidati_attuali
-                candidati_attuali = _righe_candidati(testo)
+                nonlocal candidati_attuali, pagina_candidati_corrente
+                pagina_candidati_corrente = 1
+                candidati_attuali, totale = _righe_candidati(testo, pagina_candidati_corrente)
                 tabella_candidati.set_rows(candidati_attuali)
+                tabella_candidati.set_pagination(pagina_candidati_corrente, totale, CANDIDATI_PAGE_SIZE)
+
+            def _cambia_pagina_candidati(pagina: int) -> None:
+                nonlocal candidati_attuali, pagina_candidati_corrente
+                pagina_candidati_corrente = pagina
+                candidati_attuali, totale = _righe_candidati(campo_ricerca_ordini.value(), pagina)
+                tabella_candidati.set_rows(candidati_attuali)
+                tabella_candidati.set_pagination(pagina_candidati_corrente, totale, CANDIDATI_PAGE_SIZE)
 
             tabella_candidati = Table(
                 [
@@ -545,10 +569,22 @@ class ViaggiPage(QWidget):
                         ],
                     ),
                 ],
-                show_footer=False,
+                show_footer=True,
             )
+            tabella_candidati.pageChanged.connect(_cambia_pagina_candidati)
 
-            campo_ricerca_ordini.searchChanged.connect(_ricarica_candidati)
+            # Debounce (non su SearchField in generale, che altre pagine usano su dataset piccoli
+            # e con emissione immediata attesa da un test): visualizza_ordini carica QUI l'intera
+            # tabella Ordine + l'intera EsitoConsegna e filtra in Python (nessun WHERE lato SQL),
+            # senza paginazione (dimensione_pagina=0) - a ogni carattere digitato rifaceva quella
+            # scansione e ricostruiva l'intera tabella candidati, percepito come lag mentre si scrive.
+            _debounce_ricerca_ordini = QTimer(modale)
+            _debounce_ricerca_ordini.setSingleShot(True)
+            _debounce_ricerca_ordini.setInterval(250)
+            _debounce_ricerca_ordini.timeout.connect(
+                lambda: _ricarica_candidati(campo_ricerca_ordini.value())
+            )
+            campo_ricerca_ordini.searchChanged.connect(lambda _: _debounce_ricerca_ordini.start())
             _ricarica_candidati()
 
             scroll = QScrollArea()

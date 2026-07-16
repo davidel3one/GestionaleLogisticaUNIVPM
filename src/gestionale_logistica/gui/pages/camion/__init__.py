@@ -39,7 +39,7 @@ from gestionale_logistica.risorse.gestore_camion import (
     GestoreCamion,
 )
 
-PAGE_SIZE = 12
+PAGE_SIZE = 20
 
 STATO_BADGE_COLORS = {
     STATO_IN_VIAGGIO: ("#FEF2C6", "#B45208"),
@@ -201,7 +201,7 @@ class CamionPage(QWidget):
         )
         self._tabella.sortRequested.connect(self._on_sort_richiesto)
         self._tabella.pageChanged.connect(self._on_pagina_richiesta)
-        layout.addWidget(self._tabella)
+        layout.addWidget(self._tabella, 1)
 
     # --- dati -------------------------------------------------------------
 

@@ -46,7 +46,7 @@ from gestionale_logistica.logistica.gestore_logistica import (
 )
 from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
 
-PAGE_SIZE = 12
+PAGE_SIZE = 20
 
 FILTER_TITLE_COLOR = "#2D2D2D"
 FILTER_TITLE_SIZE = 15
@@ -185,7 +185,7 @@ class OrdiniPage(QWidget):
         )
         self._tabella.sortRequested.connect(self._on_sort_richiesto)
         self._tabella.pageChanged.connect(self._on_pagina_richiesta)
-        layout.addWidget(self._tabella)
+        layout.addWidget(self._tabella, 1)
 
         return vista
 
@@ -265,7 +265,7 @@ class OrdiniPage(QWidget):
         )
         self._esiti_tabella.sortRequested.connect(self._on_esiti_sort_richiesto)
         self._esiti_tabella.pageChanged.connect(self._on_esiti_pagina_richiesta)
-        layout.addWidget(self._esiti_tabella)
+        layout.addWidget(self._esiti_tabella, 1)
 
         return vista
 

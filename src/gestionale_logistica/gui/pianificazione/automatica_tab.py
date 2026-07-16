@@ -31,6 +31,9 @@ from gestionale_logistica.gui.pianificazione.components import (
     DettaglioViaggioPropostoModal,
     PlanKpiCard,
 )
+from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+    evidenzia_giorni_con_squadre_attive,
+)
 from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     conta_composizioni_disponibili,
     costruisci_dettaglio_viaggio_proposto,
@@ -136,6 +139,7 @@ class AutomaticaTab(QWidget):
 
         self._date_field = DateFilterField()
         self._date_field.valueChanged.connect(lambda _: self._refresh_hint())
+        evidenzia_giorni_con_squadre_attive(self._date_field.input.calendarWidget(), self._session_factory)
         filter_row.addWidget(self._date_field)
 
         self._calcola_button = Button(ButtonVariant.PRIMARY, "Calcola piano")
@@ -153,7 +157,10 @@ class AutomaticaTab(QWidget):
     def _refresh_hint(self) -> None:
         giorno = self._date_field.value().toPython()
         numero = conta_composizioni_disponibili(giorno, self._session_factory)
-        composizioni_label = "composizione attiva" if numero == 1 else "composizioni attive"
+        # "Squadre" invece di "composizioni" (2026-07-16, richiesta esplicita dell'utente): stessa
+        # etichetta di descrizione_composizioni_disponibili in pianificazione_data.py, per coerenza
+        # fra le 3 tab.
+        composizioni_label = "squadra attiva" if numero == 1 else "squadre attive"
         self._hint.setText(f"{numero} {composizioni_label} disponibili per il {giorno.strftime('%d/%m/%Y')}")
 
     # -- Summary Row -----------------------------------------------------------------------

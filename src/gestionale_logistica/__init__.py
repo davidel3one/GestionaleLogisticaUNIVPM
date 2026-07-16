@@ -81,7 +81,6 @@ def main() -> None:
         "dipendenti": lambda: DipendentiPage(GestoreDipendenti()),
         "camion": lambda: CamionPage(GestoreCamion()),
         "squadre": lambda: SquadrePage(GestoreSquadre()),
-        "viaggi": lambda: ViaggiPage(GestoreLogistica()),
     }
 
     shell_holder: list[AppShell] = []
@@ -97,12 +96,16 @@ def main() -> None:
         shell = AppShell(sidebar_items, user_name=user_name)
         dashboard_page = DashboardPage()
         pianificazione_page = PianificazionePage()
+        viaggi_page = ViaggiPage(GestoreLogistica())
         for item in sidebar_items:
             if item.id == "dashboard":
                 shell.add_page(item.id, dashboard_page)
                 continue
             if item.id == "pianificazione":
                 shell.add_page(item.id, pianificazione_page)
+                continue
+            if item.id == "viaggi":
+                shell.add_page(item.id, viaggi_page)
                 continue
             if item.id in _crea_pagina:
                 shell.add_page(item.id, _crea_pagina[item.id]())
@@ -116,9 +119,13 @@ def main() -> None:
             )
         shell.logoutRequested.connect(_on_logout)
 
-        # "Nuova pianificazione" della Dashboard: apre la Pianificazione sulla tab Automatica.
+        # "Nuova pianificazione": apre la Pianificazione sulla tab Automatica. Stesso segnale/
+        # stesso collegamento sia da Dashboard sia da Viaggi (2026-07-16, su richiesta esplicita
+        # dell'utente di riprendere qui lo stesso comportamento gia' presente in Dashboard).
         dashboard_page.nuovaPianificazioneRequested.connect(pianificazione_page.mostra_tab_automatica)
         dashboard_page.nuovaPianificazioneRequested.connect(lambda: shell.navigate_to("pianificazione"))
+        viaggi_page.nuovaPianificazioneRequested.connect(pianificazione_page.mostra_tab_automatica)
+        viaggi_page.nuovaPianificazioneRequested.connect(lambda: shell.navigate_to("pianificazione"))
 
         shell_holder[:] = [shell]
         auth_page.close()

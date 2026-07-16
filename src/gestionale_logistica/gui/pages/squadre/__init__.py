@@ -42,7 +42,7 @@ from gestionale_logistica.risorse.gestore_squadre import (
     GestoreSquadre,
 )
 
-PAGE_SIZE = 12
+PAGE_SIZE = 20
 
 STATO_BADGE_COLORS = {
     STATO_IN_VIAGGIO: ("#FEF2C6", "#B45208"),
@@ -72,6 +72,13 @@ STATO_VIAGGIO_BADGE_COLORS = {
 
 FILTER_TITLE_COLOR = "#2D2D2D"
 FILTER_TITLE_SIZE = 15
+
+# Non nel mockup, aggiunti su richiesta esplicita dell'utente - stessa coppia Sì/No gia' usata
+# per i filtri Cert. gas (Dipendenti) e Sponda idraulica (Camion), per coerenza tra le pagine.
+CERT_GAS_SI = "Sì"
+CERT_GAS_NO = "No"
+SPONDA_SI = "Sì"
+SPONDA_NO = "No"
 
 
 class SquadrePage(QWidget):
@@ -123,8 +130,16 @@ class SquadrePage(QWidget):
             placeholder="Tutte",
             compact=True,
         )
+        self._select_cert_gas = MultiSelect(
+            "Cert. gas", options=[CERT_GAS_SI, CERT_GAS_NO], placeholder="Tutti", compact=True
+        )
+        self._select_sponda = MultiSelect(
+            "Sponda idraulica", options=[SPONDA_SI, SPONDA_NO], placeholder="Tutti", compact=True
+        )
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_stato)
+        riga.addWidget(self._select_cert_gas)
+        riga.addWidget(self._select_sponda)
         riga.addStretch(1)
 
         self._etichetta_conteggio = QLabel()
@@ -140,6 +155,8 @@ class SquadrePage(QWidget):
 
         self._campo_ricerca.searchChanged.connect(self._on_filtro_cambiato)
         self._select_stato.valueChanged.connect(self._on_filtro_cambiato)
+        self._select_cert_gas.valueChanged.connect(self._on_filtro_cambiato)
+        self._select_sponda.valueChanged.connect(self._on_filtro_cambiato)
 
     def _costruisci_tabella(self, layout: QVBoxLayout) -> None:
         self._tabella = Table(
@@ -151,6 +168,22 @@ class SquadrePage(QWidget):
                 ColumnDef(key="membri", label="Membri", stretch=2),
                 ColumnDef(key="camion", label="Camion", emphasis=TextEmphasis.SECONDARY, stretch=1),
                 ColumnDef(key="creazione", label="Creazione", sortable=True, stretch=1),
+                # Stesse due colonne booleane gia' usate in Dipendenti ("Cert. gas") e Camion
+                # ("Sponda idraulica"): stessa label/ColumnType, riusate qui per coerenza invece
+                # di inventare una presentazione nuova (non nel mockup Sketch, che non modella
+                # queste colonne su Squadre - vedi CLAUDE.md, regola 7).
+                ColumnDef(
+                    key="flg_certificazione_gas",
+                    label="Cert. gas",
+                    column_type=ColumnType.BOOLEAN_BADGE,
+                    stretch=1,
+                ),
+                ColumnDef(
+                    key="flg_sponda_idraulica",
+                    label="Sponda idraulica",
+                    column_type=ColumnType.BOOLEAN_BADGE,
+                    stretch=1,
+                ),
                 ColumnDef(
                     key="stato",
                     label="Stato",
@@ -172,7 +205,7 @@ class SquadrePage(QWidget):
         )
         self._tabella.sortRequested.connect(self._on_sort_richiesto)
         self._tabella.pageChanged.connect(self._on_pagina_richiesta)
-        layout.addWidget(self._tabella)
+        layout.addWidget(self._tabella, 1)
 
     # --- dati -------------------------------------------------------------
 
@@ -194,9 +227,19 @@ class SquadrePage(QWidget):
         return self._gestore.prossimo_id_squadra()
 
     def _reload(self) -> None:
+        # Certificazione gas/sponda idraulica restano booleani lato backend: la GUI riduce la
+        # selezione multipla Sì/No a un singolo bool (una sola etichetta selezionata) o None
+        # (zero o entrambe) - stesso pattern gia' usato per il filtro Sponda idraulica in Camion.
+        valori_cert_gas = self._select_cert_gas.value()
+        filtro_cert_gas = valori_cert_gas[0] == CERT_GAS_SI if len(valori_cert_gas) == 1 else None
+        valori_sponda = self._select_sponda.value()
+        filtro_sponda = valori_sponda[0] == SPONDA_SI if len(valori_sponda) == 1 else None
+
         pagina = self._gestore.visualizza_squadre(
             ricerca=self._campo_ricerca.value() or None,
             filtro_stato=self._select_stato.value(),
+            filtro_certificazione_gas=filtro_cert_gas,
+            filtro_sponda_idraulica=filtro_sponda,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
             decrescente=self._decrescente,
@@ -212,6 +255,8 @@ class SquadrePage(QWidget):
                 "membri": r.membri,
                 "camion": r.camion,
                 "creazione": r.data_creazione.strftime("%d/%m/%Y"),
+                "flg_certificazione_gas": r.flg_certificazione_gas,
+                "flg_sponda_idraulica": r.flg_sponda_idraulica,
                 "stato": r.stato,
             }
             for indice, r in enumerate(pagina.squadre)
@@ -237,6 +282,8 @@ class SquadrePage(QWidget):
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
         self._select_stato.set_value([])
+        self._select_cert_gas.set_value([])
+        self._select_sponda.set_value([])
         self._pagina_corrente = 1
         self._reload()
 

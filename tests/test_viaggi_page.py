@@ -62,6 +62,26 @@ def test_viaggi_page_vuota_non_crasha(app, session_factory):
     assert pagina._tabella._rows_layout.count() == 1  # solo lo stretch finale, nessuna riga
 
 
+def test_viaggi_page_bottone_nuova_pianificazione_emette_segnale(app, session_factory):
+    # 2026-07-16, richiesta esplicita dell'utente: il bottone "Nuova pianificazione" non e' piu'
+    # disabilitato, riprende lo stesso pattern di DashboardPage.nuovaPianificazioneRequested (il
+    # composition root collega questo segnale a PianificazionePage.mostra_tab_automatica +
+    # AppShell.navigate_to("pianificazione"), non testato qui - vive in src/__init__.py).
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from gestionale_logistica.gui.components import Button
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    bottone = next(b for b in pagina.findChildren(Button) if b.isEnabled())
+
+    ricevuti = []
+    pagina.nuovaPianificazioneRequested.connect(lambda: ricevuti.append(True))
+    QTest.mouseClick(bottone, Qt.MouseButton.LeftButton)
+
+    assert ricevuti == [True]
+
+
 def test_viaggi_page_popola_tabella(app, session_factory):
     with session_factory() as session:
         crea_flotta(session)

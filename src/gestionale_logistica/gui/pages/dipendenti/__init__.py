@@ -36,7 +36,7 @@ from gestionale_logistica.risorse.gestore_dipendenti import (
     GestoreDipendenti,
 )
 
-PAGE_SIZE = 12
+PAGE_SIZE = 20
 
 # Sì/No per il filtro Certificazione gas (non nel mockup, aggiunto su richiesta esplicita
 # dell'utente) - stesse etichette gia' usate da BooleanToggle per coerenza visiva.
@@ -171,7 +171,7 @@ class DipendentiPage(QWidget):
         )
         self._tabella.sortRequested.connect(self._on_sort_richiesto)
         self._tabella.pageChanged.connect(self._on_pagina_richiesta)
-        layout.addWidget(self._tabella)
+        layout.addWidget(self._tabella, 1)
 
     # --- dati -------------------------------------------------------------
 

@@ -18,6 +18,9 @@ from gestionale_logistica.gui.pianificazione.components import (
     RigaOrdineSuggerito,
     SuggestionSection,
 )
+from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+    evidenzia_giorni_con_squadre_attive,
+)
 from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     costruisci_righe_suggerimento,
     costruisci_stato_composizione,
@@ -55,6 +58,7 @@ class AssistitaTab(QWidget):
         self._avvio_card = AvvioCard()
         self._avvio_card.avviaRequested.connect(self._avvia_composizione)
         self._avvio_card.dataChanged.connect(self._on_data_changed)
+        evidenzia_giorni_con_squadre_attive(self._avvio_card.calendario(), self._session_factory)
         outer.addWidget(self._avvio_card)
 
         self._composizione_container = QVBoxLayout()
