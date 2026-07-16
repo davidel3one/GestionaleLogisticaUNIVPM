@@ -29,6 +29,16 @@ STATO_NON_ATTIVA = "Non attiva"
 FILTRO_TUTTE = "Tutte"
 
 
+def _normalizza_filtro_multiplo(valore: str | list[str] | None, sentinella: str | None) -> set[str] | None:
+    """Vedi _normalizza_filtro_multiplo in gestore_dipendenti.py: stessa logica, duplicata perche'
+    i due gestori non condividono un modulo utils comune."""
+    if valore is None or valore == sentinella:
+        return None
+    if isinstance(valore, str):
+        return {valore}
+    return set(valore) or None
+
+
 @dataclass
 class RisultatoOperazioneSquadra:
     ok: bool
@@ -194,7 +204,7 @@ class GestoreSquadre:
     def visualizza_squadre(
         self,
         ricerca: str | None = None,
-        filtro_stato: str = FILTRO_TUTTE,
+        filtro_stato: str | list[str] = FILTRO_TUTTE,
         pagina: int = 1,
         dimensione_pagina: int = 20,
         decrescente: bool = False,
@@ -246,9 +256,10 @@ class GestoreSquadre:
                     )
                 )
 
-            if filtro_stato and filtro_stato != FILTRO_TUTTE:
-                righe = [r for r in righe if r.stato == filtro_stato]
-            elif not filtro_stato or filtro_stato == FILTRO_TUTTE:
+            valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTE)
+            if valori_stato:
+                righe = [r for r in righe if r.stato in valori_stato]
+            else:
                 # "Tutte" nasconde le squadre Non attiva: su richiesta esplicita dell'utente
                 # restano visibili in tabella solo scegliendo il filtro Stato "Non attiva" - stesso
                 # trattamento esteso poi (2026-07-16) a GestoreDipendenti/GestoreCamion per Cessato/

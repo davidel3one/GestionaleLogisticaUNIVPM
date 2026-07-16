@@ -14,6 +14,7 @@ from __future__ import annotations
 from PySide6.QtCore import QDate, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPalette, QValidator
 from PySide6.QtWidgets import (
+    QCalendarWidget,
     QCheckBox,
     QComboBox,
     QDateEdit,
@@ -46,6 +47,14 @@ SELECT_GAP = 8
 # Riuso del grigio chiaro già usato per lo sfondo dei bottoni SECONDARY (button.py),
 # invece di introdurre un nuovo token per lo stato hover/selezionato del popup.
 POPUP_HOVER_BG = "#F7F9FC"
+# Riuso dello stesso blu già usato altrove nell'app per link/stato attivo (LINK_COLOR in
+# table.py/link_button.py) e dello stesso grigio scuro di TEXT_PRIMARY_COLOR in table.py -
+# non colori nuovi. Il popup calendario nativo di QDateEdit non era mai stato ristilizzato
+# (decisione pregressa, vedi _DateEditBox) e usava la palette di sistema: su alcuni temi
+# Windows il selettore mese/anno renderizzava testo dello stesso colore dello sfondo.
+CALENDAR_TEXT_COLOR = "#2E2E2E"
+CALENDAR_SELECTED_BG = "#2563C9"
+CALENDAR_SELECTED_TEXT = "#FFFFFF"
 
 TOGGLE_PILL_WIDTH = 56
 TOGGLE_PILL_HEIGHT = 34
@@ -359,6 +368,78 @@ DATE_FORMAT = "dd/MM/yyyy"
 _DATE_CHEVRON_RESERVED = SELECT_GAP + CHEVRON_SIZE + FIELD_PADDING_H
 
 
+def _style_calendar_popup(calendar: QCalendarWidget) -> None:
+    """Ristilizza il popup calendario nativo di `QDateEdit` con la stessa chrome del popup
+    Select/MultiSelect (`_build_popup_chrome`: bordo/radius/colori dei campi) invece della
+    palette di sistema non toccata finora - su alcuni temi Windows il selettore mese
+    (QMenu interno) renderizzava testo dello stesso colore dello sfondo, invisibile.
+
+    `setGridVisible(False)` + niente colonna numero-settimana: la griglia dei giorni nativa
+    aveva un allineamento incoerente con l'header giorni della settimana sopra."""
+    calendar.setGridVisible(False)
+    calendar.setVerticalHeaderFormat(QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader)
+    calendar.setHorizontalHeaderFormat(QCalendarWidget.HorizontalHeaderFormat.ShortDayNames)
+    calendar.setFont(_field_font())
+    calendar.setStyleSheet(
+        f"""
+        QCalendarWidget {{
+            background-color: {FIELD_BG};
+            border: 1px solid {FIELD_BORDER};
+            border-radius: {FIELD_RADIUS}px;
+        }}
+        QCalendarWidget QWidget#qt_calendar_navigationbar {{
+            background-color: {FIELD_BG};
+        }}
+        QCalendarWidget QToolButton {{
+            background-color: transparent;
+            color: {CALENDAR_TEXT_COLOR};
+            border: none;
+            border-radius: 6px;
+            padding: 4px 8px;
+        }}
+        QCalendarWidget QToolButton:hover {{
+            background-color: {POPUP_HOVER_BG};
+        }}
+        QCalendarWidget QToolButton::menu-indicator {{
+            image: none;
+        }}
+        QCalendarWidget QMenu {{
+            background-color: {FIELD_BG};
+            color: {CALENDAR_TEXT_COLOR};
+            border: 1px solid {FIELD_BORDER};
+            border-radius: {FIELD_RADIUS}px;
+            padding: 4px;
+        }}
+        QCalendarWidget QMenu::item {{
+            padding: 6px 10px;
+            border-radius: 6px;
+            color: {CALENDAR_TEXT_COLOR};
+        }}
+        QCalendarWidget QMenu::item:selected {{
+            background-color: {POPUP_HOVER_BG};
+        }}
+        QCalendarWidget QSpinBox {{
+            background-color: {FIELD_BG};
+            color: {CALENDAR_TEXT_COLOR};
+            border: 1px solid {FIELD_BORDER};
+            border-radius: 6px;
+            padding: 2px 4px;
+        }}
+        QCalendarWidget QAbstractItemView {{
+            background-color: {FIELD_BG};
+            color: {CALENDAR_TEXT_COLOR};
+            selection-background-color: {CALENDAR_SELECTED_BG};
+            selection-color: {CALENDAR_SELECTED_TEXT};
+            outline: none;
+            gridline-color: transparent;
+        }}
+        QCalendarWidget QAbstractItemView:disabled {{
+            color: {LABEL_COLOR};
+        }}
+        """
+    )
+
+
 class _DateEditBox(QWidget):
     """Chrome flat condivisa da `DatePicker`/`DateFilterField`: `QDateEdit` nativo (calendario
     a comparsa invariato, decisione esplicita dell'utente) con il drop-down nativo reso
@@ -406,6 +487,8 @@ class _DateEditBox(QWidget):
         icon = load_lucide_icon("chevron-down", FIELD_TEXT_COLOR, CHEVRON_SIZE)
         self._chevron.setPixmap(icon.pixmap(QSize(CHEVRON_SIZE, CHEVRON_SIZE)))
         self._chevron.raise_()
+
+        _style_calendar_popup(self.input.calendarWidget())
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -466,16 +549,20 @@ class MultiSelect(QWidget):
         options: list[str],
         placeholder: str = "Seleziona...",
         parent: QWidget | None = None,
+        compact: bool = False,
     ) -> None:
         super().__init__(parent)
         self._options = list(options)
         self._placeholder = placeholder
         self._values: list[str] = []
+        self._label = label
+        self._compact = compact
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(LABEL_GAP)
-        layout.addWidget(_build_label(label))
+        if label and not compact:
+            layout.addWidget(_build_label(label))
 
         self._box = _SelectBox(self)
         self._box.clicked.connect(self._open_popup)
@@ -526,7 +613,7 @@ class MultiSelect(QWidget):
             text = self._values[0]
         else:
             text = f"{count} selezionati"
-        self._box.text_label.setText(text)
+        self._box.text_label.setText(f"{self._label}: {text}" if self._compact else text)
 
     def value(self) -> list[str]:
         return list(self._values)

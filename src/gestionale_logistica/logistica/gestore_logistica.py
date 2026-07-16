@@ -30,6 +30,16 @@ viaggio = CRUDBase[Viaggio](Viaggio)
 
 FILTRO_TUTTI = "Tutti"
 
+
+def _normalizza_filtro_multiplo(valore: str | list[str] | None, sentinella: str | None) -> set[str] | None:
+    """Vedi _normalizza_filtro_multiplo in gestore_dipendenti.py: stessa logica, duplicata perche'
+    i gestori non condividono un modulo utils comune."""
+    if valore is None or valore == sentinella:
+        return None
+    if isinstance(valore, str):
+        return {valore}
+    return set(valore) or None
+
 # Etichette italiane per la lista Ordini: gli enum StatoOrdine hanno valori CamelCase pensati per
 # la persistenza, non per la UI (es. RICEVUTO -> "Da pianificare", non "Ricevuto" - coerente col
 # mockup, dove un ordine appena importato/non ancora agganciato a un viaggio si legge come "in
@@ -556,7 +566,7 @@ class GestoreLogistica:
     def visualizza_ordini(
         self,
         ricerca: str | None = None,
-        filtro_stato: str = FILTRO_TUTTI,
+        filtro_stato: str | list[str] = FILTRO_TUTTI,
         filtro_data: date | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
@@ -622,8 +632,9 @@ class GestoreLogistica:
             senza_data = [r for r in righe if r.data_arrivo_viaggio is None]
             righe = con_data + senza_data
 
-            if filtro_stato and filtro_stato != FILTRO_TUTTI:
-                righe = [r for r in righe if r.stato == filtro_stato]
+            valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTI)
+            if valori_stato:
+                righe = [r for r in righe if r.stato in valori_stato]
 
             if filtro_data is not None:
                 righe = [
@@ -653,7 +664,7 @@ class GestoreLogistica:
     def visualizza_viaggi(
         self,
         ricerca: str | None = None,
-        filtro_stato: str = FILTRO_TUTTI,
+        filtro_stato: str | list[str] = FILTRO_TUTTI,
         filtro_data: date | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
@@ -729,8 +740,9 @@ class GestoreLogistica:
             )
             righe.sort(key=campo_ordinamento, reverse=decrescente)
 
-            if filtro_stato and filtro_stato != FILTRO_TUTTI:
-                righe = [r for r in righe if r.stato == filtro_stato]
+            valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTI)
+            if valori_stato:
+                righe = [r for r in righe if r.stato in valori_stato]
 
             if filtro_data is not None:
                 righe = [r for r in righe if r.data_partenza_prevista.date() == filtro_data]

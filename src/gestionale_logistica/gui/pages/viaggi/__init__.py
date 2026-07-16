@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -54,17 +53,18 @@ from gestionale_logistica.gui.components import (
     EmptyState,
     LinkButton,
     Modal,
+    MultiSelect,
     PageHeader,
     RowAction,
     SearchField,
     Select,
     Table,
     TextEmphasis,
+    ToastManager,
     load_lucide_icon,
 )
 from gestionale_logistica.gui.pages._form_layout import riga_2_colonne
 from gestionale_logistica.logistica.gestore_logistica import (
-    FILTRO_TUTTI,
     STATO_ORDINE_LABELS,
     STATO_VIAGGIO_LABELS,
     GestoreLogistica,
@@ -118,6 +118,8 @@ class ViaggiPage(QWidget):
         self._costruisci_filtri(layout)
         self._costruisci_tabella(layout)
 
+        self._toasts = ToastManager(self)
+
         self._reload()
 
     # --- costruzione UI -------------------------------------------------------------
@@ -145,7 +147,9 @@ class ViaggiPage(QWidget):
         riga.setSpacing(16)
 
         self._campo_ricerca = SearchField(placeholder="Cerca ID viaggio, squadra...")
-        self._select_stato = Select(
+        # Filtro a scelta multipla (2026-07-16, su richiesta esplicita dell'utente): vedi la stessa
+        # nota in gui/pages/dipendenti/__init__.py.
+        self._select_stato = MultiSelect(
             "Stato", options=list(STATO_VIAGGIO_LABELS.values()), placeholder="Tutti", compact=True
         )
         self._campo_data = DateFilterField()
@@ -176,7 +180,11 @@ class ViaggiPage(QWidget):
                     key="id", label="ID", column_type=ColumnType.LINK, stretch=1,
                     on_click=self._apri_modale_dettaglio,
                 ),
-                ColumnDef(key="squadra", label="Squadra", column_type=ColumnType.LINK, stretch=1),
+                # Testo semplice, non LINK (su richiesta esplicita dell'utente, 2026-07-16): stesso
+                # trattamento gia' usato per "Squadra" in Dipendenti (squadra_corrente), che non e'
+                # mai stata blu/cliccabile - qui coincideva solo perche' LINK senza on_click resta
+                # comunque blu per stile visivo, senza alcuna interazione reale.
+                ColumnDef(key="squadra", label="Squadra", stretch=1),
                 ColumnDef(
                     key="n_ordini", label="N. ordini", emphasis=TextEmphasis.SECONDARY, stretch=1
                 ),
@@ -213,7 +221,7 @@ class ViaggiPage(QWidget):
     def _reload(self) -> None:
         pagina = self._gestore.visualizza_viaggi(
             ricerca=self._campo_ricerca.value() or None,
-            filtro_stato=self._select_stato.value() or FILTRO_TUTTI,
+            filtro_stato=self._select_stato.value(),
             filtro_data=self._filtro_data,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
@@ -257,7 +265,7 @@ class ViaggiPage(QWidget):
 
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
-        self._select_stato.set_value(None)
+        self._select_stato.set_value([])
         self._campo_data.set_value(QDate.currentDate())
         self._filtro_data = None
         self._pagina_corrente = 1
@@ -279,7 +287,7 @@ class ViaggiPage(QWidget):
             risultato = self._gestore.annulla_viaggio(riga["id"])
             titolo_errore = "Impossibile annullare"
         if not risultato.ok:
-            QMessageBox.warning(self, titolo_errore, risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error(titolo_errore, risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     def _elimina_riga(self, riga: dict) -> None:
@@ -287,7 +295,7 @@ class ViaggiPage(QWidget):
         # riga non e' gia' terminale) - non elimina i dati, preserva lo storico (RF8).
         risultato = self._gestore.annulla_viaggio(riga["id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     # --- modali -------------------------------------------------------------
@@ -295,7 +303,7 @@ class ViaggiPage(QWidget):
     def _apri_modale_dettaglio(self, riga: dict) -> None:
         dettaglio = self._gestore.dettaglio_viaggio(riga["id"])
         if dettaglio is None:
-            QMessageBox.warning(self, "Viaggio non trovato", "Il viaggio non esiste più.")
+            self._toasts.show_error("Viaggio non trovato", "Il viaggio non esiste più.")
             self._reload()
             return
 
@@ -350,7 +358,7 @@ class ViaggiPage(QWidget):
         with self._gestore.session_factory() as session:
             viaggio_obj = session.get(Viaggio, riga["id"])
         if viaggio_obj is None:
-            QMessageBox.warning(self, "Viaggio non trovato", "Il viaggio non esiste più.")
+            self._toasts.show_error("Viaggio non trovato", "Il viaggio non esiste più.")
             self._reload()
             return
 
@@ -451,8 +459,8 @@ class ViaggiPage(QWidget):
             def _aggiungi_ordine(riga_candidato: dict) -> None:
                 esito = self._gestore.aggiungi_ordine_a_viaggio(viaggio_id, riga_candidato["id"])
                 if not esito.ammesso:
-                    QMessageBox.warning(
-                        self, "Impossibile aggiungere", esito.motivo or "Operazione rifiutata."
+                    self._toasts.show_error(
+                        "Impossibile aggiungere", esito.motivo or "Operazione rifiutata."
                     )
                     return
                 # Aggiorna solo il flag della riga gia' visualizzata (niente nuova query): appena
@@ -526,15 +534,15 @@ class ViaggiPage(QWidget):
                 data_arrivo_prevista=_qdate_a_datetime(campo_arrivo.value()),
             )
             if not risultato.ok:
-                QMessageBox.warning(self, "Impossibile salvare", risultato.motivo or "Operazione rifiutata.")
+                self._toasts.show_error("Impossibile salvare", risultato.motivo or "Operazione rifiutata.")
                 return
 
             nuova_composizione_id = opzioni_squadre.get(campo_squadra.value())
             if nuova_composizione_id is not None and nuova_composizione_id != viaggio_obj.composizione_id:
                 risultato_squadra = self._gestore.modifica_squadra_viaggio(viaggio_id, nuova_composizione_id)
                 if not risultato_squadra.ok:
-                    QMessageBox.warning(
-                        self, "Impossibile salvare", risultato_squadra.motivo or "Operazione rifiutata."
+                    self._toasts.show_error(
+                        "Impossibile salvare", risultato_squadra.motivo or "Operazione rifiutata."
                     )
                     return
 

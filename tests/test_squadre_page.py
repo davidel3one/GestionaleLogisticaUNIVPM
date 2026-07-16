@@ -185,7 +185,7 @@ def test_squadre_page_elimina_riga_soft_delete(app, session_factory):
 
     # Soft-delete: la riga sparisce dalla vista di default ma resta filtrabile.
     assert pagina._etichetta_conteggio.text() == "0 squadre"
-    pagina._select_stato.set_value(STATO_NON_ATTIVA)
+    pagina._select_stato.set_value([STATO_NON_ATTIVA])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
 
@@ -195,7 +195,7 @@ def test_squadre_page_modifica_riga_rifiutata_mostra_avviso(app, session_factory
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_squadre.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_squadre.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -219,7 +219,7 @@ def test_squadre_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory,
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_squadre.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_squadre.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -292,15 +292,34 @@ def test_squadre_page_filtro_stato_si_puo_azzerare(app, session_factory):
     gestore.elimina_squadra("2")
     pagina = SquadrePage(gestore)
 
-    pagina._select_stato.set_value(STATO_ATTIVA)
+    pagina._select_stato.set_value([STATO_ATTIVA])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
 
     # Azzerare il filtro torna a "Tutte", che pero' esclude comunque le Non attiva (squadra "2"):
     # resta visibile solo la squadra "1".
-    pagina._select_stato.set_value(None)
+    pagina._select_stato.set_value([])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
+
+
+def test_squadre_page_filtro_stato_multiplo(app, session_factory):
+    from gestionale_logistica.risorse.gestore_squadre import STATO_ATTIVA, STATO_NON_ATTIVA
+
+    with session_factory() as session:
+        crea_flotta(session, "1")
+        crea_flotta(session, "2")
+        session.commit()
+
+    gestore = GestoreSquadre(session_factory)
+    gestore.elimina_squadra("2")
+    pagina = SquadrePage(gestore)
+
+    # Selezionando Attiva + Non attiva insieme (MultiSelect) tornano visibili entrambe le squadre,
+    # a differenza del filtro vuoto che nasconde le Non attiva di default.
+    pagina._select_stato.set_value([STATO_ATTIVA, STATO_NON_ATTIVA])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "2 squadre"
 
 
 def test_squadre_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory):
@@ -316,13 +335,13 @@ def test_squadre_page_ripristina_filtri_azzera_tutto_insieme(app, session_factor
     pagina = SquadrePage(gestore)
 
     pagina._campo_ricerca.set_value("ab123")
-    pagina._select_stato.set_value(STATO_ATTIVA)
+    pagina._select_stato.set_value([STATO_ATTIVA])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
 
     pagina._ripristina_filtri()
 
     assert pagina._campo_ricerca.value() == ""
-    assert pagina._select_stato.value() is None
+    assert pagina._select_stato.value() == []
     # "Tutte" dopo il reset esclude comunque la squadra "2" (Non attiva): resta solo la "1".
     assert pagina._etichetta_conteggio.text() == "1 squadre"

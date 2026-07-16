@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy import select
 
 from gestionale_logistica.database.enums import StatoViaggio
@@ -25,16 +25,17 @@ from gestionale_logistica.gui.components import (
     EmptyState,
     LinkButton,
     Modal,
+    MultiSelect,
     PageHeader,
     RowAction,
     SearchField,
     Select,
     Table,
     TextEmphasis,
+    ToastManager,
     load_lucide_icon,
 )
 from gestionale_logistica.risorse.gestore_squadre import (
-    FILTRO_TUTTE,
     STATO_ATTIVA,
     STATO_IN_VIAGGIO,
     STATO_NON_ATTIVA,
@@ -88,6 +89,8 @@ class SquadrePage(QWidget):
         self._costruisci_filtri(layout)
         self._costruisci_tabella(layout)
 
+        self._toasts = ToastManager(self)
+
         self._reload()
 
     # --- costruzione UI -------------------------------------------------------------
@@ -112,7 +115,9 @@ class SquadrePage(QWidget):
         riga.setSpacing(16)
 
         self._campo_ricerca = SearchField(placeholder="Cerca dipendente, camion...")
-        self._select_stato = Select(
+        # Filtro a scelta multipla (2026-07-16, su richiesta esplicita dell'utente): vedi la stessa
+        # nota in gui/pages/dipendenti/__init__.py.
+        self._select_stato = MultiSelect(
             "Stato",
             options=[STATO_ATTIVA, STATO_IN_VIAGGIO, STATO_NON_ATTIVA],
             placeholder="Tutte",
@@ -191,7 +196,7 @@ class SquadrePage(QWidget):
     def _reload(self) -> None:
         pagina = self._gestore.visualizza_squadre(
             ricerca=self._campo_ricerca.value() or None,
-            filtro_stato=self._select_stato.value() or FILTRO_TUTTE,
+            filtro_stato=self._select_stato.value(),
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
             decrescente=self._decrescente,
@@ -231,7 +236,7 @@ class SquadrePage(QWidget):
 
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
-        self._select_stato.set_value(None)
+        self._select_stato.set_value([])
         self._pagina_corrente = 1
         self._reload()
 
@@ -246,7 +251,7 @@ class SquadrePage(QWidget):
             risultato = self._gestore.elimina_squadra(riga["id"])
             titolo_errore = "Impossibile eliminare"
         if not risultato.ok:
-            QMessageBox.warning(self, titolo_errore, risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error(titolo_errore, risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     def _elimina_riga(self, riga: dict) -> None:
@@ -254,7 +259,7 @@ class SquadrePage(QWidget):
         # riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
         risultato = self._gestore.elimina_squadra(riga["id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     # --- modali -------------------------------------------------------------
@@ -284,14 +289,14 @@ class SquadrePage(QWidget):
             dip_1_id = opzioni_dipendenti.get(campo_dip_1.value())
             dip_2_id = opzioni_dipendenti.get(campo_dip_2.value())
             if camion_id is None or dip_1_id is None or dip_2_id is None:
-                QMessageBox.warning(self, "Impossibile aggiungere", "Seleziona camion e i due dipendenti.")
+                self._toasts.show_error("Impossibile aggiungere", "Seleziona camion e i due dipendenti.")
                 return
 
             nuovo_id = self._prossimo_id_squadra()
             risultato_squadra = self._gestore.crea_squadra(nuovo_id, data_creazione=datetime.now())
             if not risultato_squadra.ok:
-                QMessageBox.warning(
-                    self, "Impossibile aggiungere", risultato_squadra.motivo or "Operazione rifiutata."
+                self._toasts.show_error(
+                    "Impossibile aggiungere", risultato_squadra.motivo or "Operazione rifiutata."
                 )
                 return
 
@@ -306,8 +311,8 @@ class SquadrePage(QWidget):
                 modale.close()
                 self._reload()
             else:
-                QMessageBox.warning(
-                    self, "Impossibile aggiungere",
+                self._toasts.show_error(
+                    "Impossibile aggiungere",
                     risultato_composizione.motivo or "Operazione rifiutata.",
                 )
 
@@ -317,7 +322,7 @@ class SquadrePage(QWidget):
     def _apri_modale_dettaglio(self, riga: dict) -> None:
         dettaglio = self._gestore.dettaglio_squadra(riga["id"])
         if dettaglio is None:
-            QMessageBox.warning(self, "Squadra non trovata", "La squadra non esiste più.")
+            self._toasts.show_error("Squadra non trovata", "La squadra non esiste più.")
             self._reload()
             return
 

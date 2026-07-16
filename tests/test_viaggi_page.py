@@ -193,7 +193,7 @@ def test_viaggi_page_modifica_riga_annulla_rifiutata_mostra_avviso(app, session_
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_viaggi.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_viaggi.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -240,7 +240,7 @@ def test_viaggi_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, 
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_viaggi.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_viaggi.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -265,11 +265,27 @@ def test_viaggi_page_filtro_stato_si_puo_azzerare(app, session_factory):
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
 
-    pagina._select_stato.set_value("Pianificato")
+    pagina._select_stato.set_value(["Pianificato"])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 viaggi"
 
-    pagina._select_stato.set_value(None)
+    pagina._select_stato.set_value([])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "2 viaggi"
+
+
+def test_viaggi_page_filtro_stato_multiplo(app, session_factory):
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.PIANIFICATO))
+        session.add(crea_viaggio("V2", "SQ1", stato=StatoViaggio.ANNULLATO))
+        session.add(crea_viaggio("V3", "SQ1", stato=StatoViaggio.IN_CORSO))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+
+    # Piu' stati selezionati insieme (MultiSelect): righe che soddisfano uno qualsiasi dei valori.
+    pagina._select_stato.set_value(["Pianificato", "Annullato"])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "2 viaggi"
 
@@ -296,7 +312,7 @@ def test_viaggi_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
     pagina._campo_ricerca.set_value("v1")
-    pagina._select_stato.set_value("Pianificato")
+    pagina._select_stato.set_value(["Pianificato"])
     pagina._campo_data.set_value(QDate(2026, 7, 20))
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 viaggi"
@@ -304,7 +320,7 @@ def test_viaggi_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory
     pagina._ripristina_filtri()
 
     assert pagina._campo_ricerca.value() == ""
-    assert pagina._select_stato.value() is None
+    assert pagina._select_stato.value() == []
     assert pagina._filtro_data is None
     assert pagina._etichetta_conteggio.text() == "2 viaggi"
 

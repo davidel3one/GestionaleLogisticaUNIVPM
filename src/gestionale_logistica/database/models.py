@@ -30,6 +30,12 @@ class Dipendente(Base):
     data_licenziamento: Mapped[Optional[datetime]]
     flg_attivo: Mapped[bool]
     flg_certificazione_gas: Mapped[bool]
+    flg_eliminato: Mapped[bool] = mapped_column(default=False, server_default="0")
+    """Soft-delete "vero" (cestino nella GUI): diverso da flg_attivo/Cessato (stato di servizio,
+    reversibile, ancora filtrabile in tabella) - un dipendente eliminato non e' piu' visibile in
+    nessun filtro, ma la riga resta a database per l'integrita' referenziale con lo storico
+    ComposizioneSquadra/Viaggio (RF8), a differenza di elimina_dipendente_definitivamente
+    (hard-delete, ancora presente ma non piu' agganciato al cestino)."""
 
 
 class Camion(Base):
@@ -44,6 +50,12 @@ class Camion(Base):
     data_acquisizione: Mapped[datetime]
     data_dismissione: Mapped[Optional[datetime]]
     flg_attivo: Mapped[bool]
+    flg_eliminato: Mapped[bool] = mapped_column(default=False, server_default="0")
+    """Soft-delete "vero" (cestino nella GUI): diverso da flg_attivo/Dismesso (stato di servizio,
+    reversibile, ancora filtrabile in tabella) - un camion eliminato non e' piu' visibile in
+    nessun filtro, ma la riga resta a database per l'integrita' referenziale con lo storico
+    ComposizioneSquadra/Viaggio (RF8), a differenza di elimina_camion_definitivamente (hard-delete,
+    ancora presente ma non piu' agganciato al cestino)."""
 
 
 class Squadra(Base):

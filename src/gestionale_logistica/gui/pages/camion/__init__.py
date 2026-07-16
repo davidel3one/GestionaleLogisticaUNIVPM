@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from gestionale_logistica.gui.components import (
     BooleanToggle,
@@ -19,6 +19,7 @@ from gestionale_logistica.gui.components import (
     DatePicker,
     LinkButton,
     Modal,
+    MultiSelect,
     PageHeader,
     RowAction,
     SearchField,
@@ -26,11 +27,11 @@ from gestionale_logistica.gui.components import (
     Table,
     TextEmphasis,
     TextField,
+    ToastManager,
     load_lucide_icon,
 )
 from gestionale_logistica.gui.pages._form_layout import riga_2_colonne
 from gestionale_logistica.risorse.gestore_camion import (
-    FILTRO_TUTTI,
     STATO_ATTIVO,
     STATO_DISMESSO,
     STATO_IN_VIAGGIO,
@@ -80,6 +81,8 @@ class CamionPage(QWidget):
         self._costruisci_filtri(layout)
         self._costruisci_tabella(layout)
 
+        self._toasts = ToastManager(self)
+
         self._reload()
 
     # --- costruzione UI -------------------------------------------------------------
@@ -104,10 +107,12 @@ class CamionPage(QWidget):
         riga.setSpacing(16)
 
         self._campo_ricerca = SearchField(placeholder="Cerca targa...")
-        self._select_tipo = Select(
+        # Filtri a scelta multipla (2026-07-16, su richiesta esplicita dell'utente): vedi la stessa
+        # nota in gui/pages/dipendenti/__init__.py.
+        self._select_tipo = MultiSelect(
             "Tipo", options=self._opzioni_tipo_mezzo(), placeholder="Tutti", compact=True
         )
-        self._select_stato = Select(
+        self._select_stato = MultiSelect(
             "Stato",
             options=[STATO_ATTIVO, STATO_IN_VIAGGIO, STATO_DISMESSO],
             placeholder="Tutti",
@@ -115,7 +120,7 @@ class CamionPage(QWidget):
         )
         # Non nel mockup, aggiunto su richiesta esplicita dell'utente - stessa coppia Sì/No gia'
         # usata per il filtro Cert. gas in Dipendenti, per coerenza visiva tra le pagine.
-        self._select_sponda = Select(
+        self._select_sponda = MultiSelect(
             "Sponda idraulica", options=[SPONDA_SI, SPONDA_NO], placeholder="Tutti", compact=True
         )
         riga.addWidget(self._campo_ricerca, 1)
@@ -168,14 +173,26 @@ class CamionPage(QWidget):
                     column_type=ColumnType.ACTIONS,
                     width=76,
                     actions=[
-                        # Switch al posto della matita (non nel mockup, richiesto esplicitamente):
-                        # stesso identico comportamento del precedente _modifica_riga, solo un
-                        # controllo diverso - on/off invece di un'icona su cui cliccare.
+                        # Icona "interruttore" al posto del precedente componente Switch dedicato
+                        # (non nel mockup, richiesto esplicitamente): stesso identico comportamento
+                        # di _modifica_riga di prima, solo icona invece di un widget a parte -
+                        # stesso pattern gia' usato altrove per un'icona che cambia in base allo
+                        # stato di riga (RowAction.predicate), non un componente nuovo della
+                        # stessa famiglia di _Switch. `arrow-left-right` (sostituita a
+                        # chevrons-down-up su richiesta esplicita dell'utente, con un'immagine di
+                        # riferimento - frecce orizzontali sfalsate, non chevron verticali):
+                        # stessa icona per entrambi gli stati, solo il colore cambia - riusato
+                        # dalla palette di stato Attivo/Dismesso
+                        # (STATO_BADGE_COLORS/DEFAULT_STATUS_BADGE_COLORS), non ridefinito.
                         RowAction(
-                            is_switch=True,
-                            switch_value=lambda riga: riga["stato"] != STATO_DISMESSO,
-                            callback=self._modifica_riga,
-                            tooltip="Attivo/Dismesso",
+                            "arrow-left-right", self._modifica_riga, color="#1E8E3E",
+                            tooltip="Attivo — clicca per dismettere",
+                            predicate=lambda riga: riga["stato"] != STATO_DISMESSO,
+                        ),
+                        RowAction(
+                            "arrow-left-right", self._modifica_riga, color="#BF392A",
+                            tooltip="Dismesso — clicca per riattivare",
+                            predicate=lambda riga: riga["stato"] == STATO_DISMESSO,
                         ),
                         RowAction("trash-2", self._elimina_riga),
                     ],
@@ -194,13 +211,15 @@ class CamionPage(QWidget):
         return sorted(set(TIPI_MEZZO_NOTI) | tipi_in_uso)
 
     def _reload(self) -> None:
-        sponda_selezionata = self._select_sponda.value()
-        filtro_sponda = {SPONDA_SI: True, SPONDA_NO: False}.get(sponda_selezionata)
+        # Sponda idraulica resta un booleano lato backend: la GUI riduce la selezione multipla
+        # Sì/No a un singolo bool (una sola etichetta selezionata) o None (zero o entrambe).
+        valori_sponda = self._select_sponda.value()
+        filtro_sponda = valori_sponda[0] == SPONDA_SI if len(valori_sponda) == 1 else None
 
         pagina = self._gestore.visualizza_camion(
             ricerca=self._campo_ricerca.value() or None,
             filtro_tipo=self._select_tipo.value(),
-            filtro_stato=self._select_stato.value() or FILTRO_TUTTI,
+            filtro_stato=self._select_stato.value(),
             filtro_sponda_idraulica=filtro_sponda,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
@@ -238,9 +257,9 @@ class CamionPage(QWidget):
 
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
-        self._select_tipo.set_value(None)
-        self._select_stato.set_value(None)
-        self._select_sponda.set_value(None)
+        self._select_tipo.set_value([])
+        self._select_stato.set_value([])
+        self._select_sponda.set_value([])
         self._pagina_corrente = 1
         self._reload()
 
@@ -254,25 +273,30 @@ class CamionPage(QWidget):
             risultato = self._gestore.disattiva_camion(riga["id"])
             titolo_errore = "Impossibile dismettere"
         if not risultato.ok:
-            QMessageBox.warning(self, titolo_errore, risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error(titolo_errore, risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     def _elimina_riga(self, riga: dict) -> None:
-        # Conferma esplicita richiesta dall'utente prima di procedere (non nel mockup): solo se
-        # positiva si esegue lo stesso soft-delete di sempre (disattiva_camion, uguale al pulsante
-        # modifica quando la riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
+        # Conferma esplicita richiesta dall'utente prima di procedere (non nel mockup). Su
+        # correzione esplicita dell'utente (2026-07-16, segnalata su Dipendenti ed estesa qui per
+        # coerenza tra le due pagine): il cestino non e' "dismetti" (quello resta un'operazione a
+        # parte, raggiungibile dallo switch, reversibile) - e' una rimozione vera e propria della
+        # riga, sia che il camion sia gia' Dismesso sia che sia ancora Attivo, senza distinzione.
+        # elimina_camion (soft-delete, flg_eliminato - vedi gestore_camion.py) rifiuta solo se il
+        # camion ha fatto parte di una squadra, mai per lo stato attuale; dalla GUI il risultato e'
+        # identico all'hard-delete usato in precedenza (nessun modo di recuperare la riga da qui).
         modale = ConfirmModal(
             "Elimina camion",
-            f"Sei sicuro di voler eliminare il camion {riga['targa']}? Verrà segnato come dismesso "
-            "e non sarà più utilizzabile per nuovi viaggi; lo storico resterà consultabile.",
+            f"Sei sicuro di voler eliminare il camion {riga['targa']}? L'eliminazione è definitiva "
+            "e non è reversibile.",
         )
         modale.confirmed.connect(lambda: self._conferma_elimina_riga(riga))
         modale.show_over(self)
 
     def _conferma_elimina_riga(self, riga: dict) -> None:
-        risultato = self._gestore.disattiva_camion(riga["id"])
+        risultato = self._gestore.elimina_camion(riga["id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     # --- modali -------------------------------------------------------------
@@ -298,16 +322,14 @@ class CamionPage(QWidget):
             targa = campo_targa.value().strip()
             tipo_mezzo = campo_tipo.value()
             if not tipo_mezzo:
-                QMessageBox.warning(self, "Impossibile aggiungere", "Seleziona un tipo mezzo.")
+                self._toasts.show_error("Impossibile aggiungere", "Seleziona un tipo mezzo.")
                 return
             try:
                 peso_massimo = float(campo_peso.value().strip().replace(",", "."))
                 volume_massimo = float(campo_volume.value().strip().replace(",", "."))
             except ValueError:
-                # Lacuna nota (validazione inline non ancora un componente di libreria, vedi
-                # componenti-gui.md): QMessageBox nativo, stesso principio gia' usato altrove.
-                QMessageBox.warning(
-                    self, "Impossibile aggiungere", "Peso e volume massimo devono essere numeri."
+                self._toasts.show_error(
+                    "Impossibile aggiungere", "Peso e volume massimo devono essere numeri."
                 )
                 return
 
@@ -324,8 +346,8 @@ class CamionPage(QWidget):
                 modale.close()
                 self._reload()
             else:
-                QMessageBox.warning(
-                    self, "Impossibile aggiungere", risultato.motivo or "Operazione rifiutata."
+                self._toasts.show_error(
+                    "Impossibile aggiungere", risultato.motivo or "Operazione rifiutata."
                 )
 
         bottone_conferma.clicked.connect(_conferma)

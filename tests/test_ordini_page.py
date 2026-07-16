@@ -115,11 +115,26 @@ def test_ordini_page_filtro_stato_si_puo_azzerare(app, session_factory):
 
     pagina = OrdiniPage(GestoreLogistica(session_factory), GestoreRendicontazione(session_factory))
 
-    pagina._select_stato.set_value("Fallito")
+    pagina._select_stato.set_value(["Fallito"])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 ordini"
 
-    pagina._select_stato.set_value(None)
+    pagina._select_stato.set_value([])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "2 ordini"
+
+
+def test_ordini_page_filtro_stato_multiplo(app, session_factory):
+    with session_factory() as session:
+        session.add(crea_ordine("ORD-1", stato=StatoOrdine.RICEVUTO))
+        session.add(crea_ordine("ORD-2", stato=StatoOrdine.FALLITO))
+        session.add(crea_ordine("ORD-3", stato=StatoOrdine.PIANIFICATO))
+        session.commit()
+
+    pagina = OrdiniPage(GestoreLogistica(session_factory), GestoreRendicontazione(session_factory))
+
+    # Piu' stati selezionati insieme (MultiSelect): righe che soddisfano uno qualsiasi dei valori.
+    pagina._select_stato.set_value(["Da pianificare", "Fallito"])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "2 ordini"
 
@@ -208,7 +223,7 @@ def test_ordini_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, 
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_ordini.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_ordini.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -236,14 +251,14 @@ def test_ordini_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory
 
     pagina = OrdiniPage(GestoreLogistica(session_factory), GestoreRendicontazione(session_factory))
     pagina._campo_ricerca.set_value("mario")
-    pagina._select_stato.set_value("Da pianificare")
+    pagina._select_stato.set_value(["Da pianificare"])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 ordini"
 
     pagina._ripristina_filtri()
 
     assert pagina._campo_ricerca.value() == ""
-    assert pagina._select_stato.value() is None
+    assert pagina._select_stato.value() == []
     assert pagina._filtro_data is None
     assert pagina._etichetta_conteggio.text() == "2 ordini"
 
@@ -346,6 +361,48 @@ def test_ordini_page_esiti_ordinamento_su_data_registrazione(app, session_factor
     assert pagina._esiti_decrescente is True
 
 
+def test_ordini_page_esiti_filtro_esito_multiplo(app, session_factory):
+    from gestionale_logistica.database.enums import StatoEsito
+    from gestionale_logistica.database.models import CausaleFallimento
+
+    with session_factory() as session:
+        _crea_flotta_e_viaggio_in_corso(session, viaggio_id="V1")
+        _crea_flotta_e_viaggio_in_corso(session, viaggio_id="V2", squadra_id="SQ2")
+        _crea_flotta_e_viaggio_in_corso(session, viaggio_id="V3", squadra_id="SQ3")
+        ordine_1 = crea_ordine("ORD-1")
+        ordine_1.viaggio_id = "V1"
+        session.add(ordine_1)
+        ordine_2 = crea_ordine("ORD-2")
+        ordine_2.viaggio_id = "V2"
+        session.add(ordine_2)
+        ordine_3 = crea_ordine("ORD-3")
+        ordine_3.viaggio_id = "V3"
+        session.add(ordine_3)
+        session.add(CausaleFallimento(codice="CLIENTE_ASSENTE", descrizione="Cliente assente"))
+        session.commit()
+
+    gestore_rendicontazione = GestoreRendicontazione(session_factory)
+    gestore_rendicontazione.registra_esito("ORD-1", StatoEsito.COMPLETATO)
+    gestore_rendicontazione.registra_esito("ORD-2", StatoEsito.COMPLETATO)
+    gestore_rendicontazione.registra_esito("ORD-3", StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE")
+
+    pagina = OrdiniPage(GestoreLogistica(session_factory), gestore_rendicontazione)
+    pagina._on_tab_cambiata(1)
+
+    pagina._esiti_select_esito.set_value(["Completato"])
+    pagina._on_esiti_filtro_cambiato()
+    assert pagina._esiti_etichetta_conteggio.text() == "2 esiti"
+
+    # Piu' valori selezionati insieme (MultiSelect): righe che soddisfano uno qualsiasi.
+    pagina._esiti_select_esito.set_value(["Completato", "Fallito"])
+    pagina._on_esiti_filtro_cambiato()
+    assert pagina._esiti_etichetta_conteggio.text() == "3 esiti"
+
+    pagina._esiti_select_esito.set_value([])
+    pagina._on_esiti_filtro_cambiato()
+    assert pagina._esiti_etichetta_conteggio.text() == "3 esiti"
+
+
 def test_ordini_page_modifica_esito_apre_il_modale_in_modalita_modifica(app, session_factory):
     from gestionale_logistica.database.enums import StatoEsito
     from gestionale_logistica.gui.pages.ordini._registra_esito_modal import RegistraEsitoModal
@@ -431,7 +488,7 @@ def test_ordini_page_elimina_esito_rifiutata_mostra_avviso(app, session_factory,
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_ordini.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_ordini.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     gestore_rendicontazione = GestoreRendicontazione(session_factory)

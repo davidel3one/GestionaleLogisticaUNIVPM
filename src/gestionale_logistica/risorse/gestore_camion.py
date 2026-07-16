@@ -32,6 +32,16 @@ TIPO_BILICO = "Bilico"
 TIPI_MEZZO_NOTI = [TIPO_FURGONE, TIPO_MOTRICE, TIPO_BILICO]
 
 
+def _normalizza_filtro_multiplo(valore: str | list[str] | None, sentinella: str | None) -> set[str] | None:
+    """Vedi _normalizza_filtro_multiplo in gestore_dipendenti.py: stessa logica, duplicata perche'
+    i due gestori non condividono un modulo utils comune."""
+    if valore is None or valore == sentinella:
+        return None
+    if isinstance(valore, str):
+        return {valore}
+    return set(valore) or None
+
+
 @dataclass
 class RisultatoOperazioneCamion:
     ok: bool
@@ -231,27 +241,61 @@ class GestoreCamion:
             session.commit()
             return RisultatoOperazioneCamion(ok=True, camion_id=id_)
 
+    def elimina_camion(self, id_: str) -> RisultatoOperazioneCamion:
+        """Soft-delete "vero" (cestino nella GUI, sostituisce elimina_camion_definitivamente
+        dietro quel bottone su richiesta esplicita dell'utente - stessi identici risultati per chi
+        usa l'app, solo l'implementazione cambia da hard a soft): la riga resta a database
+        (flg_eliminato=True, RF8) invece di essere rimossa, ma non compare mai piu' in
+        visualizza_camion - nemmeno scegliendo esplicitamente il filtro Stato "Dismesso", a
+        differenza di disattiva_camion (che marca solo Dismesso, reversibile con lo switch e
+        ancora visibile con quel filtro). Funziona sia che il camion sia Attivo sia che sia gia'
+        Dismesso, senza distinzione: nessun errore "gia' dismesso". Stesso vincolo di rifiuto
+        dell'hard-delete se il camion ha fatto parte di una squadra (qui non piu' necessario per
+        l'integrita' referenziale, che la riga preservata garantisce da sola, ma mantenuto per non
+        cambiare il risultato osservabile)."""
+        with self.session_factory() as session:
+            mezzo = session.get(Camion, id_)
+            if mezzo is None:
+                return RisultatoOperazioneCamion(ok=False, motivo=f"Camion '{id_}' non trovato")
+
+            composizione_bloccante = session.scalar(
+                select(ComposizioneSquadra.id_composizione).where(ComposizioneSquadra.camion_id == id_)
+            )
+            if composizione_bloccante is not None:
+                return RisultatoOperazioneCamion(
+                    ok=False, motivo="Impossibile eliminare: il camion ha fatto parte di una squadra"
+                )
+
+            mezzo.flg_eliminato = True
+            mezzo.flg_attivo = False
+            session.commit()
+            return RisultatoOperazioneCamion(ok=True, camion_id=id_)
+
     def visualizza_camion(
         self,
         ricerca: str | None = None,
-        filtro_tipo: str | None = None,
-        filtro_stato: str = FILTRO_TUTTI,
+        filtro_tipo: str | list[str] | None = None,
+        filtro_stato: str | list[str] = FILTRO_TUTTI,
         filtro_sponda_idraulica: bool | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
         decrescente: bool = False,
     ) -> PaginaCamion:
-        """Elenco filtrato/ordinato/paginato dei camion. Filtri: ricerca testuale (targa/tipo
-        mezzo), filtro tipo mezzo, filtro stato (Tutti/Attivo/In viaggio/Dismesso - "Tutti" nasconde
-        i Dismesso, visibili solo scegliendo esplicitamente quel filtro, vedi sotto), filtro sponda
-        idraulica (None = tutti, non nel mockup - aggiunto su richiesta esplicita dell'utente),
-        ordinamento per data_acquisizione, paginazione server-side. Stato "In viaggio" calcolato
-        con una sola query aggregata sui Viaggio IN_CORSO (niente N+1) - piu' semplice del
-        corrispettivo in GestoreDipendenti: ComposizioneSquadra.camion_id e' una FK sola, non
-        richiede unire due query come per i due dipendenti di una composizione. "Tutti" nasconde i
-        Dismesso esattamente come "Tutte" nasconde le squadre Non attiva in GestoreSquadre
-        (2026-07-16, su richiesta esplicita dell'utente: eliminare un camion deve anche far
-        sparire la sua riga dalla tabella, non solo marcarlo Dismesso lasciandolo lì)."""
+        """Elenco filtrato/ordinato/paginato dei camion. I camion eliminati (flg_eliminato, cestino
+        nella GUI - vedi elimina_camion) sono esclusi sempre, incondizionatamente, da qualunque
+        filtro Stato incluso "Dismesso": non sono un camion "gia' dismesso" da poter ancora
+        consultare, sono concettualmente rimossi (RF8 li preserva comunque a database, solo non li
+        mostra piu' qui). Filtri: ricerca testuale (targa/tipo mezzo), filtro tipo mezzo, filtro
+        stato (Tutti/Attivo/In viaggio/Dismesso - "Tutti" nasconde anche i Dismesso non eliminati,
+        visibili solo scegliendo esplicitamente quel filtro, vedi sotto), filtro sponda idraulica
+        (None = tutti, non nel mockup - aggiunto su richiesta esplicita dell'utente), ordinamento
+        per data_acquisizione, paginazione server-side. Stato "In viaggio" calcolato con una sola
+        query aggregata sui Viaggio IN_CORSO (niente N+1) - piu' semplice del corrispettivo in
+        GestoreDipendenti: ComposizioneSquadra.camion_id e' una FK sola, non richiede unire due
+        query come per i due dipendenti di una composizione. "Tutti" nasconde i Dismesso esattamente
+        come "Tutte" nasconde le squadre Non attiva in GestoreSquadre (2026-07-16, su richiesta
+        esplicita dell'utente: eliminare un camion deve anche far sparire la sua riga dalla tabella,
+        non solo marcarlo Dismesso lasciandolo lì)."""
         with self.session_factory() as session:
             in_viaggio_ids = set(
                 session.scalars(
@@ -265,7 +309,9 @@ class GestoreCamion:
             )
 
             ordine = Camion.data_acquisizione.desc() if decrescente else Camion.data_acquisizione.asc()
-            mezzi = session.scalars(select(Camion).order_by(ordine)).all()
+            mezzi = session.scalars(
+                select(Camion).where(Camion.flg_eliminato.is_(False)).order_by(ordine)
+            ).all()
 
             righe: list[CamionVista] = []
             for mezzo in mezzi:
@@ -283,12 +329,14 @@ class GestoreCamion:
                     )
                 )
 
-            if filtro_tipo:
-                righe = [r for r in righe if r.tipo_mezzo == filtro_tipo]
+            valori_tipo = _normalizza_filtro_multiplo(filtro_tipo, None)
+            if valori_tipo:
+                righe = [r for r in righe if r.tipo_mezzo in valori_tipo]
 
-            if filtro_stato and filtro_stato != FILTRO_TUTTI:
-                righe = [r for r in righe if r.stato == filtro_stato]
-            elif not filtro_stato or filtro_stato == FILTRO_TUTTI:
+            valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTI)
+            if valori_stato:
+                righe = [r for r in righe if r.stato in valori_stato]
+            else:
                 righe = [r for r in righe if r.stato != STATO_DISMESSO]
 
             if filtro_sponda_idraulica is not None:

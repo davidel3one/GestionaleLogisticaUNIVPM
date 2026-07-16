@@ -17,7 +17,7 @@ artboard "Ordini" / "Esiti").
 from __future__ import annotations
 
 from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from gestionale_logistica.gui.components import (
     Button,
@@ -29,18 +29,18 @@ from gestionale_logistica.gui.components import (
     DateFilterField,
     ImportCsvModal,
     LinkButton,
+    MultiSelect,
     PageHeader,
     RowAction,
     SearchField,
-    Select,
     TabBar,
     Table,
     TextEmphasis,
+    ToastManager,
     load_lucide_icon,
 )
 from gestionale_logistica.gui.pages.ordini._registra_esito_modal import RegistraEsitoModal
 from gestionale_logistica.logistica.gestore_logistica import (
-    FILTRO_TUTTI,
     STATO_ORDINE_LABELS,
     GestoreLogistica,
 )
@@ -91,6 +91,8 @@ class OrdiniPage(QWidget):
         self._stack.addWidget(self._costruisci_vista_esiti())
         layout.addWidget(self._stack)
 
+        self._toasts = ToastManager(self)
+
         self._reload()
 
     # --- costruzione UI -------------------------------------------------------------
@@ -125,7 +127,9 @@ class OrdiniPage(QWidget):
         riga.setSpacing(16)
 
         self._campo_ricerca = SearchField(placeholder="Cerca cliente, indirizzo, ID...")
-        self._select_stato = Select(
+        # Filtro a scelta multipla (2026-07-16, su richiesta esplicita dell'utente): vedi la stessa
+        # nota in gui/pages/dipendenti/__init__.py.
+        self._select_stato = MultiSelect(
             "Stato", options=list(STATO_ORDINE_LABELS.values()), placeholder="Tutti", compact=True
         )
         self._campo_data = DateFilterField()
@@ -201,7 +205,7 @@ class OrdiniPage(QWidget):
         riga.setSpacing(16)
 
         self._esiti_campo_ricerca = SearchField(placeholder="Cerca cliente, causale, ID...")
-        self._esiti_select_esito = Select(
+        self._esiti_select_esito = MultiSelect(
             "Esito", options=["Completato", "Fallito"], placeholder="Tutti", compact=True
         )
         self._esiti_campo_data = DateFilterField()
@@ -270,7 +274,7 @@ class OrdiniPage(QWidget):
     def _reload(self) -> None:
         pagina = self._gestore.visualizza_ordini(
             ricerca=self._campo_ricerca.value() or None,
-            filtro_stato=self._select_stato.value() or FILTRO_TUTTI,
+            filtro_stato=self._select_stato.value(),
             filtro_data=self._filtro_data,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
@@ -295,7 +299,7 @@ class OrdiniPage(QWidget):
     def _reload_esiti(self) -> None:
         pagina = self._gestore_rendicontazione.elenca_esiti(
             ricerca=self._esiti_campo_ricerca.value() or None,
-            filtro_esito=self._esiti_select_esito.value() or FILTRO_TUTTI,
+            filtro_esito=self._esiti_select_esito.value(),
             filtro_data=self._esiti_filtro_data,
             pagina=self._esiti_pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
@@ -348,7 +352,7 @@ class OrdiniPage(QWidget):
 
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
-        self._select_stato.set_value(None)
+        self._select_stato.set_value([])
         self._campo_data.set_value(QDate.currentDate())
         self._filtro_data = None
         self._pagina_corrente = 1
@@ -377,7 +381,7 @@ class OrdiniPage(QWidget):
     def _conferma_elimina_riga(self, riga: dict) -> None:
         risultato = self._gestore.elimina_ordine_definitivamente(riga["id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     def _registra_esito(self, riga: dict) -> None:
@@ -412,7 +416,7 @@ class OrdiniPage(QWidget):
     def _conferma_elimina_esito(self, riga: dict) -> None:
         risultato = self._gestore_rendicontazione.elimina_esito(riga["esito_id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
         self._reload_esiti()
 
@@ -436,7 +440,7 @@ class OrdiniPage(QWidget):
 
     def _esiti_ripristina_filtri(self) -> None:
         self._esiti_campo_ricerca.set_value("")
-        self._esiti_select_esito.set_value(None)
+        self._esiti_select_esito.set_value([])
         self._esiti_campo_data.set_value(QDate.currentDate())
         self._esiti_filtro_data = None
         self._esiti_pagina_corrente = 1

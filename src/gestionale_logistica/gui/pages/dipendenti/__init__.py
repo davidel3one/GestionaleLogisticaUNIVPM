@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from PySide6.QtCore import QDate
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from gestionale_logistica.gui.components import (
     BooleanToggle,
@@ -19,16 +19,17 @@ from gestionale_logistica.gui.components import (
     DatePicker,
     LinkButton,
     Modal,
+    MultiSelect,
     PageHeader,
     RowAction,
     SearchField,
     Select,
     Table,
     TextField,
+    ToastManager,
     load_lucide_icon,
 )
 from gestionale_logistica.risorse.gestore_dipendenti import (
-    FILTRO_TUTTI,
     STATO_ATTIVO,
     STATO_CESSATO,
     STATO_IN_VIAGGIO,
@@ -36,8 +37,6 @@ from gestionale_logistica.risorse.gestore_dipendenti import (
 )
 
 PAGE_SIZE = 12
-
-FILTRO_TUTTE_SQUADRE = "Tutte le squadre"
 
 # Sì/No per il filtro Certificazione gas (non nel mockup, aggiunto su richiesta esplicita
 # dell'utente) - stesse etichette gia' usate da BooleanToggle per coerenza visiva.
@@ -73,6 +72,8 @@ class DipendentiPage(QWidget):
         self._costruisci_filtri(layout)
         self._costruisci_tabella(layout)
 
+        self._toasts = ToastManager(self)
+
         self._reload()
 
     # --- costruzione UI -------------------------------------------------------------
@@ -97,23 +98,21 @@ class DipendentiPage(QWidget):
         riga.setSpacing(16)
 
         self._campo_ricerca = SearchField(placeholder="Cerca dipendente...")
-        # FILTRO_TUTTE_SQUADRE/FILTRO_TUTTI compaiono come prima voce selezionabile nel popup
-        # (non solo come placeholder): senza una voce esplicita per "nessun filtro" non c'e' modo
-        # di tornare a vedere tutti dopo aver scelto una squadra/stato specifico, dato che il
-        # popup di Select mostra solo le option passate qui.
-        self._select_squadra = Select(
-            "Squadra",
-            options=[FILTRO_TUTTE_SQUADRE, *self._opzioni_squadra()],
-            placeholder="Tutte",
-            compact=True,
+        # Filtri a scelta multipla (2026-07-16, su richiesta esplicita dell'utente): MultiSelect
+        # gia' esistente in libreria, nessuna voce sentinella "Tutti/Tutte" nelle opzioni - con
+        # MultiSelect il "nessun filtro" e' nativamente la selezione vuota (l'utente deseleziona
+        # tutto), a differenza di Select che aveva bisogno di una voce esplicita per tornarci
+        # (vedi componenti-gui.md).
+        self._select_squadra = MultiSelect(
+            "Squadra", options=self._opzioni_squadra(), placeholder="Tutte", compact=True
         )
-        self._select_stato = Select(
+        self._select_stato = MultiSelect(
             "Stato",
-            options=[FILTRO_TUTTI, STATO_ATTIVO, STATO_IN_VIAGGIO, STATO_CESSATO],
+            options=[STATO_ATTIVO, STATO_IN_VIAGGIO, STATO_CESSATO],
             placeholder="Tutti",
             compact=True,
         )
-        self._select_cert_gas = Select(
+        self._select_cert_gas = MultiSelect(
             "Cert. gas", options=[CERT_GAS_SI, CERT_GAS_NO], placeholder="Tutti", compact=True
         )
         riga.addWidget(self._campo_ricerca, 1)
@@ -182,17 +181,15 @@ class DipendentiPage(QWidget):
         return sorted(squadre)
 
     def _reload(self) -> None:
-        squadra_selezionata = self._select_squadra.value()
-        if squadra_selezionata == FILTRO_TUTTE_SQUADRE:
-            squadra_selezionata = None
-
-        cert_gas_selezionato = self._select_cert_gas.value()
-        filtro_cert_gas = {CERT_GAS_SI: True, CERT_GAS_NO: False}.get(cert_gas_selezionato)
+        # Cert. gas resta un booleano lato backend: la GUI riduce la selezione multipla Sì/No a un
+        # singolo bool (una sola etichetta selezionata) o None (zero o entrambe, equivale a "tutti").
+        valori_cert_gas = self._select_cert_gas.value()
+        filtro_cert_gas = valori_cert_gas[0] == CERT_GAS_SI if len(valori_cert_gas) == 1 else None
 
         pagina = self._gestore.visualizza_dipendenti(
             ricerca=self._campo_ricerca.value() or None,
-            filtro_squadra=squadra_selezionata,
-            filtro_stato=self._select_stato.value() or FILTRO_TUTTI,
+            filtro_squadra=self._select_squadra.value(),
+            filtro_stato=self._select_stato.value(),
             filtro_certificazione_gas=filtro_cert_gas,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
@@ -230,28 +227,33 @@ class DipendentiPage(QWidget):
 
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
-        self._select_squadra.set_value(None)
-        self._select_stato.set_value(None)
-        self._select_cert_gas.set_value(None)
+        self._select_squadra.set_value([])
+        self._select_stato.set_value([])
+        self._select_cert_gas.set_value([])
         self._pagina_corrente = 1
         self._reload()
 
     def _elimina_riga(self, riga: dict) -> None:
-        # Conferma esplicita richiesta dall'utente prima di procedere (non nel mockup): solo se
-        # positiva si esegue lo stesso soft-delete di sempre (licenzia_dipendente, uguale al
-        # pulsante modifica quando la riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
+        # Conferma esplicita richiesta dall'utente prima di procedere (non nel mockup). Su
+        # correzione esplicita dell'utente (2026-07-16): il cestino non e' "licenzia" (quello resta
+        # un'operazione a parte, raggiungibile dalla matita/Modifica, reversibile) - e' una
+        # rimozione vera e propria della riga, sia che il dipendente sia gia' Cessato sia che sia
+        # ancora Attivo, senza distinzione. elimina_dipendente (soft-delete, flg_eliminato - vedi
+        # gestore_dipendenti.py) rifiuta solo se il dipendente ha fatto parte di una squadra, mai
+        # per lo stato attuale; dalla GUI il risultato e' identico all'hard-delete usato in
+        # precedenza (nessun modo di recuperare la riga da qui).
         modale = ConfirmModal(
             "Elimina dipendente",
-            f"Sei sicuro di voler eliminare {riga['nome']}? Verrà segnato come cessato e non sarà "
-            "più assegnabile a nuove squadre; lo storico resterà consultabile.",
+            f"Sei sicuro di voler eliminare {riga['nome']}? L'eliminazione è definitiva e non è "
+            "reversibile.",
         )
         modale.confirmed.connect(lambda: self._conferma_elimina_riga(riga))
         modale.show_over(self)
 
     def _conferma_elimina_riga(self, riga: dict) -> None:
-        risultato = self._gestore.licenzia_dipendente(riga["id"])
+        risultato = self._gestore.elimina_dipendente(riga["id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     # --- modali -------------------------------------------------------------
@@ -290,8 +292,8 @@ class DipendentiPage(QWidget):
                 # Stesso principio del feedback su licenzia_dipendente rifiutato: senza questo,
                 # un codice fiscale mal formato (o gia' registrato) sembrerebbe un bottone che
                 # non fa nulla.
-                QMessageBox.warning(
-                    self, "Impossibile aggiungere", risultato.motivo or "Operazione rifiutata."
+                self._toasts.show_error(
+                    "Impossibile aggiungere", risultato.motivo or "Operazione rifiutata."
                 )
 
         bottone_conferma.clicked.connect(_conferma)
@@ -331,7 +333,7 @@ class DipendentiPage(QWidget):
                     risultato = self._gestore.licenzia_dipendente(riga["id"])
                     titolo_errore = "Impossibile licenziare"
                 if not risultato.ok:
-                    QMessageBox.warning(self, titolo_errore, risultato.motivo or "Operazione rifiutata.")
+                    self._toasts.show_error(titolo_errore, risultato.motivo or "Operazione rifiutata.")
                     return
 
             if campo_gas.value() != riga["flg_certificazione_gas"]:
@@ -339,8 +341,8 @@ class DipendentiPage(QWidget):
                     riga["id"], flg_certificazione_gas=campo_gas.value()
                 )
                 if not risultato.ok:
-                    QMessageBox.warning(
-                        self, "Impossibile salvare", risultato.motivo or "Operazione rifiutata."
+                    self._toasts.show_error(
+                        "Impossibile salvare", risultato.motivo or "Operazione rifiutata."
                     )
                     return
 
