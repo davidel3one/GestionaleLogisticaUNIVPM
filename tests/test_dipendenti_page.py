@@ -107,8 +107,8 @@ def test_dipendenti_page_modifica_riga_cambia_stato_a_cessato_ricarica(app, sess
     modale.findChild(Select).set_value("Cessato")
     _trova_bottone(modale, "Salva").click()
 
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "Cessato" in testi
+    # La riga sparisce dalla vista di default (Cessato nascosto), non solo cambia badge.
+    assert pagina._etichetta_conteggio.text() == "0 dipendenti"
 
 
 def test_dipendenti_page_modifica_riga_cambia_certificazione_gas(app, session_factory):
@@ -134,14 +134,35 @@ def test_dipendenti_page_elimina_riga_soft_delete(app, session_factory):
     gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
     pagina = DipendentiPage(gestore)
 
-    pagina._elimina_riga({"id": "D1", "stato": "Attivo"})
+    pagina._conferma_elimina_riga({"id": "D1", "stato": "Attivo"})
 
     from gestionale_logistica.database.models import Dipendente
 
     with session_factory() as session:
         assert session.get(Dipendente, "D1").flg_attivo is False
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "Cessato" in testi
+    # La riga sparisce dalla vista di default (Cessato nascosto), non solo cambia badge.
+    assert pagina._etichetta_conteggio.text() == "0 dipendenti"
+
+
+def test_dipendenti_page_elimina_riga_apre_conferma_senza_eliminare_subito(app, session_factory):
+    from gestionale_logistica.gui.components import ConfirmModal
+    from gestionale_logistica.database.models import Dipendente
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+    pagina = DipendentiPage(gestore)
+
+    pagina._elimina_riga({"id": "D1", "stato": "Attivo", "nome": "Mario Rossi"})
+
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1").flg_attivo is True  # non ancora eliminato
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+
+    modali[0].confirmed.emit()
+
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1").flg_attivo is False
 
 
 def test_dipendenti_page_licenzia_riga_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
@@ -250,7 +271,7 @@ def test_dipendenti_page_elimina_riga_rifiutata_mostra_avviso(app, session_facto
     gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "BBBBBB80A01A002A", datetime(2020, 1, 1))
     pagina = DipendentiPage(gestore)
 
-    pagina._elimina_riga({"id": "D1", "stato": "Attivo"})
+    pagina._conferma_elimina_riga({"id": "D1", "stato": "Attivo"})
 
     assert len(chiamate) == 1
     from gestionale_logistica.database.models import Dipendente
@@ -276,7 +297,8 @@ def test_dipendenti_page_filtro_stato_si_puo_azzerare(app, session_factory):
 
     pagina._select_stato.set_value(FILTRO_TUTTI)
     pagina._on_filtro_cambiato()
-    assert pagina._etichetta_conteggio.text() == "2 dipendenti"
+    # Tutti nasconde D2 (Cessato): resta solo D1.
+    assert pagina._etichetta_conteggio.text() == "1 dipendenti"
 
 
 def test_dipendenti_page_filtro_squadra_si_puo_azzerare(app, session_factory):

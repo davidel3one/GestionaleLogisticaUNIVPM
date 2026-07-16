@@ -10,8 +10,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
-from gestionale_logistica.gui.components import Button, ButtonVariant, Card, Select
-from gestionale_logistica.gui.pianificazione.components.date_filter_field import DateFilterField
+from gestionale_logistica.gui.components import Button, ButtonVariant, Card, DateFilterField, Select
 
 TITLE_COLOR = "#2E2E2E"
 ALERT_COLOR = "#C0392B"

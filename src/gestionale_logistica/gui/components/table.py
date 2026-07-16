@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -27,6 +27,9 @@ from PySide6.QtWidgets import (
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
 from gestionale_logistica.gui.components.progress_bar import ProgressBar
+from gestionale_logistica.gui.components.tooltip import Popover
+
+TOOLTIP_GAP = 6
 
 FONT_FAMILY = "Inter"
 
@@ -178,6 +181,13 @@ def _add_column_widget(layout: QHBoxLayout, widget: QWidget, column: ColumnDef) 
     if column.width is not None:
         widget.setFixedWidth(column.width)
         layout.addWidget(widget, 0, _CELL_ALIGNMENT)
+    elif isinstance(widget, _ElidingLabel):
+        # Nessun alignment qui (a differenza del ramo sotto): con un alignment esplicito Qt
+        # non ridimensiona mai il widget alla larghezza reale della cella, lo lascia alla sua
+        # sizeHint - per una label che deve troncarsi con l'ellissi questo significa non sapere
+        # mai quanto spazio ha davvero (l'ellissi o non scatta mai, o scatta solo per caso a
+        # schermo intero). L'allineamento verticale lo fa la label stessa via setAlignment.
+        layout.addWidget(widget, column.stretch)
     else:
         layout.addWidget(widget, column.stretch, _CELL_ALIGNMENT)
 
@@ -200,8 +210,66 @@ def _build_text_label(text: str, emphasis: TextEmphasis) -> QLabel:
     return label
 
 
-class _ClickableLabel(QLabel):
-    """QLabel che emette `clicked` al click sinistro - usata per le colonne LINK con `on_click`."""
+class _ElidingLabel(QLabel):
+    """QLabel che tronca il testo con ellissi quando supera la larghezza assegnata dalla cella
+    (invece di sconfinare nella colonna successiva) - ricalcolato ad ogni resize perche' la
+    larghezza reale della cella si conosce solo a layout fatto (colonne a `stretch`, non a
+    `width` fisso: la stessa Table resa piu' stretta rifa' l'ellissi da sola).
+
+    Il testo completo compare al passaggio del mouse in un `Popover` (stesso componente
+    riusato da `Tooltip`, non il tooltip nativo del sistema operativo) solo quando il testo
+    e' davvero troncato - altrimenti l'hover non mostra nulla."""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self.setAlignment(_CELL_ALIGNMENT)
+        self._full_text = text
+        self._truncated = False
+        self._popover: Popover | None = None
+
+    def sizeHint(self) -> QSize:
+        # Larghezza 0: altrimenti Qt userebbe la larghezza del testo COMPLETO (non ancora
+        # troncato) come sizeHint, e il layout a `stretch` non riuscirebbe mai a restringere
+        # la cella sotto quella soglia in una finestra piccola/non massimizzata - la colonna
+        # avrebbe continuato a sconfinare esattamente come prima di questo fix.
+        return QSize(0, super().sizeHint().height())
+
+    def minimumSizeHint(self) -> QSize:
+        return self.sizeHint()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 (override Qt)
+        super().resizeEvent(event)
+        self._update_elided_text()
+
+    def _update_elided_text(self) -> None:
+        elided = self.fontMetrics().elidedText(
+            self._full_text, Qt.TextElideMode.ElideRight, self.width()
+        )
+        self.blockSignals(True)
+        super().setText(elided)
+        self.blockSignals(False)
+        self._truncated = elided != self._full_text
+
+    def enterEvent(self, event: QEvent) -> None:
+        if self._truncated:
+            self._popover = Popover(self._full_text)
+            self._popover.adjustSize()
+            point = QPoint(0, self.height() + TOOLTIP_GAP)
+            self._popover.move(self.mapToGlobal(point))
+            self._popover.show()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event: QEvent) -> None:
+        if self._popover is not None:
+            self._popover.hide()
+            self._popover.deleteLater()
+            self._popover = None
+        super().leaveEvent(event)
+
+
+class _ClickableLabel(_ElidingLabel):
+    """QLabel che tronca con ellissi (vedi `_ElidingLabel`) ed emette `clicked` al click
+    sinistro - usata per le colonne LINK con `on_click`."""
 
     clicked = Signal()
 
@@ -212,7 +280,7 @@ class _ClickableLabel(QLabel):
 
 
 def _build_link_label(text: str, clickable: bool = False) -> QLabel:
-    label = _ClickableLabel(text) if clickable else QLabel(text)
+    label = _ClickableLabel(text) if clickable else _ElidingLabel(text)
     font = QFont(FONT_FAMILY)
     font.setWeight(QFont.Weight(600))
     font.setPixelSize(13)

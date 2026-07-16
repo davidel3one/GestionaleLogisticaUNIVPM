@@ -142,12 +142,15 @@ class GestoreDipendenti:
         decrescente: bool = False,
     ) -> PaginaDipendenti:
         """Elenco filtrato/ordinato/paginato dei dipendenti. Filtri: ricerca testuale (nome/
-        cognome/codice fiscale), filtro stato (Tutti/Attivo/In viaggio/Cessato), filtro squadra
+        cognome/codice fiscale), filtro stato (Tutti/Attivo/In viaggio/Cessato - "Tutti" nasconde
+        i Cessato, visibili solo scegliendo esplicitamente quel filtro, vedi sotto), filtro squadra
         corrente, filtro certificazione gas (None = tutti, non nel mockup - aggiunto su richiesta
         esplicita dell'utente), ordinamento per data_assunzione, paginazione lato Python. Stesso
         pattern di GestoreSquadre.visualizza_squadre: stato "In viaggio" derivato con query
         aggregate sui Viaggio IN_CORSO (niente N+1), squadra corrente con una sola query sulle
-        composizioni attive."""
+        composizioni attive; "Tutti" nasconde i Cessato esattamente come "Tutte" nasconde le
+        squadre Non attiva (2026-07-16, su richiesta esplicita dell'utente: eliminare un dipendente
+        deve anche far sparire la sua riga dalla tabella, non solo marcarla Cessato lasciandola lì)."""
         with self.session_factory() as session:
             # Insieme dei dipendenti "in viaggio": composizione ATTIVA legata a un Viaggio
             # IN_CORSO. ComposizioneSquadra ha due FK verso Dipendente (dipendente_1_id/
@@ -195,6 +198,13 @@ class GestoreDipendenti:
 
             if filtro_stato and filtro_stato != FILTRO_TUTTI:
                 righe = [r for r in righe if r.stato == filtro_stato]
+            elif not filtro_stato or filtro_stato == FILTRO_TUTTI:
+                # Su richiesta esplicita dell'utente (2026-07-16): "eliminare" un dipendente
+                # (licenzia_dipendente) deve anche far sparire la sua riga dalla tabella, non solo
+                # marcarla Cessato lasciandola comunque visibile - stesso comportamento gia' in uso
+                # per le squadre Non attiva (GestoreSquadre.visualizza_squadre). Resta consultabile
+                # scegliendo esplicitamente il filtro Stato "Cessato".
+                righe = [r for r in righe if r.stato != STATO_CESSATO]
 
             if filtro_certificazione_gas is not None:
                 righe = [r for r in righe if r.flg_certificazione_gas == filtro_certificazione_gas]

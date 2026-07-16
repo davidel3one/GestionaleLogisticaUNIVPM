@@ -153,6 +153,7 @@ class ViaggioVista:
     data_partenza_prevista: datetime
     data_arrivo_prevista: datetime
     stato: str
+    capacita_percentuale: float
 
 
 @dataclass
@@ -663,14 +664,25 @@ class GestoreLogistica:
         squadra), filtro stato (Tutti/In composizione/Pianificato/In corso/Completato/Annullato),
         filtro su un giorno esatto di data_partenza_prevista, ordinamento su partenza O arrivo
         (entrambe le colonne sono sortable nel mockup, non solo una come per Dipendenti/Camion),
-        paginazione server-side. N. ordini calcolato con una query aggregata (func.count via
-        outerjoin, stessa tecnica di dettaglio_squadra in gestore_squadre.py - niente N+1)."""
+        paginazione server-side. N. ordini e capacita' occupata calcolati con un'unica query
+        aggregata (func.count/func.sum via outerjoin, stessa tecnica di dettaglio_squadra in
+        gestore_squadre.py - niente N+1). capacita_percentuale e' il maggiore tra peso% e volume%
+        occupati sul camion della composizione (il collo di bottiglia del viaggio) - stessa
+        formula e stessa colonna "Capacità" gia' usata dalla Proposed Trips Table di
+        Pianificazione (vedi gui/pianificazione/pianificazione_data.py:costruisci_righe_piano),
+        qui riusata cosi' com'e' invece di reinventarla."""
         with self.session_factory() as session:
-            squadra_per_composizione = dict(
-                session.execute(
-                    select(ComposizioneSquadra.id_composizione, ComposizioneSquadra.squadra_id)
+            composizione_info: dict[str, tuple[str, float, float]] = {
+                r[0]: (r[1], r[2], r[3])
+                for r in session.execute(
+                    select(
+                        ComposizioneSquadra.id_composizione,
+                        ComposizioneSquadra.squadra_id,
+                        Camion.peso_massimo,
+                        Camion.volume_massimo,
+                    ).join(Camion, Camion.id == ComposizioneSquadra.camion_id)
                 ).all()
-            )
+            }
 
             righe_grezze = session.execute(
                 select(
@@ -680,6 +692,8 @@ class GestoreLogistica:
                     Viaggio.data_partenza_prevista,
                     Viaggio.data_arrivo_prevista,
                     func.count(Ordine.id),
+                    func.coalesce(func.sum(Ordine.peso), 0.0),
+                    func.coalesce(func.sum(Ordine.volume_cargo), 0.0),
                 )
                 .outerjoin(Ordine, Ordine.viaggio_id == Viaggio.id)
                 .group_by(
@@ -691,17 +705,22 @@ class GestoreLogistica:
                 )
             ).all()
 
-            righe = [
-                ViaggioVista(
-                    id=r[0],
-                    squadra_id=squadra_per_composizione.get(r[1], "—"),
-                    n_ordini=r[5],
-                    data_partenza_prevista=r[3],
-                    data_arrivo_prevista=r[4],
-                    stato=STATO_VIAGGIO_LABELS[r[2]],
+            righe: list[ViaggioVista] = []
+            for r in righe_grezze:
+                squadra_id, peso_massimo, volume_massimo = composizione_info.get(r[1], ("—", 0.0, 0.0))
+                peso_pct = (r[6] / peso_massimo * 100) if peso_massimo else 0.0
+                volume_pct = (r[7] / volume_massimo * 100) if volume_massimo else 0.0
+                righe.append(
+                    ViaggioVista(
+                        id=r[0],
+                        squadra_id=squadra_id,
+                        n_ordini=r[5],
+                        data_partenza_prevista=r[3],
+                        data_arrivo_prevista=r[4],
+                        stato=STATO_VIAGGIO_LABELS[r[2]],
+                        capacita_percentuale=max(peso_pct, volume_pct),
+                    )
                 )
-                for r in righe_grezze
-            ]
 
             campo_ordinamento = (
                 (lambda r: r.data_arrivo_prevista)

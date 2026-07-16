@@ -173,11 +173,32 @@ def test_ordini_page_elimina_riga_definitiva(app, session_factory):
         session.commit()
 
     pagina = OrdiniPage(GestoreLogistica(session_factory), GestoreRendicontazione(session_factory))
-    pagina._elimina_riga({"id": "ORD-1"})
+    pagina._conferma_elimina_riga({"id": "ORD-1"})
 
     with session_factory() as session:
         assert session.get(Ordine, "ORD-1") is None
     assert pagina._etichetta_conteggio.text() == "0 ordini"
+
+
+def test_ordini_page_elimina_riga_apre_conferma_senza_eliminare_subito(app, session_factory):
+    from gestionale_logistica.gui.components import ConfirmModal
+
+    with session_factory() as session:
+        session.add(crea_ordine("ORD-1"))
+        session.commit()
+
+    pagina = OrdiniPage(GestoreLogistica(session_factory), GestoreRendicontazione(session_factory))
+    pagina._elimina_riga({"id": "ORD-1", "cliente": "Mario Rossi"})
+
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-1") is not None  # non ancora eliminato
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+
+    modali[0].confirmed.emit()
+
+    with session_factory() as session:
+        assert session.get(Ordine, "ORD-1") is None
 
 
 def test_ordini_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
@@ -200,7 +221,7 @@ def test_ordini_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, 
         session.commit()
 
     pagina = OrdiniPage(GestoreLogistica(session_factory), GestoreRendicontazione(session_factory))
-    pagina._elimina_riga({"id": "ORD-1"})
+    pagina._conferma_elimina_riga({"id": "ORD-1"})
 
     assert len(chiamate) == 1
     with session_factory() as session:
@@ -367,13 +388,42 @@ def test_ordini_page_elimina_esito_ricarica_ordini_ed_esiti(app, session_factory
     risultato = gestore_rendicontazione.registra_esito("ORD-1", StatoEsito.COMPLETATO)
 
     pagina = OrdiniPage(GestoreLogistica(session_factory), gestore_rendicontazione)
-    pagina._elimina_esito({"esito_id": risultato.esito_id})
+    pagina._conferma_elimina_esito({"esito_id": risultato.esito_id})
 
     with session_factory() as session:
         assert session.get(Ordine, "ORD-1").stato_ordine == StatoOrdine.PIANIFICATO
     assert pagina._etichetta_conteggio.text() == "1 ordini"
     pagina._on_tab_cambiata(1)
     assert pagina._esiti_etichetta_conteggio.text() == "0 esiti"
+
+
+def test_ordini_page_elimina_esito_apre_conferma_senza_eliminare_subito(app, session_factory):
+    from gestionale_logistica.database.enums import StatoEsito
+    from gestionale_logistica.database.models import EsitoConsegna
+    from gestionale_logistica.gui.components import ConfirmModal
+
+    with session_factory() as session:
+        _crea_flotta_e_viaggio_in_corso(session)
+        ordine = crea_ordine("ORD-1")
+        ordine.viaggio_id = "V1"
+        session.add(ordine)
+        session.commit()
+
+    gestore_rendicontazione = GestoreRendicontazione(session_factory)
+    risultato = gestore_rendicontazione.registra_esito("ORD-1", StatoEsito.COMPLETATO)
+
+    pagina = OrdiniPage(GestoreLogistica(session_factory), gestore_rendicontazione)
+    pagina._elimina_esito({"esito_id": risultato.esito_id, "id": "ORD-1", "cliente": "Mario Rossi"})
+
+    with session_factory() as session:
+        assert session.get(EsitoConsegna, risultato.esito_id) is not None  # non ancora eliminato
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+
+    modali[0].confirmed.emit()
+
+    with session_factory() as session:
+        assert session.get(EsitoConsegna, risultato.esito_id) is None
 
 
 def test_ordini_page_elimina_esito_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
@@ -387,6 +437,6 @@ def test_ordini_page_elimina_esito_rifiutata_mostra_avviso(app, session_factory,
     gestore_rendicontazione = GestoreRendicontazione(session_factory)
     pagina = OrdiniPage(GestoreLogistica(session_factory), gestore_rendicontazione)
 
-    pagina._elimina_esito({"esito_id": 999})
+    pagina._conferma_elimina_esito({"esito_id": 999})
 
     assert len(chiamate) == 1

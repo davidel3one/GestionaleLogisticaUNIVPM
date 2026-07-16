@@ -242,12 +242,16 @@ class GestoreCamion:
         decrescente: bool = False,
     ) -> PaginaCamion:
         """Elenco filtrato/ordinato/paginato dei camion. Filtri: ricerca testuale (targa/tipo
-        mezzo), filtro tipo mezzo, filtro stato (Tutti/Attivo/In viaggio/Dismesso), filtro sponda
+        mezzo), filtro tipo mezzo, filtro stato (Tutti/Attivo/In viaggio/Dismesso - "Tutti" nasconde
+        i Dismesso, visibili solo scegliendo esplicitamente quel filtro, vedi sotto), filtro sponda
         idraulica (None = tutti, non nel mockup - aggiunto su richiesta esplicita dell'utente),
         ordinamento per data_acquisizione, paginazione server-side. Stato "In viaggio" calcolato
         con una sola query aggregata sui Viaggio IN_CORSO (niente N+1) - piu' semplice del
         corrispettivo in GestoreDipendenti: ComposizioneSquadra.camion_id e' una FK sola, non
-        richiede unire due query come per i due dipendenti di una composizione."""
+        richiede unire due query come per i due dipendenti di una composizione. "Tutti" nasconde i
+        Dismesso esattamente come "Tutte" nasconde le squadre Non attiva in GestoreSquadre
+        (2026-07-16, su richiesta esplicita dell'utente: eliminare un camion deve anche far
+        sparire la sua riga dalla tabella, non solo marcarlo Dismesso lasciandolo lì)."""
         with self.session_factory() as session:
             in_viaggio_ids = set(
                 session.scalars(
@@ -284,6 +288,8 @@ class GestoreCamion:
 
             if filtro_stato and filtro_stato != FILTRO_TUTTI:
                 righe = [r for r in righe if r.stato == filtro_stato]
+            elif not filtro_stato or filtro_stato == FILTRO_TUTTI:
+                righe = [r for r in righe if r.stato != STATO_DISMESSO]
 
             if filtro_sponda_idraulica is not None:
                 righe = [r for r in righe if r.flg_sponda_idraulica == filtro_sponda_idraulica]

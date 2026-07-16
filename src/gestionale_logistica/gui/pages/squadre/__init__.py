@@ -113,7 +113,10 @@ class SquadrePage(QWidget):
 
         self._campo_ricerca = SearchField(placeholder="Cerca dipendente, camion...")
         self._select_stato = Select(
-            "Stato", options=[STATO_ATTIVA, STATO_IN_VIAGGIO, STATO_NON_ATTIVA], placeholder="Tutte"
+            "Stato",
+            options=[STATO_ATTIVA, STATO_IN_VIAGGIO, STATO_NON_ATTIVA],
+            placeholder="Tutte",
+            compact=True,
         )
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_stato)

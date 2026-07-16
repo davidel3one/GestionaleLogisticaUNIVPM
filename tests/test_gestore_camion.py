@@ -390,7 +390,10 @@ def test_visualizza_camion_stato_dismesso(session_factory):
     gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 100.0, 5.0)
     gestore.disattiva_camion("C1")
 
-    pagina = gestore.visualizza_camion()
+    # Di default (nessun filtro / FILTRO_TUTTI) i camion Dismesso restano nascosti: si vedono solo
+    # scegliendo esplicitamente il filtro Stato "Dismesso".
+    assert gestore.visualizza_camion().totale == 0
+    pagina = gestore.visualizza_camion(filtro_stato=STATO_DISMESSO)
 
     assert pagina.camion[0].stato == STATO_DISMESSO
 
@@ -427,7 +430,8 @@ def test_visualizza_camion_filtro_stato(session_factory):
 
     assert [r.id for r in solo_attivi] == ["C1"]
     assert [r.id for r in solo_dismessi] == ["C2"]
-    assert len(tutti) == 2
+    # Default (FILTRO_TUTTI): C2 (Dismesso) resta escluso, solo C1.
+    assert len(tutti) == 1
 
 
 def test_visualizza_camion_ordinamento_per_data_acquisizione(session_factory):

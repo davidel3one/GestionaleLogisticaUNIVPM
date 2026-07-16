@@ -447,7 +447,10 @@ def test_visualizza_dipendenti_stato_cessato(session_factory):
     gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
     gestore.licenzia_dipendente("D1")
 
-    pagina = gestore.visualizza_dipendenti()
+    # Di default (nessun filtro / FILTRO_TUTTI) i dipendenti Cessato restano nascosti: si vedono
+    # solo scegliendo esplicitamente il filtro Stato "Cessato".
+    assert gestore.visualizza_dipendenti().totale == 0
+    pagina = gestore.visualizza_dipendenti(filtro_stato=STATO_CESSATO)
 
     assert pagina.dipendenti[0].stato == STATO_CESSATO
 
@@ -475,7 +478,8 @@ def test_visualizza_dipendenti_filtro_stato(session_factory):
 
     assert [r.id for r in solo_attivi] == ["D1"]
     assert [r.id for r in solo_cessati] == ["D2"]
-    assert len(tutti) == 2
+    # Default (FILTRO_TUTTI): D2 (Cessato) resta escluso, solo D1.
+    assert len(tutti) == 1
 
 
 def test_visualizza_dipendenti_filtro_squadra(session_factory):

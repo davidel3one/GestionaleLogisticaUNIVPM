@@ -249,9 +249,10 @@ class GestoreSquadre:
             if filtro_stato and filtro_stato != FILTRO_TUTTE:
                 righe = [r for r in righe if r.stato == filtro_stato]
             elif not filtro_stato or filtro_stato == FILTRO_TUTTE:
-                # A differenza di Dipendenti/Camion (dove "Tutti" include anche Cessato/Dismesso
-                # per lo storico), qui "Tutte" nasconde le squadre Non attiva: su richiesta esplicita
-                # dell'utente restano visibili in tabella solo scegliendo il filtro Stato "Non attiva".
+                # "Tutte" nasconde le squadre Non attiva: su richiesta esplicita dell'utente
+                # restano visibili in tabella solo scegliendo il filtro Stato "Non attiva" - stesso
+                # trattamento esteso poi (2026-07-16) a GestoreDipendenti/GestoreCamion per Cessato/
+                # Dismesso, inizialmente diverso qui (i tre gestori ora si comportano allo stesso modo).
                 righe = [r for r in righe if r.stato != STATO_NON_ATTIVA]
 
             if ricerca:

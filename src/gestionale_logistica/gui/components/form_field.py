@@ -212,7 +212,15 @@ class Select(QWidget):
     (sfondo bianco, bordo `#E5EAF0`, radius 9px, hover `#F7F9FC`) per coerenza visiva, non
     perché misurato — scelta di implementazione, analoga a come `Modal` documenta
     "click sul backdrop chiude" come comportamento standard non nel mockup statico.
-    """
+
+    `compact=True` (uso nelle righe Filtri, gui-design.pdf pagine Ordini/Dipendenti/Camion/
+    Squadre/Viaggi): niente label sopra, il testo del box diventa "Label: valore" su una sola
+    riga - stessa altezza/chrome di TextField/SearchField, verificato pixel per pixel dal pdf
+    di riferimento (i filtri Stato/Tipo/Squadra li' non hanno mai una label separata sopra).
+    Diverso da `label=""` (nessuna label da nessuna parte, es. "Aggiungi ordine" della
+    Composizione Card): qui la label c'e' ancora, solo spostata dentro il box invece che sopra -
+    bug di allineamento reale rispetto al mockup nella prima iterazione (i filtri riusavano lo
+    stesso Select dei form), non un'assunzione."""
 
     valueChanged = Signal(str)
 
@@ -222,11 +230,14 @@ class Select(QWidget):
         options: list[str] | None = None,
         placeholder: str = "",
         parent: QWidget | None = None,
+        compact: bool = False,
     ) -> None:
         super().__init__(parent)
         self._options = list(options or [])
         self._placeholder = placeholder
         self._value: str | None = None
+        self._label = label
+        self._compact = compact
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -234,11 +245,11 @@ class Select(QWidget):
         # label vuota (default) = nessuna label sopra, es. il campo "Aggiungi ordine" della
         # Composizione Card (Pianificazione — Manuale/Assistita): il mockup non mostra alcuna
         # etichetta lì, a differenza di ogni altra istanza di Select nel resto dell'app.
-        if label:
+        if label and not compact:
             layout.addWidget(_build_label(label))
 
         self._box = _SelectBox(self)
-        self._box.text_label.setText(placeholder)
+        self._refresh_box_text()
         self._box.clicked.connect(self._open_popup)
         layout.addWidget(self._box)
 
@@ -256,9 +267,13 @@ class Select(QWidget):
     def value(self) -> str | None:
         return self._value
 
+    def _refresh_box_text(self) -> None:
+        testo = self._value if self._value is not None else self._placeholder
+        self._box.text_label.setText(f"{self._label}: {testo}" if self._compact else testo)
+
     def set_value(self, value: str | None) -> None:
         self._value = value
-        self._box.text_label.setText(value if value is not None else self._placeholder)
+        self._refresh_box_text()
         self.valueChanged.emit(value or "")
 
     def set_options(self, options: list[str]) -> None:

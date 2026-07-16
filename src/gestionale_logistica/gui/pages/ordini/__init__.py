@@ -25,7 +25,8 @@ from gestionale_logistica.gui.components import (
     Card,
     ColumnDef,
     ColumnType,
-    DatePicker,
+    ConfirmModal,
+    DateFilterField,
     ImportCsvModal,
     LinkButton,
     PageHeader,
@@ -125,9 +126,9 @@ class OrdiniPage(QWidget):
 
         self._campo_ricerca = SearchField(placeholder="Cerca cliente, indirizzo, ID...")
         self._select_stato = Select(
-            "Stato", options=list(STATO_ORDINE_LABELS.values()), placeholder="Tutti"
+            "Stato", options=list(STATO_ORDINE_LABELS.values()), placeholder="Tutti", compact=True
         )
-        self._campo_data = DatePicker("Data")
+        self._campo_data = DateFilterField()
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_stato)
         riga.addWidget(self._campo_data)
@@ -201,9 +202,9 @@ class OrdiniPage(QWidget):
 
         self._esiti_campo_ricerca = SearchField(placeholder="Cerca cliente, causale, ID...")
         self._esiti_select_esito = Select(
-            "Esito", options=["Completato", "Fallito"], placeholder="Tutti"
+            "Esito", options=["Completato", "Fallito"], placeholder="Tutti", compact=True
         )
-        self._esiti_campo_data = DatePicker("Data")
+        self._esiti_campo_data = DateFilterField()
         riga.addWidget(self._esiti_campo_ricerca, 1)
         riga.addWidget(self._esiti_select_esito)
         riga.addWidget(self._esiti_campo_data)
@@ -362,6 +363,18 @@ class OrdiniPage(QWidget):
         self._import_modal.show()
 
     def _elimina_riga(self, riga: dict) -> None:
+        # Conferma esplicita richiesta dall'utente prima di procedere (stesso pattern gia' usato
+        # su Camion/Dipendenti): qui l'eliminazione e' definitiva (elimina_ordine_definitivamente,
+        # hard-delete), non un soft-delete come per le altre pagine - messaggio diverso di conseguenza.
+        modale = ConfirmModal(
+            "Elimina ordine",
+            f"Sei sicuro di voler eliminare l'ordine {riga['id']} ({riga['cliente']})? "
+            "L'eliminazione è definitiva e non è reversibile.",
+        )
+        modale.confirmed.connect(lambda: self._conferma_elimina_riga(riga))
+        modale.show_over(self)
+
+    def _conferma_elimina_riga(self, riga: dict) -> None:
         risultato = self._gestore.elimina_ordine_definitivamente(riga["id"])
         if not risultato.ok:
             QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
@@ -384,6 +397,19 @@ class OrdiniPage(QWidget):
         self._esito_modal.show_over(self)
 
     def _elimina_esito(self, riga: dict) -> None:
+        # Conferma esplicita richiesta dall'utente prima di procedere (stesso pattern gia' usato
+        # su Camion/Dipendenti/Ordini): qui l'eliminazione e' definitiva (elimina_esito rimuove
+        # anche le eventuali prove allegate e riporta l'ordine allo stato precedente).
+        modale = ConfirmModal(
+            "Elimina esito",
+            f"Sei sicuro di voler eliminare l'esito registrato per l'ordine {riga['id']} "
+            f"({riga['cliente']})? L'eliminazione è definitiva: le eventuali prove allegate "
+            "verranno rimosse e l'ordine tornerà allo stato precedente alla registrazione.",
+        )
+        modale.confirmed.connect(lambda: self._conferma_elimina_esito(riga))
+        modale.show_over(self)
+
+    def _conferma_elimina_esito(self, riga: dict) -> None:
         risultato = self._gestore_rendicontazione.elimina_esito(riga["esito_id"])
         if not risultato.ok:
             QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")

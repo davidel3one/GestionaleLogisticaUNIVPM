@@ -73,8 +73,8 @@ def test_camion_page_modifica_riga_disattiva_ricarica(app, session_factory):
 
     pagina._modifica_riga({"id": "C1", "stato": "Attivo"})
 
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "Dismesso" in testi
+    # La riga sparisce dalla vista di default (Dismesso nascosto), non solo cambia badge.
+    assert pagina._etichetta_conteggio.text() == "0 camion"
 
 
 def test_camion_page_modifica_riga_riattiva_ricarica(app, session_factory):
@@ -94,14 +94,35 @@ def test_camion_page_elimina_riga_soft_delete(app, session_factory):
     gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 1200.0, 8.0)
     pagina = CamionPage(gestore)
 
-    pagina._elimina_riga({"id": "C1", "stato": "Attivo"})
+    pagina._conferma_elimina_riga({"id": "C1", "stato": "Attivo"})
 
     from gestionale_logistica.database.models import Camion
 
     with session_factory() as session:
         assert session.get(Camion, "C1").flg_attivo is False
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "Dismesso" in testi
+    # La riga sparisce dalla vista di default (Dismesso nascosto), non solo cambia badge.
+    assert pagina._etichetta_conteggio.text() == "0 camion"
+
+
+def test_camion_page_elimina_riga_apre_conferma_senza_eliminare_subito(app, session_factory):
+    from gestionale_logistica.gui.components import ConfirmModal
+    from gestionale_logistica.database.models import Camion
+
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 1200.0, 8.0)
+    pagina = CamionPage(gestore)
+
+    pagina._elimina_riga({"id": "C1", "stato": "Attivo", "targa": "AB123CD"})
+
+    with session_factory() as session:
+        assert session.get(Camion, "C1").flg_attivo is True  # non ancora eliminato
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+
+    modali[0].confirmed.emit()
+
+    with session_factory() as session:
+        assert session.get(Camion, "C1").flg_attivo is False
 
 
 def test_camion_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
@@ -143,7 +164,7 @@ def test_camion_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, 
     gestore.inserisci_camion("CAM1", "AB123CD", "Furgone", datetime(2020, 1, 1), 1200.0, 8.0)
     pagina = CamionPage(gestore)
 
-    pagina._elimina_riga({"id": "CAM1", "stato": "Attivo"})
+    pagina._conferma_elimina_riga({"id": "CAM1", "stato": "Attivo"})
 
     assert len(chiamate) == 1
     from gestionale_logistica.database.models import Camion
@@ -216,7 +237,8 @@ def test_camion_page_filtro_stato_si_puo_azzerare(app, session_factory):
 
     pagina._select_stato.set_value(None)
     pagina._on_filtro_cambiato()
-    assert pagina._etichetta_conteggio.text() == "2 camion"
+    # Tutti nasconde C2 (Dismesso): resta solo C1.
+    assert pagina._etichetta_conteggio.text() == "1 camion"
 
 
 def test_camion_page_filtro_tipo_si_puo_azzerare(app, session_factory):
@@ -254,7 +276,8 @@ def test_camion_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory
     assert pagina._select_stato.value() is None
     assert pagina._select_tipo.value() is None
     assert pagina._select_sponda.value() is None
-    assert pagina._etichetta_conteggio.text() == "2 camion"
+    # Tutti nasconde C2 (Dismesso): resta solo C1.
+    assert pagina._etichetta_conteggio.text() == "1 camion"
 
 
 def test_camion_page_filtro_sponda_idraulica(app, session_factory):

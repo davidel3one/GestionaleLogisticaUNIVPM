@@ -49,6 +49,7 @@ from gestionale_logistica.gui.components import (
     Card,
     ColumnDef,
     ColumnType,
+    DateFilterField,
     DatePicker,
     EmptyState,
     LinkButton,
@@ -145,9 +146,9 @@ class ViaggiPage(QWidget):
 
         self._campo_ricerca = SearchField(placeholder="Cerca ID viaggio, squadra...")
         self._select_stato = Select(
-            "Stato", options=list(STATO_VIAGGIO_LABELS.values()), placeholder="Tutti"
+            "Stato", options=list(STATO_VIAGGIO_LABELS.values()), placeholder="Tutti", compact=True
         )
-        self._campo_data = DatePicker("Data")
+        self._campo_data = DateFilterField()
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_stato)
         riga.addWidget(self._campo_data)
@@ -188,6 +189,9 @@ class ViaggiPage(QWidget):
                     status_colors=STATO_BADGE_COLORS,
                     stretch=1,
                 ),
+                # Stessa colonna "Capacità" (chiave, label, tipo, larghezza) gia' usata dalla
+                # Proposed Trips Table di Pianificazione - riusata identica, non reinventata.
+                ColumnDef(key="capacita", label="Capacità", column_type=ColumnType.CAPACITY_BAR, width=90),
                 ColumnDef(
                     key="azioni",
                     label="Azioni",
@@ -224,6 +228,7 @@ class ViaggiPage(QWidget):
                 "partenza": r.data_partenza_prevista.strftime("%d/%m %H:%M"),
                 "arrivo": r.data_arrivo_prevista.strftime("%d/%m %H:%M"),
                 "stato": r.stato,
+                "capacita": r.capacita_percentuale,
             }
             for r in pagina.viaggi
         ]

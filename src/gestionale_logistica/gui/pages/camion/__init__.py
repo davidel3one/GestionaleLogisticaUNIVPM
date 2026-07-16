@@ -15,6 +15,7 @@ from gestionale_logistica.gui.components import (
     Card,
     ColumnDef,
     ColumnType,
+    ConfirmModal,
     DatePicker,
     LinkButton,
     Modal,
@@ -103,14 +104,19 @@ class CamionPage(QWidget):
         riga.setSpacing(16)
 
         self._campo_ricerca = SearchField(placeholder="Cerca targa...")
-        self._select_tipo = Select("Tipo", options=self._opzioni_tipo_mezzo(), placeholder="Tutti")
+        self._select_tipo = Select(
+            "Tipo", options=self._opzioni_tipo_mezzo(), placeholder="Tutti", compact=True
+        )
         self._select_stato = Select(
-            "Stato", options=[STATO_ATTIVO, STATO_IN_VIAGGIO, STATO_DISMESSO], placeholder="Tutti"
+            "Stato",
+            options=[STATO_ATTIVO, STATO_IN_VIAGGIO, STATO_DISMESSO],
+            placeholder="Tutti",
+            compact=True,
         )
         # Non nel mockup, aggiunto su richiesta esplicita dell'utente - stessa coppia Sì/No gia'
         # usata per il filtro Cert. gas in Dipendenti, per coerenza visiva tra le pagine.
         self._select_sponda = Select(
-            "Sponda idraulica", options=[SPONDA_SI, SPONDA_NO], placeholder="Tutti"
+            "Sponda idraulica", options=[SPONDA_SI, SPONDA_NO], placeholder="Tutti", compact=True
         )
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_tipo)
@@ -252,8 +258,18 @@ class CamionPage(QWidget):
         self._reload()
 
     def _elimina_riga(self, riga: dict) -> None:
-        # Soft-delete (stesso comportamento di disattiva_camion sul pulsante modifica quando la
-        # riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
+        # Conferma esplicita richiesta dall'utente prima di procedere (non nel mockup): solo se
+        # positiva si esegue lo stesso soft-delete di sempre (disattiva_camion, uguale al pulsante
+        # modifica quando la riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
+        modale = ConfirmModal(
+            "Elimina camion",
+            f"Sei sicuro di voler eliminare il camion {riga['targa']}? Verrà segnato come dismesso "
+            "e non sarà più utilizzabile per nuovi viaggi; lo storico resterà consultabile.",
+        )
+        modale.confirmed.connect(lambda: self._conferma_elimina_riga(riga))
+        modale.show_over(self)
+
+    def _conferma_elimina_riga(self, riga: dict) -> None:
         risultato = self._gestore.disattiva_camion(riga["id"])
         if not risultato.ok:
             QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")

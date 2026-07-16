@@ -4,7 +4,7 @@ from gestionale_logistica.gui.pianificazione.components.composition_card import 
     CompositionCard,
     RigaOrdineComposizione,
 )
-from gestionale_logistica.gui.pianificazione.components.date_filter_field import DateFilterField
+from gestionale_logistica.gui.components.date_filter_field import DateFilterField
 from gestionale_logistica.gui.pianificazione.components.impostazioni_modal import (
     ImpostazioniPianificazioneModal,
 )

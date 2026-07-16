@@ -15,6 +15,7 @@ from gestionale_logistica.gui.components import (
     Card,
     ColumnDef,
     ColumnType,
+    ConfirmModal,
     DatePicker,
     LinkButton,
     Modal,
@@ -101,15 +102,19 @@ class DipendentiPage(QWidget):
         # di tornare a vedere tutti dopo aver scelto una squadra/stato specifico, dato che il
         # popup di Select mostra solo le option passate qui.
         self._select_squadra = Select(
-            "Squadra", options=[FILTRO_TUTTE_SQUADRE, *self._opzioni_squadra()], placeholder="Tutte"
+            "Squadra",
+            options=[FILTRO_TUTTE_SQUADRE, *self._opzioni_squadra()],
+            placeholder="Tutte",
+            compact=True,
         )
         self._select_stato = Select(
             "Stato",
             options=[FILTRO_TUTTI, STATO_ATTIVO, STATO_IN_VIAGGIO, STATO_CESSATO],
             placeholder="Tutti",
+            compact=True,
         )
         self._select_cert_gas = Select(
-            "Cert. gas", options=[CERT_GAS_SI, CERT_GAS_NO], placeholder="Tutti"
+            "Cert. gas", options=[CERT_GAS_SI, CERT_GAS_NO], placeholder="Tutti", compact=True
         )
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_squadra)
@@ -232,8 +237,18 @@ class DipendentiPage(QWidget):
         self._reload()
 
     def _elimina_riga(self, riga: dict) -> None:
-        # Soft-delete (stesso comportamento di licenzia_dipendente sul pulsante modifica quando la
-        # riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
+        # Conferma esplicita richiesta dall'utente prima di procedere (non nel mockup): solo se
+        # positiva si esegue lo stesso soft-delete di sempre (licenzia_dipendente, uguale al
+        # pulsante modifica quando la riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
+        modale = ConfirmModal(
+            "Elimina dipendente",
+            f"Sei sicuro di voler eliminare {riga['nome']}? Verrà segnato come cessato e non sarà "
+            "più assegnabile a nuove squadre; lo storico resterà consultabile.",
+        )
+        modale.confirmed.connect(lambda: self._conferma_elimina_riga(riga))
+        modale.show_over(self)
+
+    def _conferma_elimina_riga(self, riga: dict) -> None:
         risultato = self._gestore.licenzia_dipendente(riga["id"])
         if not risultato.ok:
             QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
