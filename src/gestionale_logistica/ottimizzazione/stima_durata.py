@@ -27,7 +27,7 @@ VELOCITA_MEDIA_KMH = 60.0
 # singolo cluster sfortunato diventerebbe percepibile sul budget totale.
 SOGLIA_NODI_HELD_KARP = 12
 
-def _distanza_coppia(ordine_a: Ordine, ordine_b: Ordine) -> float:
+def distanza_coppia(ordine_a: Ordine, ordine_b: Ordine) -> float:
     if ordine_a.lat is None or ordine_a.lon is None or ordine_b.lat is None or ordine_b.lon is None:
         return distanza_penalita_km()
     return distanza_km(ordine_a.lat, ordine_a.lon, ordine_b.lat, ordine_b.lon)
@@ -44,7 +44,7 @@ def tour_esatto(ordini: list[Ordine]) -> tuple[list[Ordine], float]:
     if n <= 1:
         return list(ordini), 0.0
 
-    dist = [[_distanza_coppia(ordini[i], ordini[j]) for j in range(n)] for i in range(n)]
+    dist = [[distanza_coppia(ordini[i], ordini[j]) for j in range(n)] for i in range(n)]
 
     # dp[mask][j] = costo minimo di un cammino che parte da ordini[0], visita
     # esattamente l'insieme di nodi codificato dal bitmask `mask` (bit i acceso
@@ -114,7 +114,7 @@ def tour_euristico(ordini: list[Ordine]) -> tuple[list[Ordine], float]:
         for j in range(n):
             if visitati[j]:
                 continue
-            d = _distanza_coppia(ordini[corrente], ordini[j])
+            d = distanza_coppia(ordini[corrente], ordini[j])
             if d < migliore_d:
                 migliore_d = d
                 migliore_j = j
@@ -126,11 +126,16 @@ def tour_euristico(ordini: list[Ordine]) -> tuple[list[Ordine], float]:
     return [ordini[i] for i in percorso], costo_totale
 
 
-def stima_durata_viaggio(ordini: list[Ordine], usa_esatto: bool) -> timedelta:
+def stima_durata_viaggio(
+    ordini: list[Ordine],
+    usa_esatto: bool,
+    tempi_installazione_minuti: dict[CategoriaConsegna, int] | None = None,
+) -> timedelta:
     if not ordini:
         return timedelta()
 
-    tempo_installazione_min = sum(TEMPO_INSTALLAZIONE_MINUTI[o.categoria_consegna] for o in ordini)
+    tempi = tempi_installazione_minuti if tempi_installazione_minuti is not None else TEMPO_INSTALLAZIONE_MINUTI
+    tempo_installazione_min = sum(tempi[o.categoria_consegna] for o in ordini)
     calcola_tour = tour_esatto if usa_esatto else tour_euristico
     _, distanza_tour_km = calcola_tour(ordini)
     tempo_percorrenza_min = (distanza_tour_km / VELOCITA_MEDIA_KMH) * 60

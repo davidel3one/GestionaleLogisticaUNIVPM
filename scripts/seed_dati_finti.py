@@ -24,6 +24,7 @@ from gestionale_logistica.database.models import (
     Viaggio,
 )
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.logistica.geocoding import geocodifica_comune
 from gestionale_logistica.risorse.gestore_camion import GestoreCamion
 from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
 from gestionale_logistica.risorse.gestore_squadre import GestoreSquadre
@@ -74,14 +75,16 @@ def crea_ordine(session: Session, categoria: CategoriaConsegna, data_importazion
     comune, provincia = random.choice(COMUNI_MARCHE)
     peso, volume = genera_peso_volume(categoria)
     id_ = nuovo_id_ordine()
+    coordinate = geocodifica_comune(comune, provincia)
+    lat, lon = coordinate if coordinate is not None else (None, None)
     session.add(
         Ordine(
             id=id_,
             indirizzo=f"Via {random.choice(VIE)} {random.randint(1, 150)}",
             comune=comune,
             provincia=provincia,
-            lat=None,
-            lon=None,
+            lat=lat,
+            lon=lon,
             cliente=f"{random.choice(NOMI)} {random.choice(COGNOMI)}",
             peso=peso,
             volume_cargo=volume,
@@ -301,9 +304,9 @@ def main() -> None:
     comp_big = {"COMP-01", "COMP-02", "COMP-03", "COMP-04"}
     comp_gas = {"COMP-01", "COMP-02"}
 
-    # 4. 20 ordini RICEVUTO liberi (mai agganciati a un viaggio), mix di tutte le categorie
+    # 4. 1000 ordini RICEVUTO liberi (mai agganciati a un viaggio), mix di tutte le categorie
     with SessionLocal() as session:
-        for _ in range(20):
+        for _ in range(1000):
             crea_ordine(session, random.choice(CATEGORIE_TUTTE), ora - timedelta(hours=random.randint(1, 72)))
         session.commit()
 

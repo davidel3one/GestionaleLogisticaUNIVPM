@@ -56,6 +56,7 @@ class Button(QPushButton):
             raise ValueError("La variante 'secondary-header-add' richiede un'icona.")
 
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._text_label_widget: QLabel | None = None
         self._build(text, icon)
 
     def _build(self, text: str, icon: QIcon | None) -> None:
@@ -74,7 +75,8 @@ class Button(QPushButton):
             self.setFixedHeight(44)
             self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             layout.setContentsMargins(0, 0, 0, 0)
-            layout.addWidget(self._text_label(text, "#FFFFFF", 500, 14))
+            self._text_label_widget = self._text_label(text, "#FFFFFF", 500, 14)
+            layout.addWidget(self._text_label_widget)
             self._apply_style(background="#2563C9", border=None, radius=10)
             return
 
@@ -99,7 +101,8 @@ class Button(QPushButton):
 
         if icon is not None:
             layout.addWidget(self._icon_label(icon, icon_size))
-        layout.addWidget(self._text_label(text, text_color, weight, size))
+        self._text_label_widget = self._text_label(text, text_color, weight, size)
+        layout.addWidget(self._text_label_widget)
         self._apply_style(background=background, border=border, radius=radius)
 
     def _icon_label(self, icon: QIcon, size: int) -> QLabel:
@@ -139,6 +142,15 @@ class Button(QPushButton):
 
     def sizeHint(self) -> QSize:
         return self.layout().sizeHint()
+
+    def set_text(self, text: str) -> None:
+        """Cambia l'etichetta a runtime (es. "Chiudi viaggio" -> "Applica suggerimento e chiudi
+        viaggio" in Assistita). **Non** usare l'ereditato `QPushButton.setText()`: il testo
+        visibile è disegnato da una `QLabel` interna (`_text_label`), non dalla proprietà nativa
+        `text` di `QPushButton` — chiamare `setText()` la lascerebbe disegnare comunque dallo
+        stile nativo sopra/sotto la label custom, producendo testo sovrapposto/illeggibile."""
+        if self._text_label_widget is not None:
+            self._text_label_widget.setText(text)
 
     def setEnabled(self, enabled: bool) -> None:
         super().setEnabled(enabled)

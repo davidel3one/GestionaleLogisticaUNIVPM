@@ -12,7 +12,7 @@ dell'utente, non un'assunzione — vedi le rispettive docstring.
 from __future__ import annotations
 
 from PySide6.QtCore import QDate, QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -114,6 +114,7 @@ class TextField(QWidget):
         label: str,
         placeholder: str = "",
         password: bool = False,
+        validator: QValidator | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -129,6 +130,8 @@ class TextField(QWidget):
         self._input.setFont(_field_font())
         if password:
             self._input.setEchoMode(QLineEdit.EchoMode.Password)
+        if validator is not None:
+            self._input.setValidator(validator)
 
         # Il mockup non differenzia il colore del testo digitato da quello del placeholder:
         # senza questo, Qt schiarirebbe automaticamente il placeholder rispetto al testo
@@ -215,20 +218,24 @@ class Select(QWidget):
 
     def __init__(
         self,
-        label: str,
-        options: list[str],
+        label: str = "",
+        options: list[str] | None = None,
         placeholder: str = "",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._options = list(options)
+        self._options = list(options or [])
         self._placeholder = placeholder
         self._value: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(LABEL_GAP)
-        layout.addWidget(_build_label(label))
+        # label vuota (default) = nessuna label sopra, es. il campo "Aggiungi ordine" della
+        # Composizione Card (Pianificazione — Manuale/Assistita): il mockup non mostra alcuna
+        # etichetta lì, a differenza di ogni altra istanza di Select nel resto dell'app.
+        if label:
+            layout.addWidget(_build_label(label))
 
         self._box = _SelectBox(self)
         self._box.text_label.setText(placeholder)
@@ -253,6 +260,14 @@ class Select(QWidget):
         self._value = value
         self._box.text_label.setText(value if value is not None else self._placeholder)
         self.valueChanged.emit(value or "")
+
+    def set_options(self, options: list[str]) -> None:
+        """Sostituisce l'elenco opzioni a runtime (es. candidati che cambiano nel tempo, come gli
+        ordini disponibili della Composizione Card di Pianificazione). Se il valore corrente non è
+        più tra le opzioni, torna al placeholder."""
+        self._options = list(options)
+        if self._value is not None and self._value not in self._options:
+            self.set_value(None)
 
 
 class _TogglePill(QPushButton):
@@ -324,9 +339,70 @@ class BooleanToggle(QWidget):
 
 DATE_FORMAT = "dd/MM/yyyy"
 
+# Larghezza riservata sul lato destro del campo per il chevron, uguale alla zona
+# gap+icona+margine di _SelectBox (SELECT_GAP + CHEVRON_SIZE + FIELD_PADDING_H).
+_DATE_CHEVRON_RESERVED = SELECT_GAP + CHEVRON_SIZE + FIELD_PADDING_H
+
+
+class _DateEditBox(QWidget):
+    """Chrome flat condivisa da `DatePicker`/`DateFilterField`: `QDateEdit` nativo (calendario
+    a comparsa invariato, decisione esplicita dell'utente) con il drop-down nativo reso
+    invisibile-ma-cliccabile e il chevron vettoriale di `_SelectBox` sovrapposto sopra, così le
+    due chrome chiuse (Select e data) sono indistinguibili come nel mockup — non c'era nessun
+    "quadratino" con freccia primitiva nel design, solo testo + chevron piatto.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedHeight(FIELD_HEIGHT)
+
+        self.input = QDateEdit(self)
+        self.input.setCalendarPopup(True)
+        self.input.setFixedHeight(FIELD_HEIGHT)
+        self.input.setFont(_field_font())
+        self.input.setStyleSheet(
+            f"""
+            QDateEdit {{
+                background-color: {FIELD_BG};
+                border: 1px solid {FIELD_BORDER};
+                border-radius: {FIELD_RADIUS}px;
+                padding: 0px {_DATE_CHEVRON_RESERVED}px 0px {FIELD_PADDING_H}px;
+                color: {FIELD_TEXT_COLOR};
+            }}
+            QDateEdit::drop-down {{
+                subcontrol-origin: padding;
+                subcontrol-position: center right;
+                width: {_DATE_CHEVRON_RESERVED}px;
+                border: none;
+                background: transparent;
+            }}
+            QDateEdit::down-arrow {{
+                width: 0px;
+                height: 0px;
+                image: none;
+            }}
+            """
+        )
+
+        self._chevron = QLabel(self)
+        self._chevron.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._chevron.setStyleSheet("background: transparent;")
+        self._chevron.setFixedSize(CHEVRON_SIZE, CHEVRON_SIZE)
+        icon = load_lucide_icon("chevron-down", FIELD_TEXT_COLOR, CHEVRON_SIZE)
+        self._chevron.setPixmap(icon.pixmap(QSize(CHEVRON_SIZE, CHEVRON_SIZE)))
+        self._chevron.raise_()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.input.setGeometry(0, 0, self.width(), self.height())
+        self._chevron.move(
+            self.width() - FIELD_PADDING_H - CHEVRON_SIZE,
+            (self.height() - CHEVRON_SIZE) // 2,
+        )
+
 
 class DatePicker(QWidget):
-    """Campo data con label sopra: `QDateEdit` nativo Qt, solo il chrome chiuso ristilizzato.
+    """Campo data con label sopra: chrome flat condivisa (`_DateEditBox`), calendario nativo.
 
     Decisione esplicita dell'utente (non un'assunzione): il calendario a comparsa
     (`calendarPopup=True`) resta quello standard di Qt/OS, non ridisegnato — nessuno stile
@@ -343,24 +419,11 @@ class DatePicker(QWidget):
         layout.setSpacing(LABEL_GAP)
         layout.addWidget(_build_label(label))
 
-        self._input = QDateEdit(self)
-        self._input.setCalendarPopup(True)
+        box = _DateEditBox(self)
+        self._input = box.input
         self._input.setDisplayFormat(DATE_FORMAT)
         self._input.setDate(QDate.currentDate())
-        self._input.setFixedHeight(FIELD_HEIGHT)
-        self._input.setFont(_field_font())
-        self._input.setStyleSheet(
-            f"""
-            QDateEdit {{
-                background-color: {FIELD_BG};
-                border: 1px solid {FIELD_BORDER};
-                border-radius: {FIELD_RADIUS}px;
-                padding: 0 {FIELD_PADDING_H}px;
-                color: {FIELD_TEXT_COLOR};
-            }}
-            """
-        )
-        layout.addWidget(self._input)
+        layout.addWidget(box)
 
         self._input.dateChanged.connect(self.valueChanged)
 

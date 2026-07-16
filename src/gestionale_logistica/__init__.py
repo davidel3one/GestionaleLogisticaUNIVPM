@@ -1,4 +1,9 @@
-from gestionale_logistica.config import load_config
+from gestionale_logistica.config import (
+    clear_session_token,
+    load_config,
+    load_session_token,
+    save_session_token,
+)
 import configparser
 import logging
 import sys
@@ -20,6 +25,7 @@ from gestionale_logistica.gui.pages import (
     SquadrePage,
     ViaggiPage,
 )
+from gestionale_logistica.gui.pianificazione import PianificazionePage
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
 from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
 from gestionale_logistica.risorse.gestore_camion import GestoreCamion
@@ -59,8 +65,7 @@ def main() -> None:
     auth_page.resize(1280, 800)
 
     # Voci di navigazione, ordine e icone verificati nel mockup Sketch (Sidebar, artboard
-    # Dashboard). "Pianificazione" non ha ancora una pagina reale (fuori scope finora) e resta
-    # un EmptyState placeholder; le altre 6 sono tutte integrate.
+    # Dashboard). Tutte e 7 le pagine sono integrate.
     sidebar_items = [
         SidebarItem("dashboard", "Dashboard", "layout-dashboard"),
         SidebarItem("ordini", "Ordini", "package"),
@@ -85,11 +90,15 @@ def main() -> None:
 
     def _on_authenticated(token: str) -> None:
         token_corrente[:] = [token]
+        save_session_token(token)
 
         shell = AppShell(sidebar_items)
         for item in sidebar_items:
             if item.id in _crea_pagina:
                 shell.add_page(item.id, _crea_pagina[item.id]())
+                continue
+            if item.id == "pianificazione":
+                shell.add_page(item.id, PianificazionePage())
                 continue
             shell.add_page(
                 item.id,
@@ -107,11 +116,20 @@ def main() -> None:
     def _on_logout() -> None:
         if token_corrente:
             gestore_autenticazione.logout(token_corrente.pop())
+        clear_session_token()
         if shell_holder:
             shell_holder.pop().close()
         auth_page.reset_to_login()
         auth_page.show()
 
     auth_page.authenticated.connect(_on_authenticated)
-    auth_page.show()
+
+    token_salvato = load_session_token()
+    if token_salvato is not None and gestore_autenticazione.sessione_valida(token_salvato):
+        _on_authenticated(token_salvato)
+    else:
+        if token_salvato is not None:
+            clear_session_token()
+        auth_page.show()
+
     sys.exit(app.exec())

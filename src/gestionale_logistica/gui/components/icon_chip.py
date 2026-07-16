@@ -16,6 +16,7 @@ class IconChipVariant(enum.Enum):
     BLUE = "blue"
     GREEN = "green"
     RED = "red"
+    AMBER = "amber"
 
 
 # (colore icona, colore sfondo chip) per variante, misurati nel mockup Sketch.
@@ -24,6 +25,11 @@ VARIANT_COLORS: dict[IconChipVariant, tuple[str, str]] = {
     IconChipVariant.BLUE: ("#2563C9", "#D6E4F7"),
     IconChipVariant.GREEN: ("#1E8E3E", "#DFF5E5"),
     IconChipVariant.RED: ("#C0392B", "#FBE4E1"),
+    # AMBER (aggiunta 2026-07-16 per Toast): non e' una delle 4 combinazioni originarie
+    # misurate su un'istanza IconChip del mockup, ma riusa 1:1 la coppia gia' misurata
+    # altrove nello stesso mockup per lo stato ambra (STATUS_BADGE "In consegna",
+    # CATEGORIA_BADGE "Big"/"Certificazione Gas") - nessun colore nuovo/estrapolato.
+    IconChipVariant.AMBER: ("#B45309", "#FEF3C7"),
 }
 
 
