@@ -16,6 +16,7 @@ from gestionale_logistica.gui.components import (
     ColumnDef,
     ColumnType,
     DatePicker,
+    LinkButton,
     Modal,
     PageHeader,
     RowAction,
@@ -36,6 +37,11 @@ from gestionale_logistica.risorse.gestore_dipendenti import (
 PAGE_SIZE = 12
 
 FILTRO_TUTTE_SQUADRE = "Tutte le squadre"
+
+# Sì/No per il filtro Certificazione gas (non nel mockup, aggiunto su richiesta esplicita
+# dell'utente) - stesse etichette gia' usate da BooleanToggle per coerenza visiva.
+CERT_GAS_SI = "Sì"
+CERT_GAS_NO = "No"
 
 STATO_BADGE_COLORS = {
     STATO_IN_VIAGGIO: ("#FEF2C6", "#B45208"),
@@ -102,14 +108,22 @@ class DipendentiPage(QWidget):
             options=[FILTRO_TUTTI, STATO_ATTIVO, STATO_IN_VIAGGIO, STATO_CESSATO],
             placeholder="Tutti",
         )
+        self._select_cert_gas = Select(
+            "Cert. gas", options=[CERT_GAS_SI, CERT_GAS_NO], placeholder="Tutti"
+        )
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_squadra)
         riga.addWidget(self._select_stato)
+        riga.addWidget(self._select_cert_gas)
         riga.addStretch(1)
 
         self._etichetta_conteggio = QLabel()
         self._etichetta_conteggio.setStyleSheet("color: #5A6372;")
         riga.addWidget(self._etichetta_conteggio)
+
+        link_ripristina = LinkButton("Ripristina filtri")
+        link_ripristina.clicked.connect(self._ripristina_filtri)
+        riga.addWidget(link_ripristina)
 
         card.content_layout.addLayout(riga)
         layout.addWidget(card)
@@ -117,6 +131,7 @@ class DipendentiPage(QWidget):
         self._campo_ricerca.searchChanged.connect(self._on_filtro_cambiato)
         self._select_squadra.valueChanged.connect(self._on_filtro_cambiato)
         self._select_stato.valueChanged.connect(self._on_filtro_cambiato)
+        self._select_cert_gas.valueChanged.connect(self._on_filtro_cambiato)
 
     def _costruisci_tabella(self, layout: QVBoxLayout) -> None:
         self._tabella = Table(
@@ -144,18 +159,8 @@ class DipendentiPage(QWidget):
                     column_type=ColumnType.ACTIONS,
                     width=76,
                     actions=[
-                        RowAction("pencil", self._apri_modale_modifica),
-                        RowAction(
-                            "trash-2",
-                            self._licenzia_riga,
-                            predicate=lambda r: r["stato"] != STATO_CESSATO,
-                        ),
-                        RowAction(
-                            "rotate-ccw",
-                            self._riassumi_riga,
-                            predicate=lambda r: r["stato"] == STATO_CESSATO,
-                            tooltip="Riassumi",
-                        ),
+                        RowAction("pencil", self._apri_modale_modifica, tooltip="Modifica"),
+                        RowAction("trash-2", self._elimina_riga),
                     ],
                 ),
             ]
@@ -176,10 +181,14 @@ class DipendentiPage(QWidget):
         if squadra_selezionata == FILTRO_TUTTE_SQUADRE:
             squadra_selezionata = None
 
+        cert_gas_selezionato = self._select_cert_gas.value()
+        filtro_cert_gas = {CERT_GAS_SI: True, CERT_GAS_NO: False}.get(cert_gas_selezionato)
+
         pagina = self._gestore.visualizza_dipendenti(
             ricerca=self._campo_ricerca.value() or None,
             filtro_squadra=squadra_selezionata,
             filtro_stato=self._select_stato.value() or FILTRO_TUTTI,
+            filtro_certificazione_gas=filtro_cert_gas,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
             decrescente=self._decrescente,
@@ -214,20 +223,20 @@ class DipendentiPage(QWidget):
         self._pagina_corrente = pagina
         self._reload()
 
-    def _licenzia_riga(self, riga: dict) -> None:
-        risultato = self._gestore.licenzia_dipendente(riga["id"])
-        if not risultato.ok:
-            # Nessun componente di libreria per messaggi di errore/conferma (lacuna gia'
-            # annotata in componenti-gui.md): QMessageBox nativo qui, non uno stile Sketch,
-            # ma necessario - senza feedback il rifiuto del backend (es. dipendente coinvolto
-            # in un viaggio in corso) sembrava un bottone che "non funziona".
-            QMessageBox.warning(self, "Impossibile licenziare", risultato.motivo or "Operazione rifiutata.")
+    def _ripristina_filtri(self) -> None:
+        self._campo_ricerca.set_value("")
+        self._select_squadra.set_value(None)
+        self._select_stato.set_value(None)
+        self._select_cert_gas.set_value(None)
+        self._pagina_corrente = 1
         self._reload()
 
-    def _riassumi_riga(self, riga: dict) -> None:
-        risultato = self._gestore.riassumi_dipendente(riga["id"])
+    def _elimina_riga(self, riga: dict) -> None:
+        # Soft-delete (stesso comportamento di licenzia_dipendente sul pulsante modifica quando la
+        # riga e' attiva) - non elimina i dati, preserva lo storico (RF8).
+        risultato = self._gestore.licenzia_dipendente(riga["id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile riassumere", risultato.motivo or "Operazione rifiutata.")
+            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     # --- modali -------------------------------------------------------------
@@ -274,34 +283,54 @@ class DipendentiPage(QWidget):
         modale.show_over(self)
 
     def _apri_modale_modifica(self, riga: dict) -> None:
-        nome_completo = riga["nome"].split(" ", 1)
-        campo_nome = TextField("Nome")
-        campo_nome.set_value(nome_completo[0])
-        campo_cognome = TextField("Cognome")
-        campo_cognome.set_value(nome_completo[1] if len(nome_completo) > 1 else "")
+        # Stato attuale come booleano attivo/non-attivo: "In viaggio" conta come attivo (stessa
+        # equivalenza gia' usata dal precedente toggle diretto della matita) - serve per capire se
+        # il salvataggio deve davvero chiamare licenzia/riassumi o se lo stato scelto coincide gia'
+        # con quello corrente (nessuna chiamata, altrimenti riassumi_dipendente rifiuterebbe un
+        # dipendente gia' attivo).
+        era_attivo = riga["stato"] != STATO_CESSATO
+
+        campo_stato = Select("Stato", options=[STATO_ATTIVO, STATO_CESSATO], placeholder=STATO_ATTIVO)
+        campo_stato.set_value(STATO_ATTIVO if era_attivo else STATO_CESSATO)
         campo_gas = BooleanToggle("Certificazione gas")
         campo_gas.set_value(riga["flg_certificazione_gas"])
 
         bottone_annulla = Button(ButtonVariant.SECONDARY, "Annulla")
         bottone_conferma = Button(ButtonVariant.PRIMARY, "Salva")
         modale = Modal(
-            "Modifica dipendente", width=560, footer_buttons=[bottone_annulla, bottone_conferma]
+            f"Modifica dipendente — {riga['nome']}", width=560,
+            footer_buttons=[bottone_annulla, bottone_conferma],
         )
-        for campo in (campo_nome, campo_cognome, campo_gas):
-            modale.add_widget(campo)
+        modale.add_widget(campo_stato)
+        modale.add_widget(campo_gas)
 
         bottone_annulla.clicked.connect(modale.close)
 
         def _conferma() -> None:
-            risultato = self._gestore.modifica_dipendente(
-                riga["id"],
-                nome=campo_nome.value().strip(),
-                cognome=campo_cognome.value().strip(),
-                flg_certificazione_gas=campo_gas.value(),
-            )
-            if risultato.ok:
-                modale.close()
-                self._reload()
+            nuovo_attivo = campo_stato.value() == STATO_ATTIVO
+            if nuovo_attivo != era_attivo:
+                if nuovo_attivo:
+                    risultato = self._gestore.riassumi_dipendente(riga["id"])
+                    titolo_errore = "Impossibile riassumere"
+                else:
+                    risultato = self._gestore.licenzia_dipendente(riga["id"])
+                    titolo_errore = "Impossibile licenziare"
+                if not risultato.ok:
+                    QMessageBox.warning(self, titolo_errore, risultato.motivo or "Operazione rifiutata.")
+                    return
+
+            if campo_gas.value() != riga["flg_certificazione_gas"]:
+                risultato = self._gestore.modifica_dipendente(
+                    riga["id"], flg_certificazione_gas=campo_gas.value()
+                )
+                if not risultato.ok:
+                    QMessageBox.warning(
+                        self, "Impossibile salvare", risultato.motivo or "Operazione rifiutata."
+                    )
+                    return
+
+            modale.close()
+            self._reload()
 
         bottone_conferma.clicked.connect(_conferma)
         modale.show_over(self)

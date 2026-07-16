@@ -10,10 +10,11 @@ L'indice completo è in **`.claude/MEMORY.md`** — copre: contesto tesi e stake
 
 Sessioni precedenti (decisioni, vicoli ciechi, prossimi passi concreti) sono in **`.claude/handoff/`** — leggi la più recente prima di iniziare un lavoro non banale.
 
-## Le due regole più importanti da subito
+## Le tre regole più importanti da subito
 
 1. **Fase GUI in corso** (il backend è completo). La GUI si costruisce in `gui/` con una libreria di componenti riusabili — vedi le **REGOLE OBBLIGATORIE GUI** qui sotto: sono vincolanti, non facoltative. (Storico: valeva "backend prima, GUI dopo"; ora il backend non-GUI è concluso e la fase GUI è avviata.)
 2. **Il codice diverge intenzionalmente dal diagramma EA in diversi punti** — vedi `.claude/knowledge/divergenze-ea.md` prima di "correggere" qualcosa per farlo tornare a un diagramma che potresti aver visto solo a voce.
+3. **/graphify per la ricerca aperta.** Per domande di ricerca aperte o trasversali (pattern esistenti, riferimenti incrociati tra file), controlla se esiste `graphify-out/` in questo repo o nella sua cartella padre e, se sì, interrogalo con `/graphify query "..."` invece di esplorare a mano. Se sai già dove guardare, o il grafo non esiste nel tuo ambiente, usa direttamente gli strumenti normali — non è un passaggio obbligatorio, è una scorciatoia quando disponibile. Ognuno mantiene il proprio grafo localmente: non è versionato in git.
 
 ## ⛔ REGOLE OBBLIGATORIE per lo sviluppo GUI (da rispettare SEMPRE, senza eccezioni)
 

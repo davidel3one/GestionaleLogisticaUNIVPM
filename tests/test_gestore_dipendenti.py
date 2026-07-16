@@ -284,7 +284,8 @@ def test_licenzia_dipendente_rifiutato_se_gia_coinvolto_in_viaggio_in_composizio
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.IN_COMPOSIZIONE, composizione_id="C1",
             )
         )
@@ -309,7 +310,8 @@ def test_licenzia_dipendente_rifiutato_se_coinvolto_in_viaggio_in_corso(session_
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
             )
         )
@@ -334,7 +336,8 @@ def test_licenzia_dipendente_ammesso_se_viaggio_collegato_e_gia_pianificato(sess
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.PIANIFICATO, composizione_id="C1",
             )
         )
@@ -422,7 +425,8 @@ def test_visualizza_dipendenti_stato_in_viaggio_solo_per_composizione_in_corso(s
         session.add(
             Viaggio(
                 id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+                data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime(2026, 7, 20, 8, 0),
+                km_percorsi=None,
                 stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
             )
         )
@@ -513,3 +517,49 @@ def test_visualizza_dipendenti_paginazione(session_factory):
     assert pagina_1.totale == 5
     assert [r.id for r in pagina_1.dipendenti] == ["D0", "D1"]
     assert [r.id for r in pagina_2.dipendenti] == ["D2", "D3"]
+
+
+def test_elimina_dipendente_definitivamente(session_factory):
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+
+    risultato = gestore.elimina_dipendente_definitivamente("D1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1") is None
+
+
+def test_elimina_dipendente_definitivamente_inesistente_rifiutato(session_factory):
+    gestore = GestoreDipendenti(session_factory)
+
+    risultato = gestore.elimina_dipendente_definitivamente("INESISTENTE")
+
+    assert not risultato.ok
+    assert "non trovato" in risultato.motivo
+
+
+def test_elimina_dipendente_definitivamente_rifiutato_se_membro_di_composizione(session_factory):
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(Camion(
+            id="CAM1", targa="AB123CD", tipo_mezzo="Furgone", peso_massimo=100.0, volume_massimo=5.0,
+            flg_sponda_idraulica=False, data_acquisizione=datetime(2020, 1, 1), data_dismissione=None,
+            flg_attivo=True,
+        ))
+        session.add(ComposizioneSquadra(
+            id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+            dipendente_1_id="D1", dipendente_2_id="D2",
+            data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+        ))
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "BBBBBB80A01A002A", datetime(2020, 1, 1))
+
+    risultato = gestore.elimina_dipendente_definitivamente("D1")
+
+    assert not risultato.ok
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1") is not None

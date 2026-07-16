@@ -10,6 +10,7 @@ def crea_viaggio(id_, stato, data_partenza_prevista, composizione_id="C1"):
         id=id_,
         data_partenza_prevista=data_partenza_prevista,
         data_arrivo_prevista=data_partenza_prevista + timedelta(hours=8),
+        data_creazione=data_partenza_prevista,
         km_percorsi=None,
         stato_viaggio=stato,
         composizione_id=composizione_id,
@@ -29,6 +30,7 @@ def crea_ordine(id_, viaggio_id, stato=StatoOrdine.PIANIFICATO):
         volume_cargo=0.1,
         categoria_consegna=CategoriaConsegna.BORDO_STRADA,
         stato_ordine=stato,
+        data_importazione=datetime.now(),
         data_consegna=None,
         viaggio_id=viaggio_id,
     )

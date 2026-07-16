@@ -2,7 +2,9 @@
 
 Libreria di componenti PySide6 in `src/gestionale_logistica/gui/components/`, pensata per non riscrivere lo stesso widget/QSS in ogni pagina. Fonte di verità per ogni dettaglio visivo (colori, spaziature, radius, font, icone): il file `sketch/gui-design.sketch` — ogni componente qui è stato costruito ispezionando le istanze reali nel mockup, non a memoria/a occhio.
 
-Import: `from gestionale_logistica.gui.components import BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, Modal, MultiSelect, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Tooltip, load_lucide_icon`.
+Import: `from gestionale_logistica.gui.components import AuthLogo, BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, IconChip, IconChipVariant, LinkButton, Modal, MultiSelect, OtpInput, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Tooltip, load_lucide_icon`.
+
+**Nota sui componenti pagina-specifici**: questa libreria contiene solo componenti genuinamente **riusabili tra pagine diverse**. Componenti la cui forma è ritagliata esattamente su una pagina (es. `KpiCard`/`PlanningDayCard`/`ActivityRow` della Dashboard) vivono invece in `gui/<pagina>/components/`, non qui — vedi `## Componenti pagina-specifici` in fondo a questo file.
 
 ## Button
 
@@ -53,21 +55,24 @@ card.content_layout.addWidget(una_riga_orizzontale)
 
 ## TabBar
 
-`TabBar(labels: list[str], parent=None)` — selettore di tab orizzontale con indicatore ad underline animato. Componente puramente visivo: **non** gestisce il contenuto delle pagine (niente `QStackedWidget` integrato) — chi lo usa si iscrive al segnale per cambiare il contenuto altrove.
+`TabBar(labels: list[str], disabled: set[int] | None = None, parent=None)` — selettore di tab orizzontale con indicatore ad underline animato. Componente puramente visivo: **non** gestisce il contenuto delle pagine (niente `QStackedWidget` integrato) — chi lo usa si iscrive al segnale per cambiare il contenuto altrove.
 
 ```python
-tabs = TabBar(["Ordini", "Esiti"])
+tabs = TabBar(["Ordini", "Esiti"], disabled={1})  # "Esiti" visibile ma non cliccabile
 tabs.currentChanged.connect(lambda i: stacked_widget.setCurrentIndex(i))
 ```
 
 - `labels`: qualunque numero di etichette (verificato nel mockup sia con 2 che con 3 tab, stesso stile).
+- `disabled`: set di indici (0-based) da rendere non interattivi fin dalla costruzione — la tab resta **visibile e leggibile** (solo colore attenuato `#B0B6BF`), non sparisce dal layout come farebbe `QWidget.setDisabled`. Introdotto per Ordini: tab "Esiti" presente nel mockup ma non ancora collegata al lavoro RF15-RF18.
 - `tabs.current_index` — property di sola lettura con l'indice della tab attiva.
 - `tabs.set_current_index(i)` — imposta la tab attiva programmaticamente (solleva `ValueError` se fuori range); non ri-emette il segnale se `i` è già quello corrente.
-- `tabs.currentChanged` — `Signal(int)`, emesso quando l'utente clicca una tab diversa (o quando cambia via `set_current_index`).
+- `tabs.currentChanged` — `Signal(int)`, emesso quando l'utente clicca una tab diversa (o quando cambia via `set_current_index`) — una tab disabilitata non emette mai questo segnale.
 
-**Personalizzazione**: nessun parametro di stile esposto (colori/font/gap sono fissi, replicano il mockup) — se serve un aspetto visivo diverso, non forzare i valori interni: è una variante nuova da valutare con l'utente.
+**Personalizzazione**: nessun parametro di stile esposto oltre a `disabled` (colori/font/gap sono fissi, replicano il mockup) — se serve un aspetto visivo diverso, non forzare i valori interni: è una variante nuova da valutare con l'utente.
 
 **Stato hover** (non nel mockup): colore testo intermedio tra attivo e inattivo (`#22344D`, media tra `#163A6B` e `#2E2E2E` — nessun colore estraneo alla palette) + cursore a mano, stesso principio già usato in `Button`.
+
+**Stato disabilitato** (non nel mockup, nessun frame lo disegna): colore `#B0B6BF` derivato come via di mezzo verso il grigio neutro della palette, cursore a freccia invece che a mano, click ignorati silenziosamente (non solleva eccezioni, semplicemente non emette `clicked`/`currentChanged`).
 
 **Animazione underline**: lo spostamento/ridimensionamento dell'underline tra una tab e l'altra è animato (200ms, `QEasingCurve.OutCubic`) via due Qt `Property` (`underlineX`/`underlineWidth`) pilotate da `QPropertyAnimation` — richiesta esplicita dell'utente, il mockup statico non lo specifica (è un dettaglio di comportamento, non di stile visivo). Il cambio colore del testo resta istantaneo, non animato. Al primissimo render l'underline è già posizionata correttamente, senza scorrere da zero.
 
@@ -104,12 +109,16 @@ tabella.pageChanged.connect(lambda pagina: ...)                # riquery server-
 | Tipo | Uso | Note |
 |---|---|---|
 | `TEXT` (default) | testo semplice | `emphasis=TextEmphasis.PRIMARY` (`#2E2E2E`, default) o `.SECONDARY` (`#5B6472`, attenuato) |
-| `LINK` | identificativi (`#1040`, `V-20260707-01`) | sempre blu `#2563C9`, SemiBold — solo visivo, nessun'interazione integrata |
+| `LINK` | identificativi (`#1040`, `V-20260707-01`) | sempre blu `#2563C9`, SemiBold — visivo, e cliccabile con `ColumnDef.on_click: Callable[[dict], None]` opzionale (cursore a mano, apre es. un modale di dettaglio); senza `on_click` resta solo visivo come prima |
 | `STATUS_BADGE` | stato con pillola colorata | mappatura valore→(bg,testo) tramite `ColumnDef.status_colors` (dict), unita a una palette di default già pronta per 7 valori comuni (`Consegnato`/`Attivo`→verde, `Fallito`→rosso, `In consegna`→ambra, `Da pianificare`→grigio, `Pianificato`/`Proposto`→blu) — valori non mappati cadono sul grigio neutro |
 | `BOOLEAN_BADGE` | flag sì/no (es. certificazione gas, sponda idraulica) | vero→pillola grigia con `true_label` (default "Sì"); falso→testo semplice con `false_label` (default "No", usa "—" se serve) |
 | `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale, `predicate: Callable[[dict], bool]` opzionale — non limitato a modifica/elimina |
 
-**Fix (2026-07-15) — azioni condizionali per riga**: aggiunto `RowAction.predicate` — se impostato, l'icona compare solo per le righe dove `predicate(row)` è `True` (le altre non la mostrano affatto, non solo disabilitata). Introdotto per Dipendenti: "elimina" (licenzia) visibile solo per righe non-Cessato, "ripristina" (`rotate-ccw`) visibile solo per righe Cessato — due `RowAction` sulla stessa colonna, mutuamente esclusive per stato riga, invece di un'unica icona che cambia comportamento.
+**Fix (2026-07-15) — azioni condizionali per riga**: aggiunto `RowAction.predicate` — se impostato, l'icona compare solo per le righe dove `predicate(row)` è `True` (le altre non la mostrano affatto, non solo disabilitata). Introdotto per Dipendenti: "elimina" (licenzia) visibile solo per righe non-Cessato, "ripristina" (`rotate-ccw`) visibile solo per righe Cessato — due `RowAction` sulla stessa colonna, mutuamente esclusive per stato riga, invece di un'unica icona che cambia comportamento. Stesso pattern riusato identico per Camion ("dismetti"/"ripristina" su Dismesso). **Superato in seguito** (vedi sotto, redesign azioni riga) — "modifica"/"elimina" sono diventati due azioni fisse (nessun `predicate`), la logica condizionale di stato è passata dentro il callback.
+
+**Redesign (2026-07-15) — matita = cambia stato, cestino = soft-delete**: su richiesta esplicita dell'utente, il significato delle due icone standard è stato ridefinito uniformemente su tutti i domini (Dipendenti/Camion/Viaggi/Squadre): la matita ("modifica") non apre più un form di editing campi, cambia lo stato attivo/non-attivo della riga in entrambe le direzioni (il callback decide la direzione guardando `row["stato"]`: da attivo disattiva, da non-attivo riattiva - un'unica `RowAction` senza `predicate`); il cestino ("elimina") fa lo stesso soft-delete di sempre (licenzia_dipendente/disattiva_camion/annulla_viaggio/elimina_squadra - imposta lo stato a non-attivo, preserva i dati per lo storico RF8), **stessa identica chiamata che la matita farebbe cliccata su una riga attiva** - le due icone si sovrappongono deliberatamente su quella direzione, la matita in più copre anche il percorso inverso (riassumi/riattiva/ripristina) che il cestino non fa. **Non** un hard-delete: un tentativo precedente in questa stessa sessione aveva reso il cestino un hard-delete irreversibile (nuovi metodi `elimina_*_definitivamente` nei gestori, con guardia contro violazioni di integrità referenziale) poi corretto su richiesta esplicita dell'utente - quei metodi `elimina_*_definitivamente` restano nei gestori (testati, potenzialmente utili altrove) ma **non sono più raggiungibili dalla UI** delle 4 pagine con stato a due valori. Su Ordini (nessun modello a due stati, nessun soft-delete possibile) il cestino resta l'unica eccezione a hard-delete (`elimina_ordine_definitivamente`), la matita resta assente (vedi "Lavoro deliberatamente rimandato" più sotto). L'editing dei campi anagrafici (nome/cognome, targa/tipo, ecc.) non è più raggiungibile dalla UI: rimosso, non semplicemente nascosto.
+
+**Redesign (2026-07-15) — `ColumnDef.on_click` sulla colonna LINK**: aggiunto per spostare un modale di dettaglio dall'icona matita (ora "cambia stato", vedi sopra) al click sull'identificativo della riga. Usato da Viaggi (il modale "Modifica date" si apre cliccando l'ID viaggio) e Squadre (il modale dettaglio si apre cliccando l'ID squadra).
 
 **Personalizzazione**: `ColumnDef.width` (larghezza fissa in px) oppure `ColumnDef.stretch` (fattore di stretch, colonne più larghe in proporzione) — non impostare entrambi sulla stessa colonna, `width` vince se presente. `status_colors` sulla singola colonna sovrascrive/estende la palette di default senza doverla ridefinire tutta.
 
@@ -165,6 +174,8 @@ TextField("Targa", placeholder="es. AB123CD")
 
 **Assunzione segnalata**: il colore del placeholder è impostato uguale a quello del testo digitato (`#5B6472`) tramite `QPalette::PlaceholderText` — senza questo, Qt schiarirebbe automaticamente il placeholder. Il mockup non mostra uno stato "campo con testo digitato" separato da quello con placeholder, quindi non c'è modo di verificare che siano davvero identici; è l'assunzione più sicura (nessuna differenziazione esplicita nel mockup).
 
+**Parametro `password: bool = False`** (aggiunto 2026-07-15 per i campi Password/Conferma password delle schermate di autenticazione): se `True`, imposta `QLineEdit.EchoMode.Password` (testo mascherato a pallini, come nel mockup Login/Registrazione). Nessun impatto sui campi esistenti (default `False`, stesso comportamento di prima).
+
 ## Select
 
 `Select(label: str, options: list[str], placeholder: str = "", parent=None)` — sottoclasse di `QWidget`: label sopra + campo cliccabile (chevron a destra) che apre un `QMenu` con le opzioni.
@@ -186,7 +197,7 @@ tipo.valueChanged.connect(...)
 
 **Nota storica**: nella prima iterazione Multiselect e Date Picker erano stati rimandati (nessun frame del mockup li mostra aperti). L'utente ha poi deciso esplicitamente come implementarli senza aggiornare il mockup — vedi `## DatePicker` e `## MultiSelect` più sotto: non sono assunzioni di questa libreria, sono scelte confermate dall'utente.
 
-**Fix (2026-07-15) — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra). Segnalato da un bug reale su `gui/pages/dipendenti.py` ("le squadre/gli stati non si vedono nel riquadro").
+**Fix (2026-07-15) — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra). Segnalato da un bug reale su `gui/pages/dipendenti.py` ("le squadre/gli stati non si vedono nel riquadro"), poi ritrovato identico anche su Camion, Viaggi e Squadre.
 
 ## BooleanToggle
 
@@ -368,6 +379,21 @@ ricerca.searchChanged.connect(lambda testo: ...)  # riquery/filtro lato chiamant
 
 **Valori esatti dal mockup**: contenitore sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, padding orizzontale 12px; testo/placeholder Inter 13px/Medium `#5B6472` (stesso trattamento `QPalette::PlaceholderText` di `TextField`, così il placeholder non viene schiarito da Qt); icona `search` **`#8A93A0`** (= `LABEL_COLOR`), 16×16, a sinistra con gap 8px dal testo.
 
+## LinkButton
+
+`LinkButton(text: str, icon_name: str, parent=None)` — sottoclasse di `QPushButton` in `gui/components/link_button.py`: icona Lucide + testo in stile link (nessuno sfondo/bordo), usato per "Ripristina filtri" nelle Filter Card.
+
+```python
+link = LinkButton("Ripristina filtri", "rotate-ccw")
+link.clicked.connect(self._ripristina_filtri)  # segnale nativo QPushButton, nessun segnale custom
+```
+
+**Verificato nel mockup**: presente identico (stesso font/colore) in più artboard con Filter Card, incluse "Camion", "Ordini", "Viaggi" e "Squadre" — non un elemento specifico di una sola pagina, lo stesso elemento ricorre ovunque c'è una lista filtrata. Da usare fin dall'inizio in ogni nuova pagina lista (non un workaround ad-hoc tipo opzione "Tutti" dentro le tendine).
+
+**Valori esatti dal mockup**: icona 13×13, gap 6px dal testo, testo Inter-Medium 13px, colore `#2563C9` (stesso blu di `Button` PRIMARY) sia per icona che testo. Icona usata: `rotate-ccw`.
+
+**Assunzione segnalata**: stato hover non disegnato nel mockup (solo a riposo) — derivato scurendo il colore del testo (stesso principio di `Button._darken`), non misurato.
+
 ## EmptyState
 
 `EmptyState(title: str, subtitle: str = "", icon_name: str = "inbox", parent=None)` — sottoclasse di `QWidget`: placeholder mostrato al posto di una lista/tabella quando non ci sono dati. Contenuto centrato orizzontalmente e verticalmente.
@@ -386,6 +412,36 @@ EmptyState("Nessun ordine", icon_name="package")     # icona parametrica
 
 **Valori esatti dal mockup**: icona **40×40 colore `#B7BEC7`** (`load_lucide_icon(icon_name, "#B7BEC7", 40)`); titolo Inter **14px SemiBold `#8A93A0`**; sottotitolo (se presente) Inter **12px Medium `#B7BEC7`**; gap icona→titolo 16px, titolo→sottotitolo 8px.
 
+## IconChip
+
+`IconChip(icon_name: str, variant: IconChipVariant, size: int = 16, parent=None)` — sottoclasse di `QLabel`: chip circolare colorato con un'icona Lucide dentro. Verificato nel mockup su KPI Card e Activity Row della Dashboard (stesse 4 combinazioni colore in entrambi i contesti).
+
+```python
+from gestionale_logistica.gui.components import IconChip, IconChipVariant
+
+IconChip("package", IconChipVariant.LIGHT_BLUE)
+IconChip("triangle-alert", IconChipVariant.RED, size=16)
+```
+
+- `IconChipVariant`: `LIGHT_BLUE`/`BLUE`/`GREEN`/`RED` — 4 combinazioni (colore icona, colore sfondo chip) misurate nel mockup, non stimate: `LIGHT_BLUE` icona `#3D9BE9` bg `#D6EAFB`; `BLUE` icona `#2563C9` bg `#D6E4F7`; `GREEN` icona `#1E8E3E` bg `#DFF5E5`; `RED` icona `#C0392B` bg `#FBE4E1`. Esposte come `VARIANT_COLORS` in `icon_chip.py` se serve leggerle programmaticamente (es. per colorare un testo collegato, vedi `KpiCard`).
+- Chip sempre circolare (`border-radius = size // 2`), sfondo e icona della stessa dimensione (`size`, default 16px come nel mockup) — non c'è un padding esplicito tra bordo del chip e glifo: i margini interni del grid Lucide 24×24 bastano a dare l'effetto visivo corretto.
+
+**Personalizzazione**: nessun colore libero — solo le 4 varianti misurate. Se in futuro serve una quinta combinazione, va prima verificata nel mockup, non estrapolata.
+
+## Scrollbar minimale: `MINIMAL_SCROLLBAR_QSS`
+
+`MINIMAL_SCROLLBAR_QSS` (stringa QSS, in `gui/components/scroll_style.py`) — scrollbar sottile (6px), trasparente, **senza le frecce sopra/sotto** (`::add-line`/`::sub-line` a 0px), handle grigio traslucido (`rgba(138,147,160,0.35)`, riuso di `LABEL_COLOR` in trasparenza) che si scurisce leggermente in hover. Non nel mockup (nessuna scrollbar in un mockup statico) — richiesta esplicita dell'utente (2026-07-15, Dashboard) di uno stile minimale coerente con la palette dell'app invece della scrollbar di sistema.
+
+```python
+from gestionale_logistica.gui.components import MINIMAL_SCROLLBAR_QSS
+
+scroll_area.setStyleSheet(f"QScrollArea {{ background: transparent; border: none; }} {MINIMAL_SCROLLBAR_QSS}")
+```
+
+- Va concatenata allo stylesheet del widget scrollabile (`QScrollArea`, o qualunque `QAbstractScrollArea`), non sostituita — le regole `QScrollBar` si applicano alla scrollbar interna del widget su cui è impostato lo stylesheet.
+- **Nessuna variante**: un solo stile per tutta l'app, non parametrico — se in futuro serve una scrollbar diversa (es. più spessa per un'area con contenuto denso), va discusso con l'utente prima di introdurre un parametro.
+- Usata per ora solo nell'area scrollabile di "Attività recente" nella Dashboard (vedi sotto); `Table` non ha ancora una propria area scrollabile (usa paginazione server-side) — se in futuro ne avrà una, riusare questo stesso stile.
+
 ## Icone: `load_lucide_icon`
 
 Le icone del mockup sono icone [Lucide](https://lucide.dev) (libreria open-source, licenza ISC) — confermato per confronto diretto byte-a-byte tra gli SVG esportati da Sketch e gli SVG reali di Lucide, non per somiglianza visiva.
@@ -398,7 +454,7 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 - `color`: colore esadecimale con cui ricolorare l'icona (le icone Lucide usano `stroke="currentColor"`, sostituito a runtime).
 - `size`: dimensione di default suggerita — il rendering reale è vettoriale e ridisegnato da Qt a qualunque risoluzione/devicePixelRatio venga effettivamente richiesta (vedi nota sotto), quindi resta nitido anche su schermi Retina o se il chiamante chiede una `QIcon.pixmap()` a una dimensione diversa da `size`.
 
-**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info` (`gui/assets/icons/`).
+**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info`, `package`, `package-search`, `users`, `truck`, `circle-check-big`, `triangle-alert`, `calendar`, `eye` (`gui/assets/icons/`). Le 7 del gruppo Dashboard (2026-07-15) sono state identificate per struttura del path SVG (numero/ordine di `path`/`circle`/`polyline`/`rect`, non dal nome del bottone/etichetta) e verificate scaricando l'SVG reale da `lucide-static@1.24.0` (stessa versione già vendorizzata nel progetto) per confronto diretto degli elementi. `eye` (2026-07-16, tab Esiti — azione "modifica" su una riga Fallito, al posto di `pencil`) non viene da un artboard Sketch (nessun mockup per questa scelta) — scaricata direttamente dallo stesso `lucide-static@1.24.0` per coerenza di stile con le altre.
 
 **Aggiungere una nuova icona**:
 1. Trova l'icona nel mockup Sketch, esportala come SVG (`sketch.export(layer, { formats: ['svg'], ... })` via MCP, o manualmente da Sketch).
@@ -407,6 +463,50 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 4. Usalo con `load_lucide_icon("<nome-lucide>", colore, size)`.
 
 **Nota tecnica — perché non un semplice `QPixmap`**: la prima versione renderizzava l'SVG una volta sola in un `QPixmap` a dimensione fissa, che appariva sgranato su schermi Retina/HiDPI. `load_lucide_icon` ora restituisce un `QIcon` sostenuto da un `QIconEngine` custom (`_LucideIconEngine` in `icons.py`) che ridisegna l'SVG dal vettore ogni volta che Qt lo richiede, alla risoluzione effettiva — non un raster in cache. Qualunque nuovo loader di asset SVG dovrebbe seguire lo stesso pattern.
+
+## AuthLogo
+
+`AuthLogo(parent=None)` — sottoclasse di `QWidget`: tassello logo + "LogiPlan", centrati orizzontalmente, usati in cima alle 3 schermate di autenticazione (Login, Registrazione, Conferma OTP). Riusa l'helper/i token del logo della `Sidebar` (`_build_logo_badge`, `APP_NAME_COLOR`, `_make_font`) invece di ridefinirli — verificato via Sketch che sono lo stesso identico tassello (28×28 radius8 bg `#2563C9` + icona `route` bianca 16px, testo Inter 17px/Medium `#163A6B`), qui in riga centrata invece che nella logo row laterale.
+
+```python
+from gestionale_logistica.gui.components import AuthLogo
+AuthLogo()
+```
+
+## LinkButton
+
+`LinkButton(text, parent=None)` — sottoclasse di `QPushButton`: testo cliccabile in stile link, nessuna icona (unica istanza nel mockup: "Non hai ricevuto il codice? Invia di nuovo" nella schermata Conferma OTP). Valori misurati: Inter 12px/Medium, colore `#2563C9`, nessuno sfondo/bordo.
+
+```python
+from gestionale_logistica.gui.components import LinkButton
+resend = LinkButton("Non hai ricevuto il codice? Invia di nuovo")
+resend.clicked.connect(...)
+```
+
+- Usa il segnale `clicked` nativo di `QPushButton`, nessun segnale custom.
+- **Stato hover** (non nel mockup): colore scurito (`_darken`, stesso helper di `Button`).
+- **Nota**: solo la variante testo-senza-icona è implementata, perché è l'unica istanza usata finora. Se in futuro serve una variante con icona, va aggiunta come parametro opzionale ispezionando prima il mockup per quell'istanza specifica — non forzare/estrapolare da questa.
+
+## OtpInput
+
+`OtpInput(length=6, parent=None)` — sottoclasse di `QWidget`: N caselle a singolo carattere per un codice numerico (fonte: mockup Sketch, artboard "Conferma OTP"). Chrome della singola casella riusa i token di `TextField`/`Select` (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS` da `form_field.py`); testo Inter 20px/Medium `#2E2E2E` (misurato).
+
+```python
+from gestionale_logistica.gui.components import OtpInput
+otp = OtpInput()  # 6 caselle di default
+otp.valueChanged.connect(lambda codice: ...)
+otp.set_value("123456")
+otp.clear()  # svuota e rifocalizza la prima casella
+```
+
+- `otp.value()` — stringa con le cifre digitate finora (può essere più corta di `length`).
+- `otp.set_value(valore)` — popola le caselle (scarta silenziosamente i caratteri non numerici).
+- `otp.valueChanged` — `Signal(str)`, emesso a ogni digitazione/incolla/`set_value`.
+- `otp.clear()` — svuota tutte le caselle e rifocalizza la prima.
+
+**Comportamento** (non verificabile in un mockup statico, standard atteso per un input OTP — stesso principio già usato per "click sul backdrop chiude" in `Modal`): digitare una cifra avanza automaticamente alla casella successiva; backspace su una casella vuota torna alla precedente; incollare una stringa multi-cifra la distribuisce sulle caselle a partire da quella su cui si incolla.
+
+**Dimensioni della singola casella — assunzione dichiarata**: le 6 istanze nel mockup hanno larghezze leggermente incoerenti tra loro (37/37/30/30/30/30px, probabile artefatto di auto-layout in Sketch, non una misura intenzionale) — non pixel-perfect replicabile. Dimensione uniforme scelta in implementazione: 44×42px, gap 12px tra le caselle.
 
 ## Lacune candidate nella libreria (non ancora verificate, da controllare quando servono davvero)
 
@@ -419,11 +519,6 @@ ancora affrontate — segnate qui perché non spariscano con la fine di quella s
   Sketch se esiste già una convenzione visiva per questo caso (in questo mockup o in altri form,
   es. Autenticazione) — se sì, va costruito come componente riusabile seguendo il processo qui
   sotto, non duplicato pagina per pagina.
-- **Flusso "Importa CSV" a due passi** (selezione file → riepilogo risultato/errori, artboard
-  "Ordini — Importa CSV — Seleziona file"/"— Risultato"): non esiste ancora né un componente
-  file-picker né un componente per mostrare l'elenco di `ErroreImport(riga, messaggio)` dopo un
-  `importa_ordini()`. Da trattare come nuovo componente (o coppia di componenti) quando si arriva
-  alla pagina Ordini, non come markup inline nella pagina.
 - **Messaggio di errore/conferma quando un'operazione viene rifiutata dal backend** (es.
   `licenzia_dipendente`/`disattiva_camion`/`elimina_squadra` rifiutano con `ok=False, motivo=...`
   se la risorsa è coinvolta in un viaggio non concluso): nessun componente di libreria per
@@ -432,6 +527,38 @@ ancora affrontate — segnate qui perché non spariscano con la fine di quella s
   sembrava non fare nulla quando il backend rifiutava silenziosamente. Se lo stesso caso si
   ripete per Camion/Squadre/Viaggi, vale la pena farne un componente riusabile invece di
   ripetere `QMessageBox` pagina per pagina.
+
+## Lavoro deliberatamente rimandato — pagina Ordini
+
+Decisione esplicita dell'utente: la prima passata su `OrdiniPage` copre solo lista/filtri/tabella,
+senza le due feature più consistenti viste nel mockup:
+
+- **"Registra esito consegna"** (icona matita nel mockup, artboard "Ordini — Modifica (modale)"):
+  non è un editor di campi generico — è il front-end di `GestoreRendicontazione.registra_esito()`
+  (selettore Esito Completato/Fallito, dropdown causale condizionale, upload prova documentale via
+  `carica_prova_documentale()`). Richiede un componente Dropzone/file-attach non ancora costruito.
+  Applicabile solo a ordini "In consegna" (`registra_esito` rifiuta altrimenti). Da progettare come
+  feature a parte, componente per componente.
+- **"Importa CSV"** (bottone header, artboard "Ordini — Importa CSV — Seleziona file/Risultato"):
+  flusso a 2 passi (file-picker → riepilogo `ErroreImport(riga, messaggio)`), backend già pronto
+  (`GestoreLogistica.importa_ordini`/`importa_ordini_async`) ma nessun componente file-picker né
+  riepilogo-errori esiste ancora nella libreria.
+
+Entrambi visibili nel mockup ma **disabilitati** nell'implementazione attuale (tab "Esiti" e
+bottone "Importa CSV"), non rimossi — coerenza visiva con il mockup senza azioni finte.
+
+## Gap segnalato nel mockup Sketch (non una lacuna di libreria, un buco nel file .sketch)
+
+**Artboard "Viaggi"**: la tabella disegna un'icona matita ("Modifica") su ogni riga, ma **non
+esiste alcun artboard "Viaggi — Modifica (modale)"** nel file `.sketch` (verificato elencando
+tutte le pagine: solo "Viaggi" lista + "Nuova pianificazione"/wizard, nessun modale di modifica),
+e nessuna RF definisce un'operazione di modifica viaggio (date/composizione/ordini). Su decisione
+esplicita dell'utente, `ViaggiPage._apri_modale_modifica` apre un modale **minimale non presente
+nel mockup**: solo le due date previste (partenza/arrivo), l'unico dato semplice correggibile
+senza toccare composizione/ordini. Se in futuro si arriva a costruire la procedura di
+pianificazione e si scopre che serve modificare altro (es. riassegnare la composizione), va
+rivalutato — questo modale minimale non è una base da estendere silenziosamente, è un placeholder
+dichiarato per colmare un buco del mockup.
 
 ## Aggiungere un componente nuovo
 
@@ -444,3 +571,19 @@ Processo seguito finora per `Button` e `Card`, da ripetere per i prossimi (sideb
 5. Implementa in `gui/components/<nome>.py`, esporta da `gui/components/__init__.py`.
 6. Verifica visivamente con una finestra reale (non solo `pytest`) prima di darlo per concluso — uno script demo in una cartella temporanea è sufficiente, non serve committarlo.
 7. **Documenta qui** (questo file): API, esempi d'uso, eventuali scarti intenzionali dal mockup e il perché.
+
+**Trappola Qt — `QLabel` "stirata" mostra uno sfondo grigio non voluto** (trovata 2026-07-15 costruendo la Dashboard): un `QLabel` a cui è impostato solo `color:` nello stylesheet (senza `background:`) sembra trasparente finché resta piccola/aderente al testo — ma se viene aggiunta a un layout con **stretch factor** (es. `layout.addWidget(label, 1)`) o comunque si allarga oltre il proprio `sizeHint`, dipinge un riempimento grigio chiaro opaco su tutta la sua area, visibile perché lo stylesheet è attivo a livello app (`QStyleSheetStyle`). Non è mai capitato prima in questa libreria perché nessuna label esistente veniva mai stirata a riempire lo spazio disponibile. **Fix**: aggiungere sempre `background: transparent;` nello stylesheet di ogni `QLabel` di solo testo/icona che non deve avere un proprio sfondo — non fidarsi che "sembri già trasparente" in una preview con contenuto stretto, va verificato specificamente con una label stirata (es. dentro un `QHBoxLayout` con `addWidget(label, 1)`).
+
+## Componenti pagina-specifici
+
+Componenti la cui forma è ritagliata esattamente sul layout di **una** pagina (non genuinamente riusabili altrove) vivono in `gui/<pagina>/components/`, non in `gui/components/` — pattern deciso il 2026-07-15 costruendo la Dashboard. Stesso processo "Aggiungere un componente nuovo" sopra, stessa documentazione qui sotto, solo import path diverso.
+
+**Dashboard** (`gui/dashboard/components/`, import `from gestionale_logistica.gui.dashboard.components import ActivityRow, KpiCard, PlanningDayCard`):
+
+- **`KpiCard(value, label, icon_name, variant: IconChipVariant, trend: str | None = None, parent=None)`** — sottoclasse di `Card` (padding 20/18, spacing 12, riuso del preset già anticipato nella doc di `Card`): valore grande (Inter 28px Medium `#163A6B`) + trend opzionale in cima, `IconChip` + etichetta maiuscola (Inter 12px Medium `#5B6472`, uppercase forzato dal componente) sotto. Il testo del trend riusa il **colore icona della `variant`** (non un colore fisso positivo/negativo): nel mockup la card verde (consegnati) ha trend verde, la rossa (falliti) ha trend rosso — misurato, non assunto.
+- **`PlanningDayCard(day_label, count_label, parent=None)`** — sottoclasse di `Card`/`QFrame`: etichetta giorno (Inter 12px SemiBold `#5B6472`) + badge pillola col conteggio (bg `#D6EAFB`, testo Inter 11px SemiBold `#2563C9`, radius 7 = altezza/2). Sfondo card `#F7F9FC`, nessun bordo, radius 10.
+- **`ActivityRow(icon_name, variant: IconChipVariant, text, timestamp, parent=None)`** — riga: `IconChip` + testo evento (troncato con ellissi via `QFontMetrics.elidedText` a ogni `resizeEvent`, non nel mockup statico) + timestamp relativo a destra (Inter 12px Medium `#8A93A0`). Altezza fissa 52px. I divider 1px `#EDEFF3` tra le righe **non** sono nel componente: li disegna chi assembla la lista (stesso pattern già usato da `Modal`/`Table` per `DIVIDER_COLOR`, costante duplicata localmente per file, non condivisa).
+
+**Pannello "Attività recente" — altezza elastica, non fissa (corretto 2026-07-15).** Il contenitore delle righe (`QScrollArea`, `MINIMAL_SCROLLBAR_QSS`) ha solo un **minimo** di 296px (5 righe, il budget del mockup) via `setMinimumHeight`, non un `setFixedHeight`: la card riceve stretch factor 1 nel layout verticale della pagina (`outer.addWidget(self._activity_card, 1)`, **senza** un `addStretch(1)` finale dopo) così si allarga a riempire lo spazio verticale disponibile su schermi grandi/fullscreen invece di lasciare un'area grigia vuota sotto la card, e si comprime fino al minimo (con scroll interno) su finestre piccole. **Prima versione era sbagliata**: altezza fissa via `setFixedHeight` + `outer.addStretch(1)` finale — lo stretch finale assorbiva tutto lo spazio extra come'area grigia morta invece di farlo usare dal contenuto. Se in futuro un'altra pagina ha un pannello a lista simile, riusare questo pattern (min-height + stretch sul contenitore, non fixed-height + stretch finale).
+
+I dati reali (KPI aggregati, conteggio viaggi per i prossimi 7 giorni, feed attività) sono letti da `gui/dashboard/dashboard_data.py` — nessun RF1-RF19 definisce una Dashboard, le query aggregano dai modelli esistenti (vedi docstring del file per le assunzioni dichiarate: definizione di "disponibile", formula dei trend, provenienza dei 4 tipi di evento nel feed attività).

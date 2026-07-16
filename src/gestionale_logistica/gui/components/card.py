@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QSizePolicy, QVBoxLayout, QWidget
 
 
 class Card(QFrame):
@@ -16,6 +16,13 @@ class Card(QFrame):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        # Fix (2026-07-15): stesso motivo di PageHeader (vedi page_header.py) - senza questo, in
+        # un QVBoxLayout con poco contenuto sotto (es. Table con poche righe) la Filter Card si
+        # allarga verticalmente per riempire lo spazio residuo invece di restare alla sua altezza
+        # naturale. Le uniche istanze di Card in uso oggi (Filter Card) hanno sempre altezza
+        # dettata dal contenuto nel mockup - se in futuro serve una Card che deve espandersi
+        # (es. un contenitore a tutta altezza), va esposto come parametro, non assunto di default.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         self.content_layout = QVBoxLayout(self)
         self.content_layout.setContentsMargins(

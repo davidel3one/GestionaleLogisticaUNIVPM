@@ -20,6 +20,7 @@ def crea_ordine(id_, lat=None, lon=None):
         volume_cargo=0.1,
         categoria_consegna=CategoriaConsegna.BORDO_STRADA,
         stato_ordine=StatoOrdine.RICEVUTO,
+        data_importazione=datetime.now(),
         data_consegna=None,
         viaggio_id=None,
     )

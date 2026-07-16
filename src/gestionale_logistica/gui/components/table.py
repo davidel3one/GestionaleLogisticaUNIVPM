@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QFont, QIcon, QMouseEvent
+from PySide6.QtGui import QColor, QFont, QIcon, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -74,15 +75,23 @@ class TextEmphasis(str, Enum):
 
 @dataclass
 class RowAction:
-    """Una singola azione della colonna `actions`: icona Lucide + callback(riga)."""
+    """Una singola azione della colonna `actions`: icona Lucide + callback(riga), oppure (se
+    `is_switch=True`) uno switch on/off al posto dell'icona - stesso `callback(riga)` invocato
+    ad ogni toggle, senza distinguere la direzione: e' compito del chiamante decidere cosa fare
+    guardando lo stato corrente della riga (stesso principio gia' usato dalle azioni "matita" che
+    invertono stato senza un parametro esplicito)."""
 
-    icon_name: str
-    callback: Callable[[dict], None]
+    icon_name: str = ""
+    callback: Callable[[dict], None] | None = None
     color: str = TEXT_SECONDARY_COLOR
     tooltip: str | None = None
     predicate: Callable[[dict], bool] | None = None
     """Se impostato, l'azione compare solo per le righe per cui predicate(riga) e' True
-    (es. un'icona "ripristina" visibile solo per righe con stato "Cessato")."""
+    (es. un'icona "ripristina" visibile solo per righe con stato "Cessato"/"Dismesso", o
+    "Annulla viaggio" nascosta per righe gia' Completato/Annullato)."""
+    is_switch: bool = False
+    switch_value: Callable[[dict], bool] | None = None
+    """Richiesto se `is_switch=True`: legge lo stato corrente (on/off) dalla riga."""
 
 
 @dataclass
@@ -100,6 +109,9 @@ class ColumnDef:
     actions: list[RowAction] = field(default_factory=list)
     width: int | None = None
     stretch: int = 1
+    on_click: Callable[[dict], None] | None = None
+    """Solo per ColumnType.LINK: se impostato, il valore diventa cliccabile (cursore a mano) e
+    invoca on_click(row) al click - altrimenti resta solo visivo (stile link, nessuna interazione)."""
 
 
 def _visible_pages(current_page: int, total_pages: int) -> list[int | None]:
@@ -167,13 +179,26 @@ def _build_text_label(text: str, emphasis: TextEmphasis) -> QLabel:
     return label
 
 
-def _build_link_label(text: str) -> QLabel:
-    label = QLabel(text)
+class _ClickableLabel(QLabel):
+    """QLabel che emette `clicked` al click sinistro - usata per le colonne LINK con `on_click`."""
+
+    clicked = Signal()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mousePressEvent(event)
+
+
+def _build_link_label(text: str, clickable: bool = False) -> QLabel:
+    label = _ClickableLabel(text) if clickable else QLabel(text)
     font = QFont(FONT_FAMILY)
     font.setWeight(QFont.Weight(600))
     font.setPixelSize(13)
     label.setFont(font)
     label.setStyleSheet(f"color: {LINK_COLOR};")
+    if clickable:
+        label.setCursor(Qt.CursorShape.PointingHandCursor)
     return label
 
 
@@ -219,6 +244,42 @@ class _IconButton(QPushButton):
             effect.setOpacity(DISABLED_OPACITY)
             self.setGraphicsEffect(effect)
             self.setCursor(Qt.CursorShape.ArrowCursor)
+
+
+SWITCH_WIDTH = 36
+SWITCH_HEIGHT = 20
+SWITCH_PADDING = 2
+SWITCH_KNOB_SIZE = SWITCH_HEIGHT - 2 * SWITCH_PADDING
+SWITCH_ON_COLOR = QColor("#2563C9")
+SWITCH_OFF_COLOR = QColor("#D6DEE8")
+SWITCH_KNOB_COLOR = QColor("#FFFFFF")
+
+
+class _Switch(QAbstractButton):
+    """Switch on/off compatto per la colonna Azioni (non nel mockup - introdotto su richiesta
+    esplicita dell'utente al posto della matita su Camion). Nessun supporto QSS per un cursore
+    circolare che scorre dentro una pillola, quindi disegnato a mano in `paintEvent` - stesso
+    principio gia' usato per `Modal`/`Tooltip` (angoli arrotondati non ottenibili in modo
+    affidabile via QSS + QGraphicsEffect)."""
+
+    def __init__(self, checked: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(checked)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(SWITCH_WIDTH, SWITCH_HEIGHT)
+
+    def paintEvent(self, event) -> None:  # noqa: ARG002 (firma richiesta da Qt)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(SWITCH_ON_COLOR if self.isChecked() else SWITCH_OFF_COLOR)
+        painter.drawRoundedRect(self.rect(), SWITCH_HEIGHT / 2, SWITCH_HEIGHT / 2)
+        knob_x = (
+            self.width() - SWITCH_PADDING - SWITCH_KNOB_SIZE if self.isChecked() else SWITCH_PADDING
+        )
+        painter.setBrush(SWITCH_KNOB_COLOR)
+        painter.drawEllipse(knob_x, SWITCH_PADDING, SWITCH_KNOB_SIZE, SWITCH_KNOB_SIZE)
 
 
 class _PagerButton(QPushButton):
@@ -316,6 +377,13 @@ def _build_actions_cell(actions: list[RowAction], row: dict) -> QWidget:
     for action in actions:
         if action.predicate is not None and not action.predicate(row):
             continue
+        if action.is_switch:
+            switch = _Switch(bool(action.switch_value(row)) if action.switch_value else False, container)
+            switch.toggled.connect(lambda checked=False, cb=action.callback, r=row: cb(r))
+            if action.tooltip:
+                switch.setToolTip(action.tooltip)
+            layout.addWidget(switch)
+            continue
         icon = load_lucide_icon(action.icon_name, action.color, 14)
         button = _IconButton(icon, action.tooltip, container)
         button.clicked.connect(lambda checked=False, cb=action.callback, r=row: cb(r))
@@ -330,7 +398,10 @@ def _build_cell(column: ColumnDef, row: dict) -> QWidget:
 
     if column.column_type == ColumnType.LINK:
         value = row.get(column.key, "")
-        return _build_link_label("" if value is None else str(value))
+        label = _build_link_label("" if value is None else str(value), clickable=column.on_click is not None)
+        if column.on_click is not None:
+            label.clicked.connect(lambda cb=column.on_click, r=row: cb(r))
+        return label
 
     if column.column_type == ColumnType.STATUS_BADGE:
         value = row.get(column.key)
@@ -361,7 +432,9 @@ class Table(QFrame):
     sortRequested = Signal(str, bool)  # colonna, ascending
     pageChanged = Signal(int)  # pagina 1-based richiesta
 
-    def __init__(self, columns: list[ColumnDef], parent: QWidget | None = None) -> None:
+    def __init__(
+        self, columns: list[ColumnDef], show_footer: bool = True, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         if not columns:
             raise ValueError("Table richiede almeno una colonna.")
@@ -372,6 +445,7 @@ class Table(QFrame):
         self._current_page = 1
         self._total_items = 0
         self._page_size = 1
+        self._show_footer = show_footer
 
         self._apply_style()
 
@@ -388,7 +462,8 @@ class Table(QFrame):
         self._rows_layout.setSpacing(0)
         outer_layout.addWidget(self._rows_container)
 
-        outer_layout.addWidget(self._build_footer())
+        if self._show_footer:
+            outer_layout.addWidget(self._build_footer())
 
     def set_rows(self, rows: list[dict]) -> None:
         _clear_layout(self._rows_layout)
@@ -396,12 +471,18 @@ class Table(QFrame):
             if index > 0:
                 self._rows_layout.addWidget(_build_divider())
             self._rows_layout.addWidget(self._build_row_widget(row))
+        # Fix (2026-07-15): senza uno stretch finale, quando Table e' piu' alta del contenuto
+        # (poche righe, spazio residuo nel QVBoxLayout della pagina) il layout distribuiva lo
+        # spazio in eccesso tra le righe (a dimensione fissa) invece di lasciarlo sotto l'ultima -
+        # risultato: righe con un vuoto enorme tra loro invece che compatte in cima alla tabella.
+        self._rows_layout.addStretch(1)
 
     def set_pagination(self, current_page: int, total_items: int, page_size: int) -> None:
         self._current_page = current_page
         self._total_items = total_items
         self._page_size = page_size
-        self._rebuild_footer()
+        if self._show_footer:
+            self._rebuild_footer()
 
     def _apply_style(self) -> None:
         self.setStyleSheet(

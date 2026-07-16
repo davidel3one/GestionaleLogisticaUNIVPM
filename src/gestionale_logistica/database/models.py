@@ -83,6 +83,7 @@ class Viaggio(Base):
     id: Mapped[str] = mapped_column(primary_key=True)
     data_partenza_prevista: Mapped[datetime]
     data_arrivo_prevista: Mapped[datetime]
+    data_creazione: Mapped[datetime]
     km_percorsi: Mapped[Optional[float]]
     stato_viaggio: Mapped[StatoViaggio] = _enum_column(StatoViaggio)
     composizione_id: Mapped[str] = mapped_column(ForeignKey("composizioni_squadra.id_composizione"))
@@ -105,6 +106,7 @@ class Ordine(Base):
     volume_cargo: Mapped[float]
     categoria_consegna: Mapped[CategoriaConsegna] = _enum_column(CategoriaConsegna)
     stato_ordine: Mapped[StatoOrdine] = _enum_column(StatoOrdine)
+    data_importazione: Mapped[datetime]
     data_consegna: Mapped[Optional[datetime]]
     viaggio_id: Mapped[Optional[str]] = mapped_column(ForeignKey("viaggi.id"))
     negozio_partner: Mapped[Optional[str]]

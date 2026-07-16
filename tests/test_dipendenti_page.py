@@ -10,8 +10,17 @@ from datetime import datetime
 import pytest
 from PySide6.QtWidgets import QApplication, QLabel
 
+from gestionale_logistica.gui.components import BooleanToggle, Button, Modal, Select
 from gestionale_logistica.gui.pages import DipendentiPage
 from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
+
+
+def _trova_bottone(genitore, testo):
+    for bottone in genitore.findChildren(Button):
+        etichetta = bottone.findChild(QLabel)
+        if etichetta is not None and etichetta.text() == testo:
+            return bottone
+    return None
 
 
 @pytest.fixture(scope="module")
@@ -24,7 +33,7 @@ def test_dipendenti_page_vuota_non_crasha(app, session_factory):
     pagina = DipendentiPage(GestoreDipendenti(session_factory))
 
     assert pagina._etichetta_conteggio.text() == "0 dipendenti"
-    assert pagina._tabella._rows_layout.count() == 0
+    assert pagina._tabella._rows_layout.count() == 1  # solo lo stretch finale, nessuna riga
 
 
 def test_dipendenti_page_popola_tabella(app, session_factory):
@@ -44,15 +53,6 @@ def test_dipendenti_page_apri_modale_aggiungi_non_crasha(app, session_factory):
     pagina = DipendentiPage(GestoreDipendenti(session_factory))
 
     pagina._apri_modale_aggiungi()  # non deve sollevare eccezioni
-
-
-def test_dipendenti_page_apri_modale_modifica_non_crasha(app, session_factory):
-    gestore = GestoreDipendenti(session_factory)
-    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
-    pagina = DipendentiPage(gestore)
-
-    riga = {"id": "D1", "nome": "Mario Rossi", "flg_certificazione_gas": False}
-    pagina._apri_modale_modifica(riga)  # non deve sollevare eccezioni
 
 
 def test_dipendenti_page_aggiungi_dipendente_aggiorna_tabella(app, session_factory):
@@ -88,19 +88,58 @@ def test_dipendenti_page_ricerca_filtra_e_ricarica(app, session_factory):
     testi = [
         label.text()
         for indice in range(righe_correnti.count())
+        if righe_correnti.itemAt(indice).widget() is not None
         for label in righe_correnti.itemAt(indice).widget().findChildren(QLabel)
     ]
     assert "Mario Rossi" in testi
     assert "Luca Bianchi" not in testi
 
 
-def test_dipendenti_page_licenzia_riga_ricarica(app, session_factory):
+def test_dipendenti_page_modifica_riga_cambia_stato_a_cessato_ricarica(app, session_factory):
     gestore = GestoreDipendenti(session_factory)
     gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
     pagina = DipendentiPage(gestore)
 
-    pagina._licenzia_riga({"id": "D1"})
+    pagina._apri_modale_modifica(
+        {"id": "D1", "nome": "Mario Rossi", "stato": "Attivo", "flg_certificazione_gas": False}
+    )
+    modale = pagina.findChildren(Modal)[-1]
+    modale.findChild(Select).set_value("Cessato")
+    _trova_bottone(modale, "Salva").click()
 
+    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
+    assert "Cessato" in testi
+
+
+def test_dipendenti_page_modifica_riga_cambia_certificazione_gas(app, session_factory):
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+    pagina = DipendentiPage(gestore)
+
+    pagina._apri_modale_modifica(
+        {"id": "D1", "nome": "Mario Rossi", "stato": "Attivo", "flg_certificazione_gas": False}
+    )
+    modale = pagina.findChildren(Modal)[-1]
+    modale.findChild(BooleanToggle).set_value(True)
+    _trova_bottone(modale, "Salva").click()
+
+    from gestionale_logistica.database.models import Dipendente
+
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1").flg_certificazione_gas is True
+
+
+def test_dipendenti_page_elimina_riga_soft_delete(app, session_factory):
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+    pagina = DipendentiPage(gestore)
+
+    pagina._elimina_riga({"id": "D1", "stato": "Attivo"})
+
+    from gestionale_logistica.database.models import Dipendente
+
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1").flg_attivo is False
     testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
     assert "Cessato" in testi
 
@@ -134,7 +173,8 @@ def test_dipendenti_page_licenzia_riga_rifiutata_mostra_avviso(app, session_fact
         ))
         session.add(Viaggio(
             id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
-            data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), km_percorsi=None,
+            data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime.now(),
+            km_percorsi=None,
             stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
         ))
         session.commit()
@@ -144,7 +184,12 @@ def test_dipendenti_page_licenzia_riga_rifiutata_mostra_avviso(app, session_fact
     gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "BBBBBB80A01A002A", datetime(2020, 1, 1))
     pagina = DipendentiPage(gestore)
 
-    pagina._licenzia_riga({"id": "D1"})
+    pagina._apri_modale_modifica(
+        {"id": "D1", "nome": "Mario Rossi", "stato": "Attivo", "flg_certificazione_gas": False}
+    )
+    modale = pagina.findChildren(Modal)[-1]
+    modale.findChild(Select).set_value("Cessato")
+    _trova_bottone(modale, "Salva").click()
 
     assert len(chiamate) == 1
     with session_factory() as session:
@@ -153,58 +198,65 @@ def test_dipendenti_page_licenzia_riga_rifiutata_mostra_avviso(app, session_fact
         assert session.get(Dipendente, "D1").flg_attivo is True
 
 
-def test_dipendenti_page_riassumi_riga_ricarica(app, session_factory):
+def test_dipendenti_page_modifica_riga_riassumi_ricarica(app, session_factory):
     gestore = GestoreDipendenti(session_factory)
     gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
     gestore.licenzia_dipendente("D1")
     pagina = DipendentiPage(gestore)
 
-    pagina._riassumi_riga({"id": "D1"})
+    pagina._apri_modale_modifica(
+        {"id": "D1", "nome": "Mario Rossi", "stato": "Cessato", "flg_certificazione_gas": False}
+    )
+    modale = pagina.findChildren(Modal)[-1]
+    modale.findChild(Select).set_value("Attivo")
+    _trova_bottone(modale, "Salva").click()
 
     testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
     assert "Attivo" in testi
 
 
-def test_dipendenti_page_riassumi_riga_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
-    # Stesso principio di test_dipendenti_page_licenzia_riga_rifiutata_mostra_avviso: senza
-    # feedback, riassumere un dipendente gia' attivo (rifiutato dal backend) sembrerebbe un
-    # bottone "che non fa nulla".
+def test_dipendenti_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
     from gestionale_logistica.gui.pages import dipendenti as modulo_dipendenti
+    from gestionale_logistica.database.enums import StatoViaggio
+    from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Squadra, Viaggio
 
     chiamate = []
     monkeypatch.setattr(
         modulo_dipendenti.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
     )
 
-    gestore = GestoreDipendenti(session_factory)
-    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
-    pagina = DipendentiPage(gestore)
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(Camion(
+            id="CAM1", targa="AB123CD", tipo_mezzo="Furgone", peso_massimo=100.0, volume_massimo=5.0,
+            flg_sponda_idraulica=False, data_acquisizione=datetime(2020, 1, 1), data_dismissione=None,
+            flg_attivo=True,
+        ))
+        session.add(ComposizioneSquadra(
+            id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+            dipendente_1_id="D1", dipendente_2_id="D2",
+            data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+        ))
+        session.add(Viaggio(
+            id="V1", data_partenza_prevista=datetime(2026, 7, 20, 8, 0),
+            data_arrivo_prevista=datetime(2026, 7, 20, 16, 0), data_creazione=datetime.now(),
+            km_percorsi=None,
+            stato_viaggio=StatoViaggio.IN_CORSO, composizione_id="C1",
+        ))
+        session.commit()
 
-    pagina._riassumi_riga({"id": "D1"})
-
-    assert len(chiamate) == 1
-
-
-def test_dipendenti_page_azione_ripristino_solo_per_cessati(app, session_factory):
-    # L'azione "trash-2" (licenzia) e "rotate-ccw" (riassumi) sono mutuamente esclusive per riga:
-    # un dipendente attivo mostra solo licenzia, uno cessato mostra solo riassumi.
     gestore = GestoreDipendenti(session_factory)
     gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
     gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "BBBBBB80A01A002A", datetime(2020, 1, 1))
-    gestore.licenzia_dipendente("D2")
     pagina = DipendentiPage(gestore)
 
-    colonna_azioni = pagina._tabella._columns[-1]
-    azione_licenzia = colonna_azioni.actions[1]
-    azione_riassumi = colonna_azioni.actions[2]
+    pagina._elimina_riga({"id": "D1", "stato": "Attivo"})
 
-    riga_attiva = {"stato": "Attivo"}
-    riga_cessata = {"stato": "Cessato"}
+    assert len(chiamate) == 1
+    from gestionale_logistica.database.models import Dipendente
 
-    assert azione_licenzia.predicate(riga_attiva) is True
-    assert azione_licenzia.predicate(riga_cessata) is False
-    assert azione_riassumi.predicate(riga_attiva) is False
-    assert azione_riassumi.predicate(riga_cessata) is True
+    with session_factory() as session:
+        assert session.get(Dipendente, "D1").flg_attivo is True
 
 
 def test_dipendenti_page_filtro_stato_si_puo_azzerare(app, session_factory):
@@ -261,3 +313,45 @@ def test_dipendenti_page_filtro_squadra_si_puo_azzerare(app, session_factory):
     pagina._select_squadra.set_value(FILTRO_TUTTE_SQUADRE)
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "3 dipendenti"
+
+
+def test_dipendenti_page_filtro_certificazione_gas(app, session_factory):
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente(
+        "D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1), flg_certificazione_gas=True
+    )
+    gestore.inserisci_dipendente(
+        "D2", "Luca", "Bianchi", "BBBBBB80A01A002A", datetime(2020, 1, 1), flg_certificazione_gas=False
+    )
+    pagina = DipendentiPage(gestore)
+
+    pagina._select_cert_gas.set_value("Sì")
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "1 dipendenti"
+
+    pagina._select_cert_gas.set_value("No")
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "1 dipendenti"
+
+    pagina._select_cert_gas.set_value(None)
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "2 dipendenti"
+
+
+def test_dipendenti_page_ripristina_filtri_azzera_cert_gas(app, session_factory):
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente(
+        "D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1), flg_certificazione_gas=True
+    )
+    gestore.inserisci_dipendente(
+        "D2", "Luca", "Bianchi", "BBBBBB80A01A002A", datetime(2020, 1, 1), flg_certificazione_gas=False
+    )
+    pagina = DipendentiPage(gestore)
+    pagina._select_cert_gas.set_value("Sì")
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "1 dipendenti"
+
+    pagina._ripristina_filtri()
+
+    assert pagina._select_cert_gas.value() is None
+    assert pagina._etichetta_conteggio.text() == "2 dipendenti"

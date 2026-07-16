@@ -48,7 +48,26 @@ FOOTER_PADDING_BOTTOM = 24
 
 
 class _ModalCard(QFrame):
-    """Pannello bianco centrato del Modal: chrome distinta da `Card` (nessun bordo)."""
+    """Pannello bianco centrato del Modal: chrome distinta da `Card` (nessun bordo).
+
+    Sfondo bianco arrotondato disegnato a mano in `paintEvent` (non via QSS
+    `background-color`/`border-radius`) — stesso bug gia' risolto per `Tooltip`: un
+    `QGraphicsDropShadowEffect` su un widget arrotondato via QSS senza
+    `WA_TranslucentBackground` produce un pixmap di compositing rettangolare che
+    "squadra" gli angoli nel risultato finale. Stesso fix: `WA_TranslucentBackground`
+    + rounded-rect disegnato con `QPainter`, bypassando l'interazione QSS/effetto.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+
+    def paintEvent(self, event: QPaintEvent) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#FFFFFF"))
+        painter.drawRoundedRect(self.rect(), CARD_RADIUS, CARD_RADIUS)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         # Assorbe i click dentro la card (e quelli propagati dai figli "neutri" di header/
@@ -84,15 +103,6 @@ class Modal(QWidget):
 
         self._card = _ModalCard()
         self._card.setFixedWidth(width)
-        self._card.setStyleSheet(
-            f"""
-            _ModalCard {{
-                background-color: #FFFFFF;
-                border: none;
-                border-radius: {CARD_RADIUS}px;
-            }}
-            """
-        )
         shadow = QGraphicsDropShadowEffect(self._card)
         shadow.setColor(CARD_SHADOW_COLOR)
         shadow.setOffset(0, CARD_SHADOW_OFFSET_Y)

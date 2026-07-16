@@ -2,7 +2,7 @@ import itertools
 import math
 import random
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -31,6 +31,7 @@ def crea_ordine(id_, lat=None, lon=None, categoria=CategoriaConsegna.BORDO_STRAD
         volume_cargo=0.1,
         categoria_consegna=categoria,
         stato_ordine=StatoOrdine.RICEVUTO,
+        data_importazione=datetime.now(),
         data_consegna=None,
         viaggio_id=None,
     )

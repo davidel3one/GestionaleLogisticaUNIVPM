@@ -136,16 +136,18 @@ class GestoreDipendenti:
         ricerca: str | None = None,
         filtro_squadra: str | None = None,
         filtro_stato: str = FILTRO_TUTTI,
+        filtro_certificazione_gas: bool | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
         decrescente: bool = False,
     ) -> PaginaDipendenti:
         """Elenco filtrato/ordinato/paginato dei dipendenti. Filtri: ricerca testuale (nome/
         cognome/codice fiscale), filtro stato (Tutti/Attivo/In viaggio/Cessato), filtro squadra
-        corrente, ordinamento per data_assunzione, paginazione lato Python. Stesso pattern di
-        GestoreSquadre.visualizza_squadre: stato "In viaggio" derivato con query aggregate sui
-        Viaggio IN_CORSO (niente N+1), squadra corrente con una sola query sulle composizioni
-        attive."""
+        corrente, filtro certificazione gas (None = tutti, non nel mockup - aggiunto su richiesta
+        esplicita dell'utente), ordinamento per data_assunzione, paginazione lato Python. Stesso
+        pattern di GestoreSquadre.visualizza_squadre: stato "In viaggio" derivato con query
+        aggregate sui Viaggio IN_CORSO (niente N+1), squadra corrente con una sola query sulle
+        composizioni attive."""
         with self.session_factory() as session:
             # Insieme dei dipendenti "in viaggio": composizione ATTIVA legata a un Viaggio
             # IN_CORSO. ComposizioneSquadra ha due FK verso Dipendente (dipendente_1_id/
@@ -193,6 +195,9 @@ class GestoreDipendenti:
 
             if filtro_stato and filtro_stato != FILTRO_TUTTI:
                 righe = [r for r in righe if r.stato == filtro_stato]
+
+            if filtro_certificazione_gas is not None:
+                righe = [r for r in righe if r.flg_certificazione_gas == filtro_certificazione_gas]
 
             if filtro_squadra:
                 righe = [r for r in righe if r.squadra_corrente == filtro_squadra]
@@ -312,5 +317,33 @@ class GestoreDipendenti:
             dip.flg_attivo = True
             dip.data_licenziamento = None
 
+            session.commit()
+            return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)
+
+    def elimina_dipendente_definitivamente(self, id_: str) -> RisultatoOperazioneDipendente:
+        """Hard-delete, irreversibile: rimuove il dipendente dal database. Rifiuta se e' mai stato
+        membro (dipendente_1/dipendente_2) di una ComposizioneSquadra, attiva o storica - altrimenti
+        romperebbe il vincolo di integrita' referenziale con quella riga (e lo storico viaggi che ci
+        si aggancia)."""
+        with self.session_factory() as session:
+            dip = session.get(Dipendente, id_)
+            if dip is None:
+                return RisultatoOperazioneDipendente(ok=False, motivo=f"Dipendente '{id_}' non trovato")
+
+            composizione_bloccante = session.scalar(
+                select(ComposizioneSquadra.id_composizione).where(
+                    or_(
+                        ComposizioneSquadra.dipendente_1_id == id_,
+                        ComposizioneSquadra.dipendente_2_id == id_,
+                    )
+                )
+            )
+            if composizione_bloccante is not None:
+                return RisultatoOperazioneDipendente(
+                    ok=False,
+                    motivo="Impossibile eliminare definitivamente: il dipendente ha fatto parte di una squadra",
+                )
+
+            session.delete(dip)
             session.commit()
             return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)
