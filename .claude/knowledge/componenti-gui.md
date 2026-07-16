@@ -2,7 +2,7 @@
 
 Libreria di componenti PySide6 in `src/gestionale_logistica/gui/components/`, pensata per non riscrivere lo stesso widget/QSS in ogni pagina. Fonte di verità per ogni dettaglio visivo (colori, spaziature, radius, font, icone): il file `sketch/gui-design.sketch` — ogni componente qui è stato costruito ispezionando le istanze reali nel mockup, non a memoria/a occhio.
 
-Import: `from gestionale_logistica.gui.components import AuthLogo, BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, IconChip, IconChipVariant, LinkButton, Modal, MultiSelect, OtpInput, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Tooltip, load_lucide_icon`.
+Import: `from gestionale_logistica.gui.components import AuthLogo, BooleanToggle, Button, ButtonVariant, Card, DatePicker, EmptyState, IconChip, IconChipVariant, LinkButton, Modal, MultiSelect, OtpInput, PageHeader, SearchField, Select, Sidebar, SidebarItem, TextField, Toast, ToastManager, ToastVariant, Tooltip, load_lucide_icon`.
 
 **Nota sui componenti pagina-specifici**: questa libreria contiene solo componenti genuinamente **riusabili tra pagine diverse**. Componenti la cui forma è ritagliata esattamente su una pagina (es. `KpiCard`/`PlanningDayCard`/`ActivityRow` della Dashboard) vivono invece in `gui/<pagina>/components/`, non qui — vedi `## Componenti pagina-specifici` in fondo a questo file.
 
@@ -153,11 +153,12 @@ modal.show_over(main_window)                    # mostra l'overlay sopra main_wi
 
 ## TextField
 
-`TextField(label: str, placeholder: str = "", parent=None)` — sottoclasse di `QWidget`: label sopra (obbligatoria) + `QLineEdit` sotto, chrome del mockup (stato chiuso, unico stato disegnato).
+`TextField(label: str, placeholder: str = "", password: bool = False, validator: QValidator | None = None, parent=None)` — sottoclasse di `QWidget`: label sopra (obbligatoria) + `QLineEdit` sotto, chrome del mockup (stato chiuso, unico stato disegnato). `validator` (es. `QIntValidator`/`QDoubleValidator`/`QRegularExpressionValidator`) è opzionale, applicato all'input interno — nessun campo numerico/orario dedicato in libreria, per input vincolati si estende `TextField` con un validatore invece di ridigitare la chrome.
 
 ```python
 TextField("Capacità (kg)", placeholder="es. 1200")
 TextField("Targa", placeholder="es. AB123CD")
+TextField("Ore di lavoro", placeholder="es. 8", validator=QDoubleValidator(0.5, 24.0, 1))
 ```
 
 - `field.value()` / `field.set_value(testo)` — API uniforme con `Select`/`BooleanToggle` (non `text()`/`setText()` di Qt), pensata per essere letta/scritta in modo omogeneo da chi assembla un form dentro un `Modal`.
@@ -402,10 +403,54 @@ IconChip("package", IconChipVariant.LIGHT_BLUE)
 IconChip("triangle-alert", IconChipVariant.RED, size=16)
 ```
 
-- `IconChipVariant`: `LIGHT_BLUE`/`BLUE`/`GREEN`/`RED` — 4 combinazioni (colore icona, colore sfondo chip) misurate nel mockup, non stimate: `LIGHT_BLUE` icona `#3D9BE9` bg `#D6EAFB`; `BLUE` icona `#2563C9` bg `#D6E4F7`; `GREEN` icona `#1E8E3E` bg `#DFF5E5`; `RED` icona `#C0392B` bg `#FBE4E1`. Esposte come `VARIANT_COLORS` in `icon_chip.py` se serve leggerle programmaticamente (es. per colorare un testo collegato, vedi `KpiCard`).
+- `IconChipVariant`: `LIGHT_BLUE`/`BLUE`/`GREEN`/`RED`/`AMBER` — combinazioni (colore icona, colore sfondo chip) misurate nel mockup, non stimate: `LIGHT_BLUE` icona `#3D9BE9` bg `#D6EAFB`; `BLUE` icona `#2563C9` bg `#D6E4F7`; `GREEN` icona `#1E8E3E` bg `#DFF5E5`; `RED` icona `#C0392B` bg `#FBE4E1`; `AMBER` icona `#B45309` bg `#FEF3C7`. Esposte come `VARIANT_COLORS` in `icon_chip.py` se serve leggerle programmaticamente (es. per colorare un testo collegato, vedi `KpiCard`).
 - Chip sempre circolare (`border-radius = size // 2`), sfondo e icona della stessa dimensione (`size`, default 16px come nel mockup) — non c'è un padding esplicito tra bordo del chip e glifo: i margini interni del grid Lucide 24×24 bastano a dare l'effetto visivo corretto.
 
-**Personalizzazione**: nessun colore libero — solo le 4 varianti misurate. Se in futuro serve una quinta combinazione, va prima verificata nel mockup, non estrapolata.
+**`AMBER` (aggiunta 2026-07-16 per `Toast`)**: le prime 4 varianti erano tutte misurate su istanze reali di `IconChip` nel mockup (KPI Card/Activity Row Dashboard). `AMBER` è diversa: non esiste un'istanza `IconChip` ambra nel mockup, ma la coppia colore riusa 1:1 valori già misurati altrove nello stesso mockup per lo stesso stato semantico (`DEFAULT_STATUS_BADGE_COLORS["In consegna"]` in `table.py`, badge categoria "Big"/"Certificazione Gas" in `CompositionCard`) — non è un'estrapolazione a occhio, è lo stesso colore verificato applicato a un quinto rendering circolare.
+
+**Personalizzazione**: nessun colore libero — solo le varianti elencate sopra. Se in futuro serve una combinazione nuova non riconducibile a un colore già misurato altrove nel mockup, va prima verificata come istanza `IconChip` dedicata, non estrapolata.
+
+## Toast
+
+`Toast(variant: ToastVariant, title: str, message: str = "", duration_ms: int = 4500, parent=None)` — singolo banner di notifica non bloccante; `ToastManager(parent: QWidget)` — overlay che impila i `Toast` in alto a destra del `parent` e li gestisce (mostra/rimuove/riposiziona al resize). **Non è un elemento del mockup Sketch** — nessuna istanza "Toast"/"Notification" nel file (verificato via MCP su tutte le pagine, unico match per "alert" è l'"Alert Box" testuale già documentato in `CompositionCard`). Stile/comportamento gated esplicitamente con l'utente il 2026-07-16 in assenza di mockup, seguendo il processo "Aggiungere un componente nuovo".
+
+```python
+from gestionale_logistica.gui.components import ToastManager, ToastVariant
+
+toasts = ToastManager(central_widget)   # una sola istanza per finestra/pagina che deve notificare
+toasts.show_success("Ordine creato", "Il viaggio è stato pianificato con successo.")
+toasts.show_error("Import fallito", "Il file CSV contiene righe non valide.")
+toasts.show_warning("Capacità quasi esaurita", "Il camion è al 92% della portata massima.")
+toasts.show_info("Sincronizzazione in corso")                      # senza messaggio
+toasts.show_toast(ToastVariant.SUCCESS, "Salvato")                 # forma esplicita, equivalente a show_success
+```
+
+- `ToastVariant`: `SUCCESS`/`ERROR`/`WARNING`/`INFO` — le 4 richieste dall'utente.
+- `manager.show_success/show_error/show_warning/show_info(title, message="", duration_ms=4500)` — scorciatoie su `show_toast(variant, ...)`, tutte restituiscono il `Toast` creato.
+- `message` opzionale: se vuoto, il toast mostra solo il titolo (nessuna riga vuota riservata) — stesso principio di `EmptyState.subtitle`.
+- `duration_ms`: `0` disattiva l'auto-dismiss (il toast resta finché non si clicca la X) — non usato dalle scorciatoie `show_*`, ma disponibile passandolo esplicitamente.
+- Chiusura: timer (`QTimer.singleShot`) **e** bottone X sempre presenti insieme — deciso esplicitamente dall'utente (non "solo auto" o "solo manuale").
+- **Barra di countdown** (aggiunta 2026-07-16, richiesta esplicita dell'utente): striscia 3px in basso, colore accento della variante, che si svuota da sinistra a destra in modo lineare per tutta la durata di `duration_ms` — sincronizzata allo stesso valore usato da `QTimer.singleShot`, quindi arriva a zero esattamente quando il toast scompare. Implementata con lo stesso pattern già usato in `TabBar` per l'underline animato: proprietà Qt (`Property(float, ...)`) + `QPropertyAnimation`, qui con `QEasingCurve.Linear` (non `OutCubic` come `TabBar`: è un countdown, deve procedere a velocità costante, non con accelerazione/decelerazione). Disegnata con `painter.setClipPath` sulla stessa `QPainterPath` arrotondata dello sfondo, così i bordi la "tagliano" automaticamente senza ricalcolare a mano gli angoli in base alla larghezza residua. Assente se `duration_ms=0` (nessun countdown da mostrare per un toast a chiusura solo manuale). **Nessun pausa-on-hover**: il countdown continua anche col mouse sopra il toast — scelta minimale, non richiesta; se in futuro serve, va aggiunta esplicitamente.
+- `ToastManager` si registra come `eventFilter` sul `parent` per riposizionarsi al resize (stesso pattern di `Modal.show_over`, qui attaccato una volta sola alla costruzione invece che per singola apertura) e impila i toast con `QVBoxLayout` (nuovi si aggiungono in fondo, sotto quelli già visibili); alla chiusura di un toast (timer o X) gli altri risalgono automaticamente.
+
+**Stile visivo — banner a tinta piena** (scelto dall'utente tramite screenshot di riferimento, poi adattato alla palette del progetto): sfondo colorato pieno pastello (non card bianca con accento), `IconChip` della variante a sinistra, titolo (Inter 13px SemiBold) + messaggio opzionale (Inter 12px Medium) impilati, bottone chiusura piatto trasparente (non `Button.ICON_ONLY`: il suo box grigio fisso `#F7F9FC` stonerebbe sopra uno sfondo colorato, stesso motivo già documentato per i pulsanti di `Sidebar`). Titolo e messaggio usano **lo stesso colore accento saturo** della variante (non testo nero/grigio neutro come nel riferimento fornito dall'utente): scelta per restare coerente con il linguaggio già stabilito nel progetto per gli sfondi tinta (`STATUS_BADGE`/`CATEGORIA_BADGE`, sempre accento+sfondo della stessa famiglia), non con il design system esterno dello screenshot.
+
+**Palette per variante — interamente riusata, nessun colore nuovo**:
+
+| `ToastVariant` | Icona Lucide | Accento (testo/icona) | Sfondo | Fonte del colore |
+|---|---|---|---|---|
+| `SUCCESS` | `circle-check-big` | `#1E8E3E` | `#DFF5E5` | `IconChipVariant.GREEN` |
+| `ERROR` | `circle-x` | `#C0392B` | `#FBE4E1` | `IconChipVariant.RED` |
+| `WARNING` | `triangle-alert` | `#B45309` | `#FEF3C7` | `IconChipVariant.AMBER` (vedi sopra) |
+| `INFO` | `info` | `#3D9BE9` | `#D6EAFB` | `IconChipVariant.LIGHT_BLUE` |
+
+**Icona `circle-x` — nuova, non nel mockup** (serviva un glifo distinto da `triangle-alert` per non usare la stessa icona per WARNING ed ERROR differenziati solo dal colore): scaricata direttamente da `lucide-static@1.24.0` (stessa versione già vendorizzata), non estratta dal mockup — stesso principio già seguito per dettagli assenti nel mockup (es. comportamento hover di `Tooltip`).
+
+**Valori scelti in implementazione (nessuno misurabile nel mockup, dichiarati esplicitamente)**: larghezza fissa 360px; radius 14px (stesso token `CARD_RADIUS` di `Modal`, famiglia "elemento flottante arrotondato" invece di introdurre un radius nuovo); padding 16px orizzontale/14px verticale, gap 12px tra icona/testo; posizione overlay: margine 24px da top e da destra rispetto al `parent`, gap 12px tra toast impilati.
+
+**Nessuna ombra** (scarto rispetto a un primo tentativo): una prima versione aggiungeva un `QGraphicsDropShadowEffect` (riuso del token ombra di `Tooltip`, `color=#00000026, offset=(0,8), blur=24`) per dare rilievo al banner. Segnalato dall'utente un alone grigio visibile proprio agli angoli arrotondati in basso — l'offset verticale porta l'ombra a "uscire" dalla sagoma colorata sui lati dove il bordo curva verso l'interno, leggibile come artefatto piuttosto che come elevazione. Rimossa: il riferimento visivo originale fornito dall'utente era comunque un banner piatto, senza ombra.
+
+**Nota — nessuna animazione**: né ingresso né uscita sono animati (coerente con la baseline non-animata degli altri componenti — `Modal` non anima apertura/chiusura; solo `TabBar` anima, su richiesta esplicita per quel caso specifico). Se in futuro serve un fade/slide, va deciso esplicitamente, non aggiunto di default.
 
 ## Scrollbar minimale: `MINIMAL_SCROLLBAR_QSS`
 
@@ -448,7 +493,7 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 - `color`: colore esadecimale con cui ricolorare l'icona (le icone Lucide usano `stroke="currentColor"`, sostituito a runtime).
 - `size`: dimensione di default suggerita — il rendering reale è vettoriale e ridisegnato da Qt a qualunque risoluzione/devicePixelRatio venga effettivamente richiesta (vedi nota sotto), quindi resta nitido anche su schermi Retina o se il chiamante chiede una `QIcon.pixmap()` a una dimensione diversa da `size`.
 
-**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info`, `package`, `package-search`, `users`, `truck`, `circle-check-big`, `triangle-alert`, `calendar` (`gui/assets/icons/`). Le ultime 7 (2026-07-15, Dashboard) sono state identificate per struttura del path SVG (numero/ordine di `path`/`circle`/`polyline`/`rect`, non dal nome del bottone/etichetta) e verificate scaricando l'SVG reale da `lucide-static@1.24.0` (stessa versione già vendorizzata nel progetto) per confronto diretto degli elementi.
+**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info`, `package`, `package-search`, `users`, `truck`, `circle-check-big`, `triangle-alert`, `calendar`, `circle-x` (`gui/assets/icons/`). Le 7 tra `info` e `calendar` (2026-07-15, Dashboard) sono state identificate per struttura del path SVG (numero/ordine di `path`/`circle`/`polyline`/`rect`, non dal nome del bottone/etichetta) e verificate scaricando l'SVG reale da `lucide-static@1.24.0` (stessa versione già vendorizzata nel progetto) per confronto diretto degli elementi. `circle-x` (2026-07-16, `Toast`) non viene dal mockup — vedi `## Toast`.
 
 **Aggiungere una nuova icona**:
 1. Trova l'icona nel mockup Sketch, esportala come SVG (`sketch.export(layer, { formats: ['svg'], ... })` via MCP, o manualmente da Sketch).

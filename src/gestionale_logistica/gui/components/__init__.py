@@ -29,6 +29,7 @@ from gestionale_logistica.gui.components.table import (
     Table,
     TextEmphasis,
 )
+from gestionale_logistica.gui.components.toast import Toast, ToastManager, ToastVariant
 from gestionale_logistica.gui.components.tooltip import Tooltip
 
 __all__ = [
@@ -61,6 +62,9 @@ __all__ = [
     "TabBar",
     "TextEmphasis",
     "TextField",
+    "Toast",
+    "ToastManager",
+    "ToastVariant",
     "Tooltip",
     "load_lucide_icon",
 ]

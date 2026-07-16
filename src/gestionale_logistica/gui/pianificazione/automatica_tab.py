@@ -4,7 +4,7 @@ in una Proposed Trips Table, applicazione (persistenza) del piano scelto."""
 
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
@@ -30,10 +30,8 @@ from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     conta_composizioni_disponibili,
     costruisci_righe_piano,
 )
+from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione, PianoGiornaliero
-
-DURATA_VIAGGIO_DEFAULT = timedelta(hours=8)
-ORA_PARTENZA_DEFAULT = time(8, 0)
 
 TITLE_COLOR = "#2E2E2E"
 HINT_COLOR = "#9AA1AA"
@@ -88,8 +86,10 @@ class AutomaticaTab(QWidget):
         super().__init__(parent)
         self._session_factory = session_factory
         self._motore = MotoreOttimizzazione(session_factory)
+        self._gestore_config = GestoreConfigurazione(session_factory)
         self._piano: PianoGiornaliero | None = None
         self._ora_partenza: datetime | None = None
+        self._durata_viaggio: timedelta | None = None
 
         self._pianoCalcolato.connect(self._on_piano_calcolato)
 
@@ -232,13 +232,19 @@ class AutomaticaTab(QWidget):
     # -- Azioni --------------------------------------------------------------------------------
 
     def _calcola_piano(self) -> None:
+        configurazione = self._gestore_config.leggi()
         giorno = self._date_field.value().toPython()
-        ora_partenza = datetime.combine(giorno, ORA_PARTENZA_DEFAULT)
+        ora_partenza = datetime.combine(giorno, configurazione.ora_partenza_default)
+        self._durata_viaggio = timedelta(hours=configurazione.ore_lavoro)
 
         self._calcola_button.setEnabled(False)
         self._calcola_button.setText("Calcolo in corso…")
 
-        future = self._motore.calcola_piano_async(ora_partenza, durata_viaggio=DURATA_VIAGGIO_DEFAULT)
+        future = self._motore.calcola_piano_async(
+            ora_partenza,
+            durata_viaggio=self._durata_viaggio,
+            tempi_installazione_minuti=configurazione.tempi_installazione_minuti,
+        )
         future.add_done_callback(lambda f: self._pianoCalcolato.emit(f, ora_partenza))
 
     def _on_piano_calcolato(self, future, ora_partenza: datetime) -> None:
@@ -250,7 +256,7 @@ class AutomaticaTab(QWidget):
         self._ora_partenza = ora_partenza
 
         righe = costruisci_righe_piano(
-            piano, ora_partenza, DURATA_VIAGGIO_DEFAULT, self._session_factory
+            piano, ora_partenza, self._durata_viaggio, self._session_factory
         )
         ordini_assegnati = sum(riga.numero_ordini for riga in righe)
 
@@ -270,6 +276,7 @@ class AutomaticaTab(QWidget):
     def _annulla(self) -> None:
         self._piano = None
         self._ora_partenza = None
+        self._durata_viaggio = None
         self._show_empty_state()
         self._annulla_button.setEnabled(False)
         self._applica_button.setEnabled(False)
@@ -278,8 +285,8 @@ class AutomaticaTab(QWidget):
         self._kpi_ordini_non_assegnati.set_value("0")
 
     def _applica_piano(self) -> None:
-        if self._piano is None or self._ora_partenza is None:
+        if self._piano is None or self._ora_partenza is None or self._durata_viaggio is None:
             return
-        self._motore.applica_piano(self._piano, self._ora_partenza, DURATA_VIAGGIO_DEFAULT)
+        self._motore.applica_piano(self._piano, self._ora_partenza, self._durata_viaggio)
         self._annulla()
         self._refresh_hint()

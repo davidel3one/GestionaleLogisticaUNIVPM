@@ -3,7 +3,7 @@ ottimizzazione suggerisce gli ordini rimanenti più idonei per saturare il caric
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from sqlalchemy.orm import sessionmaker
@@ -21,10 +21,9 @@ from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     elenca_composizioni_disponibili,
 )
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione
 
-DURATA_VIAGGIO_DEFAULT = timedelta(hours=8)
-ORA_PARTENZA_DEFAULT = time(8, 0)
 FOOTER_PRIMARY_LABEL = "Applica suggerimento e chiudi viaggio"
 
 
@@ -34,6 +33,7 @@ class AssistitaTab(QWidget):
         self._session_factory = session_factory
         self._gestore = GestoreLogistica(session_factory)
         self._motore = MotoreOttimizzazione(session_factory)
+        self._gestore_config = GestoreConfigurazione(session_factory)
         self._viaggio_id: str | None = None
         self._ordini_suggeriti: list[str] = []
 
@@ -117,10 +117,10 @@ class AssistitaTab(QWidget):
     # -- Azioni --------------------------------------------------------------------------------
 
     def _avvia_composizione(self, composizione_id: str, giorno: date) -> None:
-        ora_partenza = datetime.combine(giorno, ORA_PARTENZA_DEFAULT)
-        esito = self._gestore.avvia_composizione_viaggio(
-            composizione_id, ora_partenza, DURATA_VIAGGIO_DEFAULT
-        )
+        configurazione = self._gestore_config.leggi()
+        ora_partenza = datetime.combine(giorno, configurazione.ora_partenza_default)
+        durata_viaggio = timedelta(hours=configurazione.ore_lavoro)
+        esito = self._gestore.avvia_composizione_viaggio(composizione_id, ora_partenza, durata_viaggio)
         if not esito.ok:
             self._avvio_card.show_alert(esito.motivo or "Impossibile avviare la composizione")
             return

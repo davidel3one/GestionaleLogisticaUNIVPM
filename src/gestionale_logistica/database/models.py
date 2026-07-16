@@ -1,5 +1,5 @@
 import enum
-from datetime import datetime
+from datetime import datetime, time
 from typing import Optional
 
 from sqlalchemy import Column, Enum, ForeignKey, Table
@@ -15,8 +15,8 @@ from gestionale_logistica.database.enums import (
 )
 
 
-def _enum_column(enum_cls: type[enum.Enum]):
-    return mapped_column(Enum(enum_cls, values_callable=lambda obj: [e.value for e in obj]))
+def _enum_column(enum_cls: type[enum.Enum], **kwargs):
+    return mapped_column(Enum(enum_cls, values_callable=lambda obj: [e.value for e in obj]), **kwargs)
 
 
 class Dipendente(Base):
@@ -217,3 +217,22 @@ class Sessione(Base):
     token: Mapped[str] = mapped_column(unique=True)
     data_creazione: Mapped[datetime]
     data_scadenza: Mapped[datetime]
+
+
+class ConfigurazionePianificazione(Base):
+    """Riga singola (id=1): vincoli di RF10-13 configurabili dall'admin, letti da
+    GestoreConfigurazione al posto delle costanti storicamente hardcoded in
+    ottimizzazione/stima_durata.py e nelle tab di gui/pianificazione/."""
+
+    __tablename__ = "configurazione_pianificazione"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ora_partenza_default: Mapped[time]
+    ore_lavoro: Mapped[float]
+
+
+class TempoInstallazione(Base):
+    __tablename__ = "tempi_installazione"
+
+    categoria: Mapped[CategoriaConsegna] = _enum_column(CategoriaConsegna, primary_key=True)
+    minuti: Mapped[int]

@@ -3,7 +3,7 @@ validazione idoneità/capacità)."""
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from sqlalchemy.orm import sessionmaker
@@ -17,9 +17,7 @@ from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     elenca_ordini_candidati,
 )
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
-
-DURATA_VIAGGIO_DEFAULT = timedelta(hours=8)
-ORA_PARTENZA_DEFAULT = time(8, 0)
+from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
 
 
 class ManualeTab(QWidget):
@@ -27,6 +25,7 @@ class ManualeTab(QWidget):
         super().__init__(parent)
         self._session_factory = session_factory
         self._gestore = GestoreLogistica(session_factory)
+        self._gestore_config = GestoreConfigurazione(session_factory)
         self._viaggio_id: str | None = None
 
         outer = QVBoxLayout(self)
@@ -114,10 +113,10 @@ class ManualeTab(QWidget):
     # -- Azioni --------------------------------------------------------------------------------
 
     def _avvia_composizione(self, composizione_id: str, giorno: date) -> None:
-        ora_partenza = datetime.combine(giorno, ORA_PARTENZA_DEFAULT)
-        esito = self._gestore.avvia_composizione_viaggio(
-            composizione_id, ora_partenza, DURATA_VIAGGIO_DEFAULT
-        )
+        configurazione = self._gestore_config.leggi()
+        ora_partenza = datetime.combine(giorno, configurazione.ora_partenza_default)
+        durata_viaggio = timedelta(hours=configurazione.ore_lavoro)
+        esito = self._gestore.avvia_composizione_viaggio(composizione_id, ora_partenza, durata_viaggio)
         if not esito.ok:
             self._avvio_card.show_alert(esito.motivo or "Impossibile avviare la composizione")
             return

@@ -12,7 +12,7 @@ dell'utente, non un'assunzione — vedi le rispettive docstring.
 from __future__ import annotations
 
 from PySide6.QtCore import QDate, QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtGui import QColor, QFont, QPalette, QValidator
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -112,6 +112,7 @@ class TextField(QWidget):
         label: str,
         placeholder: str = "",
         password: bool = False,
+        validator: QValidator | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -127,6 +128,8 @@ class TextField(QWidget):
         self._input.setFont(_field_font())
         if password:
             self._input.setEchoMode(QLineEdit.EchoMode.Password)
+        if validator is not None:
+            self._input.setValidator(validator)
 
         # Il mockup non differenzia il colore del testo digitato da quello del placeholder:
         # senza questo, Qt schiarirebbe automaticamente il placeholder rispetto al testo

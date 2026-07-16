@@ -10,12 +10,13 @@ from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.concorrenza import esegui_in_background
 from gestionale_logistica.database.base import SessionLocal
-from gestionale_logistica.database.enums import StatoOrdine, StatoViaggio
+from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import Camion, ComposizioneSquadra, Dipendente, Ordine, Viaggio
 from gestionale_logistica.logistica.gestore_logistica import crea_viaggio_persistito, verifica_idoneita_risorsa
 from gestionale_logistica.ottimizzazione.clustering import raggruppa_ordini
 from gestionale_logistica.ottimizzazione.stima_durata import (
     SOGLIA_NODI_HELD_KARP,
+    distanza_coppia,
     stima_durata_viaggio,
     tour_esatto,
     tour_euristico,
@@ -135,6 +136,7 @@ class MotoreOttimizzazione:
         ora_partenza: datetime,
         composizione_ids: list[str] | None = None,
         durata_viaggio: timedelta = timedelta(hours=8),
+        tempi_installazione_minuti: dict[CategoriaConsegna, int] | None = None,
     ) -> PianoGiornaliero:
         inizio_esecuzione = time.perf_counter()
         budget_esecuzione_secondi = LIMITE_RNF4_SECONDI * QUOTA_BUDGET_PRIMA_DI_FORZARE_EURISTICO
@@ -246,7 +248,9 @@ class MotoreOttimizzazione:
                     forza_euristico = (
                         time.perf_counter() - inizio_esecuzione
                     ) > budget_esecuzione_secondi
-                    subset = self._applica_vincolo_durata(subset, durata_viaggio, forza_euristico)
+                    subset = self._applica_vincolo_durata(
+                        subset, durata_viaggio, forza_euristico, tempi_installazione_minuti
+                    )
                     if not subset:
                         continue
 
@@ -293,7 +297,10 @@ class MotoreOttimizzazione:
                     ) > budget_esecuzione_secondi
                     nuovo_subset = ordini_viaggio + [ordine]
                     usa_esatto = not forza_euristico and len(nuovo_subset) <= SOGLIA_NODI_HELD_KARP
-                    if stima_durata_viaggio(nuovo_subset, usa_esatto) > durata_viaggio:
+                    if (
+                        stima_durata_viaggio(nuovo_subset, usa_esatto, tempi_installazione_minuti)
+                        > durata_viaggio
+                    ):
                         continue
 
                     assegnazione.ordini_ids.append(ordine.id)
@@ -311,11 +318,14 @@ class MotoreOttimizzazione:
         ora_partenza: datetime,
         composizione_ids: list[str] | None = None,
         durata_viaggio: timedelta = timedelta(hours=8),
+        tempi_installazione_minuti: dict[CategoriaConsegna, int] | None = None,
     ) -> "Future[PianoGiornaliero]":
         """RNF3: come calcola_piano, ma eseguito su un thread separato per non bloccare la GUI
         durante la pianificazione automatica massiva (RF13, fino a 3 minuti per RNF4)."""
         return esegui_in_background(
-            lambda: self.calcola_piano(ora_partenza, composizione_ids, durata_viaggio)
+            lambda: self.calcola_piano(
+                ora_partenza, composizione_ids, durata_viaggio, tempi_installazione_minuti
+            )
         )
 
     def _knapsack_capacita_massima(
@@ -343,7 +353,11 @@ class MotoreOttimizzazione:
         return [ordine for ordine in ordini if x[ordine.id].value() == 1]
 
     def _applica_vincolo_durata(
-        self, subset: list[Ordine], durata_viaggio: timedelta, forza_euristico: bool
+        self,
+        subset: list[Ordine],
+        durata_viaggio: timedelta,
+        forza_euristico: bool,
+        tempi_installazione_minuti: dict[CategoriaConsegna, int] | None = None,
     ) -> list[Ordine]:
         """Riduce il sottoinsieme finche' la durata stimata rientra nel budget.
 
@@ -355,19 +369,42 @@ class MotoreOttimizzazione:
         subset = list(subset)
         while subset:
             usa_esatto = not forza_euristico and len(subset) <= SOGLIA_NODI_HELD_KARP
-            if stima_durata_viaggio(subset, usa_esatto) <= durata_viaggio:
+            if stima_durata_viaggio(subset, usa_esatto, tempi_installazione_minuti) <= durata_viaggio:
                 return subset
             subset = self._rimuovi_ordine_piu_dispersivo(subset, usa_esatto)
         return subset
 
     def _rimuovi_ordine_piu_dispersivo(self, subset: list[Ordine], usa_esatto: bool) -> list[Ordine]:
+        """Rimuove l'ordine il cui contributo alle tratte del tour attuale e' maggiore.
+
+        Il contributo di ogni tappa si legge dalle due tratte del tour che la
+        toccano (guadagno = tratte entranti+uscenti meno la tratta diretta che
+        le sostituirebbe), invece di ricalcolare da zero il tour dell'intero
+        sottoinsieme una volta per ciascun candidato alla rimozione: quella
+        versione era O(n) tour interi (ciascuno O(n^2)) per una singola
+        rimozione, qui il tour si calcola una sola volta.
+        """
         calcola_tour = tour_esatto if usa_esatto else tour_euristico
-        _, distanza_base = calcola_tour(subset)
-        peggiore = max(
-            subset,
-            key=lambda o: distanza_base
-            - calcola_tour([altro for altro in subset if altro.id != o.id])[1],
-        )
+        ordinati, _ = calcola_tour(subset)
+        n = len(ordinati)
+        if n <= 1:
+            return []
+
+        tratte = [distanza_coppia(ordinati[i], ordinati[i + 1]) for i in range(n - 1)]
+
+        def guadagno_rimozione(indice: int) -> float:
+            if indice == 0:
+                return tratte[0]
+            if indice == n - 1:
+                return tratte[-1]
+            return (
+                tratte[indice - 1]
+                + tratte[indice]
+                - distanza_coppia(ordinati[indice - 1], ordinati[indice + 1])
+            )
+
+        indice_peggiore = max(range(n), key=guadagno_rimozione)
+        peggiore = ordinati[indice_peggiore]
         return [o for o in subset if o.id != peggiore.id]
 
     def applica_piano(

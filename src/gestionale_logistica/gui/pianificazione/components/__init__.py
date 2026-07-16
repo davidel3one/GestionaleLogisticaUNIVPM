@@ -5,6 +5,9 @@ from gestionale_logistica.gui.pianificazione.components.composition_card import 
     RigaOrdineComposizione,
 )
 from gestionale_logistica.gui.pianificazione.components.date_filter_field import DateFilterField
+from gestionale_logistica.gui.pianificazione.components.impostazioni_modal import (
+    ImpostazioniPianificazioneModal,
+)
 from gestionale_logistica.gui.pianificazione.components.plan_kpi_card import PlanKpiCard
 from gestionale_logistica.gui.pianificazione.components.suggestion_section import (
     RigaOrdineSuggerito,
@@ -16,6 +19,7 @@ __all__ = [
     "CATEGORIA_BADGE_LABELS",
     "CompositionCard",
     "DateFilterField",
+    "ImpostazioniPianificazioneModal",
     "PlanKpiCard",
     "RigaOrdineComposizione",
     "RigaOrdineSuggerito",
