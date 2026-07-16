@@ -17,7 +17,7 @@ from gestionale_logistica.gui.components.icon_chip import IconChip, IconChipVari
 from gestionale_logistica.gui.components.icons import load_lucide_icon
 from gestionale_logistica.gui.components.import_csv_modal import ImportCsvModal
 from gestionale_logistica.gui.components.link_button import LinkButton
-from gestionale_logistica.gui.components.loading_state import LoadingState
+from gestionale_logistica.gui.components.loading_spinner import LoadingSpinner
 from gestionale_logistica.gui.components.modal import Modal
 from gestionale_logistica.gui.components.otp_input import OtpInput
 from gestionale_logistica.gui.components.page_header import PageHeader
@@ -25,7 +25,6 @@ from gestionale_logistica.gui.components.progress_bar import ProgressBar
 from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 from gestionale_logistica.gui.components.search_field import SearchField
 from gestionale_logistica.gui.components.sidebar import Sidebar, SidebarItem
-from gestionale_logistica.gui.components.spinner import Spinner
 from gestionale_logistica.gui.components.tab_bar import TabBar
 from gestionale_logistica.gui.components.table import (
     ColumnDef,
@@ -55,7 +54,7 @@ __all__ = [
     "IconChipVariant",
     "ImportCsvModal",
     "LinkButton",
-    "LoadingState",
+    "LoadingSpinner",
     "MINIMAL_SCROLLBAR_QSS",
     "Modal",
     "MultiSelect",
@@ -67,7 +66,6 @@ __all__ = [
     "Select",
     "Sidebar",
     "SidebarItem",
-    "Spinner",
     "Table",
     "TabBar",
     "TextEmphasis",

@@ -28,6 +28,7 @@ from gestionale_logistica.gui.components import (
     PageHeader,
     load_lucide_icon,
 )
+from gestionale_logistica.gui.components.toast import ToastManager
 from gestionale_logistica.gui.dashboard.components import ActivityRow, KpiCard, PlanningDayCard
 from gestionale_logistica.gui.dashboard.dashboard_data import (
     carica_attivita_recente,
@@ -134,6 +135,8 @@ class DashboardPage(QWidget):
         self._activity_card.add_widget(self._activity_scroll)
         outer.addWidget(self._activity_card, 1)
 
+        self._toasts = ToastManager(self)
+
         self.refresh()
 
     def refresh(self) -> None:
@@ -146,8 +149,13 @@ class DashboardPage(QWidget):
         # una variabile locale verrebbe garbage-collected da Python prima che l'utente finisca
         # il flusso a 2 passi.
         self._import_modal = ImportCsvModal(self, GestoreLogistica(self._session_factory))
-        self._import_modal.importCompleted.connect(lambda _: self.refresh())
+        self._import_modal.importCompleted.connect(self._on_import_completato)
         self._import_modal.show()
+
+    def _on_import_completato(self, numero_ordini: int) -> None:
+        self.refresh()
+        etichetta = "ordine importato" if numero_ordini == 1 else "ordini importati"
+        self._toasts.show_success(f"{numero_ordini} {etichetta} correttamente")
 
     def _clear_layout(self, layout) -> None:
         while layout.count():

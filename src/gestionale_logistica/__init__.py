@@ -77,7 +77,6 @@ def main() -> None:
     ]
 
     _crea_pagina = {
-        "dashboard": lambda: DashboardPage(),
         "ordini": lambda: OrdiniPage(GestoreLogistica(), GestoreRendicontazione()),
         "dipendenti": lambda: DipendentiPage(GestoreDipendenti()),
         "camion": lambda: CamionPage(GestoreCamion()),
@@ -92,13 +91,21 @@ def main() -> None:
         token_corrente[:] = [token]
         save_session_token(token)
 
-        shell = AppShell(sidebar_items)
+        utente = gestore_autenticazione.utente_da_token(token)
+        user_name = f"{utente.nome} {utente.cognome}" if utente is not None else "Davide"
+
+        shell = AppShell(sidebar_items, user_name=user_name)
+        dashboard_page = DashboardPage()
+        pianificazione_page = PianificazionePage()
         for item in sidebar_items:
-            if item.id in _crea_pagina:
-                shell.add_page(item.id, _crea_pagina[item.id]())
+            if item.id == "dashboard":
+                shell.add_page(item.id, dashboard_page)
                 continue
             if item.id == "pianificazione":
-                shell.add_page(item.id, PianificazionePage())
+                shell.add_page(item.id, pianificazione_page)
+                continue
+            if item.id in _crea_pagina:
+                shell.add_page(item.id, _crea_pagina[item.id]())
                 continue
             shell.add_page(
                 item.id,
@@ -108,6 +115,10 @@ def main() -> None:
                 ),
             )
         shell.logoutRequested.connect(_on_logout)
+
+        # "Nuova pianificazione" della Dashboard: apre la Pianificazione sulla tab Automatica.
+        dashboard_page.nuovaPianificazioneRequested.connect(pianificazione_page.mostra_tab_automatica)
+        dashboard_page.nuovaPianificazioneRequested.connect(lambda: shell.navigate_to("pianificazione"))
 
         shell_holder[:] = [shell]
         auth_page.close()

@@ -131,6 +131,11 @@ class MotoreOttimizzazione:
                 volume_disponibile=camion.volume_massimo,
             )
 
+    def suggerisci_ordini_async(self, viaggio_id: str) -> "Future[SuggerimentoOrdini]":
+        """RNF3: come suggerisci_ordini, ma eseguito su un thread separato per non bloccare la
+        GUI durante il solve CBC (RF12) — stesso motivo/meccanismo di calcola_piano_async."""
+        return esegui_in_background(lambda: self.suggerisci_ordini(viaggio_id))
+
     def calcola_piano(
         self,
         ora_partenza: datetime,

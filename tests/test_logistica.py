@@ -147,6 +147,13 @@ def test_ciclo_completo_avvio_aggiunte_e_chiusura(session_factory):
     with session_factory() as session:
         viaggio = session.get(Viaggio, viaggio_id)
         assert viaggio.stato_viaggio == StatoViaggio.PIANIFICATO
+        assert viaggio.data_partenza_prevista == ora_partenza
+        assert viaggio.composizione_id == "C1"
+
+        for ordine_id in ["ORD-1", "ORD-2"]:
+            ordine = session.get(Ordine, ordine_id)
+            assert ordine.viaggio_id == viaggio_id
+            assert ordine.stato_ordine == StatoOrdine.PIANIFICATO
 
 
 def test_rimuovi_ordine_da_viaggio_lo_riporta_ricevuto(session_factory):
@@ -206,13 +213,6 @@ def test_rimuovi_ordine_da_viaggio_rifiuta_ordine_non_agganciato(session_factory
 
     esito = gestore.rimuovi_ordine_da_viaggio(viaggio_id, "ORD-1")
     assert not esito.ok
-        assert viaggio.data_partenza_prevista == ora_partenza
-        assert viaggio.composizione_id == "C1"
-
-        for ordine_id in ["ORD-1", "ORD-2"]:
-            ordine = session.get(Ordine, ordine_id)
-            assert ordine.viaggio_id == viaggio_id
-            assert ordine.stato_ordine == StatoOrdine.PIANIFICATO
 
 
 # --- Avvio composizione ---

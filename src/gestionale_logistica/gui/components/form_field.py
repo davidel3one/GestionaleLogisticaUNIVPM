@@ -17,12 +17,11 @@ from PySide6.QtWidgets import (
     QCalendarWidget,
     QCheckBox,
     QComboBox,
+    QCompleter,
     QDateEdit,
-    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListWidget,
     QMenu,
     QPushButton,
     QVBoxLayout,
@@ -87,6 +86,20 @@ def _build_label(text: str) -> QLabel:
     return label
 
 
+def _item_view_qss() -> str:
+    """Corpo QSS condiviso dalle liste popup di `EditableSelect` (dropdown nativo del
+    `QComboBox` e popup di completamento del `QCompleter`, che sono due `QAbstractItemView`
+    distinti da stilare separatamente) - stessi token del resto della libreria."""
+    return f"""
+        background-color: {FIELD_BG};
+        border: 1px solid {FIELD_BORDER};
+        border-radius: {FIELD_RADIUS}px;
+        selection-background-color: {POPUP_HOVER_BG};
+        color: {FIELD_TEXT_COLOR};
+        padding: 4px;
+    """
+
+
 def _build_popup_chrome(parent: QWidget) -> QMenu:
     """`QMenu` vuoto con la chrome condivisa dai popup Select/MultiSelect (non nel mockup).
 
@@ -114,99 +127,6 @@ def _build_popup_chrome(parent: QWidget) -> QMenu:
         """
     )
     return menu
-
-
-SEARCHABLE_POPUP_LIST_MAX_HEIGHT = 280
-SEARCHABLE_POPUP_GAP = 4
-
-
-class _SearchablePopup(QFrame):
-    """Popup di `Select(searchable=True)`: casella di ricerca + lista scrollabile a colonna
-    singola, al posto del `QMenu` nativo usato dal `Select` normale.
-
-    Non nel mockup (nessun frame disegna la lista aperta): introdotto perche' il `QMenu` nativo,
-    con molte opzioni (es. gli ordini candidati in "Aggiungi ordine" della Composizione Card,
-    potenzialmente decine/centinaia), su Windows va in overflow a PIU' COLONNE invece che
-    scorrere - bug di impaginazione reale, non un'assunzione: riprodotto e verificato con uno
-    script di preview (60 opzioni finte -> il QMenu si affianca su 2+ colonne). Un `QFrame` con
-    `Qt.WindowType.Popup` (si chiude da solo al click fuori o Esc, stesso comportamento di QMenu)
-    invece del QMenu stesso, perche' QMenu non supporta un campo di testo per filtrare al volo.
-    """
-
-    optionChosen = Signal(str)
-
-    def __init__(self, options: list[str], width: int, parent: QWidget | None = None) -> None:
-        super().__init__(parent, Qt.WindowType.Popup)
-        self.setFixedWidth(width)
-        self.setStyleSheet(
-            f"""
-            QFrame {{
-                background-color: {FIELD_BG};
-                border: 1px solid {FIELD_BORDER};
-                border-radius: {FIELD_RADIUS}px;
-            }}
-            """
-        )
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(SEARCHABLE_POPUP_GAP)
-
-        self._search = QLineEdit(self)
-        self._search.setPlaceholderText("Cerca...")
-        self._search.setFixedHeight(FIELD_HEIGHT)
-        self._search.setFont(_field_font())
-        self._search.setStyleSheet(
-            f"""
-            QLineEdit {{
-                background-color: {FIELD_BG};
-                border: 1px solid {FIELD_BORDER};
-                border-radius: {FIELD_RADIUS}px;
-                padding: 0 {FIELD_PADDING_H}px;
-                color: {FIELD_TEXT_COLOR};
-            }}
-            """
-        )
-        layout.addWidget(self._search)
-
-        self._list = QListWidget(self)
-        self._list.setFont(_field_font())
-        self._list.setMaximumHeight(SEARCHABLE_POPUP_LIST_MAX_HEIGHT)
-        self._list.addItems(options)
-        self._list.setStyleSheet(
-            f"""
-            QListWidget {{
-                background-color: {FIELD_BG};
-                border: none;
-                color: {FIELD_TEXT_COLOR};
-                outline: none;
-            }}
-            QListWidget::item {{
-                padding: 8px 12px;
-                border-radius: 6px;
-            }}
-            QListWidget::item:hover, QListWidget::item:selected {{
-                background-color: {POPUP_HOVER_BG};
-                color: {FIELD_TEXT_COLOR};
-            }}
-            """
-            + MINIMAL_SCROLLBAR_QSS
-        )
-        layout.addWidget(self._list)
-
-        self._search.textChanged.connect(self._filter)
-        self._list.itemClicked.connect(lambda item: self._choose(item.text()))
-        self._search.setFocus()
-
-    def _filter(self, text: str) -> None:
-        needle = text.strip().lower()
-        for index in range(self._list.count()):
-            item = self._list.item(index)
-            item.setHidden(bool(needle) and needle not in item.text().lower())
-
-    def _choose(self, text: str) -> None:
-        self.optionChosen.emit(text)
-        self.close()
 
 
 class TextField(QWidget):
@@ -325,14 +245,7 @@ class Select(QWidget):
     Diverso da `label=""` (nessuna label da nessuna parte, es. "Aggiungi ordine" della
     Composizione Card): qui la label c'e' ancora, solo spostata dentro il box invece che sopra -
     bug di allineamento reale rispetto al mockup nella prima iterazione (i filtri riusavano lo
-    stesso Select dei form), non un'assunzione.
-
-    `searchable=True`: apre `_SearchablePopup` (casella di ricerca + lista scrollabile) invece
-    del `QMenu` nativo. Da usare quando le opzioni possono essere molte (decine/centinaia, es.
-    gli ordini candidati di "Aggiungi ordine"): il `QMenu` nativo, oltre l'altezza schermo, va in
-    overflow a piu' colonne invece che scorrere - bug di impaginazione reale, riprodotto e
-    verificato (vedi `_SearchablePopup`). Con poche opzioni (i filtri Stato/Tipo/Squadra) il
-    `QMenu` normale resta invariato: `searchable` di default e' `False`."""
+    stesso Select dei form), non un'assunzione."""
 
     valueChanged = Signal(str)
 
@@ -343,7 +256,6 @@ class Select(QWidget):
         placeholder: str = "",
         parent: QWidget | None = None,
         compact: bool = False,
-        searchable: bool = False,
     ) -> None:
         super().__init__(parent)
         self._options = list(options or [])
@@ -351,8 +263,6 @@ class Select(QWidget):
         self._value: str | None = None
         self._label = label
         self._compact = compact
-        self._searchable = searchable
-        self._popup: _SearchablePopup | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -376,12 +286,6 @@ class Select(QWidget):
         return menu
 
     def _open_popup(self) -> None:
-        if self._searchable:
-            self._popup = _SearchablePopup(self._options, self._box.width(), self)
-            self._popup.optionChosen.connect(self.set_value)
-            self._popup.move(self._box.mapToGlobal(QPoint(0, self._box.height())))
-            self._popup.show()
-            return
         menu = self._build_menu()
         menu.exec(self._box.mapToGlobal(QPoint(0, self._box.height())))
 
@@ -746,7 +650,17 @@ class EditableSelect(QWidget):
     (`FIELD_BG`/`FIELD_BORDER`/`FIELD_RADIUS`/`FIELD_HEIGHT`) del resto della libreria; la
     freccia del drop-down resta quella nativa Qt, non il `chevron-down` vettoriale degli altri
     campi (avrebbe richiesto un asset statico su disco per il QSS `image: url()`, fuori scope
-    per un campo che il mockup non disegna nemmeno)."""
+    per un campo che il mockup non disegna nemmeno).
+
+    Il completamento (2026-07-16, richiesta esplicita dell'utente) usa `QCompleter` in
+    `PopupCompletion` invece del default Qt (`InlineCompletion`, un solo suggerimento inline
+    senza lista): mentre si digita appare un popup con tutte le opzioni che contengono il testo
+    (`MatchContains`, non solo prefisso - utile qui perché i negozi combinano catena+città, es.
+    "Unieuro Ancona", e si può cercare per l'una o l'altra), selezionabile senza scrivere tutto.
+    Se il testo digitato coincide (case-insensitive) con un'opzione esistente, Invio la sostituisce
+    con il valore canonico già in elenco - comportamento nativo di `QComboBox` editabile, nessun
+    codice aggiuntivo necessario. Popup stilato con `_item_view_qss()`, stessi token del dropdown
+    nativo del combo, per coerenza visiva con il resto della libreria."""
 
     valueChanged = Signal(str)
 
@@ -789,16 +703,20 @@ class EditableSelect(QWidget):
                 width: 24px;
             }}
             QComboBox QAbstractItemView {{
-                background-color: {FIELD_BG};
-                border: 1px solid {FIELD_BORDER};
-                border-radius: {FIELD_RADIUS}px;
-                selection-background-color: {POPUP_HOVER_BG};
-                color: {FIELD_TEXT_COLOR};
-                padding: 4px;
+                {_item_view_qss()}
             }}
+            {MINIMAL_SCROLLBAR_QSS}
             """
         )
         layout.addWidget(self._combo)
+
+        completer = self._combo.completer()
+        completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.popup().setFont(_field_font())
+        completer.popup().setStyleSheet(
+            f"QAbstractItemView {{ {_item_view_qss()} }} {MINIMAL_SCROLLBAR_QSS}"
+        )
 
         self._combo.currentTextChanged.connect(self.valueChanged)
 

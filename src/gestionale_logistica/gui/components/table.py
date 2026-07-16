@@ -12,8 +12,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from PySide6.QtCore import QEvent, QEventLoop, QPoint, QSize, Qt, Signal
-from PySide6.QtGui import QFont, QIcon, QMouseEvent
+from PySide6.QtGui import QColor, QFont, QIcon, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
+    QAbstractButton,
     QApplication,
     QFrame,
     QGraphicsOpacityEffect,
@@ -99,11 +100,11 @@ class TextEmphasis(str, Enum):
 
 @dataclass
 class RowAction:
-    """Una singola azione della colonna `actions`: icona Lucide + callback(riga). Per un'azione
-    che cambia icona/colore in base allo stato della riga (es. un toggle Attivo/Dismesso), si
-    definiscono due `RowAction` con lo stesso `callback` e `predicate` mutuamente esclusivi
-    (stesso pattern gia' usato per "ripristina" vs "annulla", o per "+"/spunta verde in Viaggi) -
-    non serve un componente/parametro dedicato."""
+    """Una singola azione della colonna `actions`: icona Lucide + callback(riga), oppure (se
+    `is_switch=True`) uno switch on/off al posto dell'icona - stesso `callback(riga)` invocato
+    ad ogni toggle, senza distinguere la direzione: e' compito del chiamante decidere cosa fare
+    guardando lo stato corrente della riga (stesso principio gia' usato dalle azioni "matita" che
+    invertono stato senza un parametro esplicito)."""
 
     icon_name: str = ""
     callback: Callable[[dict], None] | None = None
@@ -113,6 +114,9 @@ class RowAction:
     """Se impostato, l'azione compare solo per le righe per cui predicate(riga) e' True
     (es. un'icona "ripristina" visibile solo per righe con stato "Cessato"/"Dismesso", o
     "Annulla viaggio" nascosta per righe gia' Completato/Annullato)."""
+    is_switch: bool = False
+    switch_value: Callable[[dict], bool] | None = None
+    """Richiesto se `is_switch=True`: legge lo stato corrente (on/off) dalla riga."""
 
 
 @dataclass
@@ -332,6 +336,42 @@ class _IconButton(QPushButton):
             self.setCursor(Qt.CursorShape.ArrowCursor)
 
 
+SWITCH_WIDTH = 36
+SWITCH_HEIGHT = 20
+SWITCH_PADDING = 2
+SWITCH_KNOB_SIZE = SWITCH_HEIGHT - 2 * SWITCH_PADDING
+SWITCH_ON_COLOR = QColor("#2563C9")
+SWITCH_OFF_COLOR = QColor("#D6DEE8")
+SWITCH_KNOB_COLOR = QColor("#FFFFFF")
+
+
+class _Switch(QAbstractButton):
+    """Switch on/off compatto per la colonna Azioni (non nel mockup - introdotto su richiesta
+    esplicita dell'utente al posto della matita su Camion). Nessun supporto QSS per un cursore
+    circolare che scorre dentro una pillola, quindi disegnato a mano in `paintEvent` - stesso
+    principio gia' usato per `Modal`/`Tooltip` (angoli arrotondati non ottenibili in modo
+    affidabile via QSS + QGraphicsEffect)."""
+
+    def __init__(self, checked: bool, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setChecked(checked)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(SWITCH_WIDTH, SWITCH_HEIGHT)
+
+    def paintEvent(self, event) -> None:  # noqa: ARG002 (firma richiesta da Qt)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(SWITCH_ON_COLOR if self.isChecked() else SWITCH_OFF_COLOR)
+        painter.drawRoundedRect(self.rect(), SWITCH_HEIGHT / 2, SWITCH_HEIGHT / 2)
+        knob_x = (
+            self.width() - SWITCH_PADDING - SWITCH_KNOB_SIZE if self.isChecked() else SWITCH_PADDING
+        )
+        painter.setBrush(SWITCH_KNOB_COLOR)
+        painter.drawEllipse(knob_x, SWITCH_PADDING, SWITCH_KNOB_SIZE, SWITCH_KNOB_SIZE)
+
+
 class _PagerButton(QPushButton):
     """Pulsante numero di pagina 28x28, pieno se attivo."""
 
@@ -451,6 +491,13 @@ def _build_actions_cell(actions: list[RowAction], row: dict) -> QWidget:
     layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     for action in actions:
         if action.predicate is not None and not action.predicate(row):
+            continue
+        if action.is_switch:
+            switch = _Switch(bool(action.switch_value(row)) if action.switch_value else False, container)
+            switch.toggled.connect(lambda checked=False, cb=action.callback, r=row: cb(r))
+            if action.tooltip:
+                switch.setToolTip(action.tooltip)
+            layout.addWidget(switch)
             continue
         icon = load_lucide_icon(action.icon_name, action.color, 14)
         button = _IconButton(icon, action.tooltip, container)
