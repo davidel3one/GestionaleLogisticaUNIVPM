@@ -17,6 +17,7 @@ from gestionale_logistica.gui.components.icon_chip import IconChip, IconChipVari
 from gestionale_logistica.gui.components.icons import load_lucide_icon
 from gestionale_logistica.gui.components.import_csv_modal import ImportCsvModal
 from gestionale_logistica.gui.components.link_button import LinkButton
+from gestionale_logistica.gui.components.loading_spinner import LoadingSpinner
 from gestionale_logistica.gui.components.modal import Modal
 from gestionale_logistica.gui.components.otp_input import OtpInput
 from gestionale_logistica.gui.components.page_header import PageHeader
@@ -53,6 +54,7 @@ __all__ = [
     "IconChipVariant",
     "ImportCsvModal",
     "LinkButton",
+    "LoadingSpinner",
     "MINIMAL_SCROLLBAR_QSS",
     "Modal",
     "MultiSelect",

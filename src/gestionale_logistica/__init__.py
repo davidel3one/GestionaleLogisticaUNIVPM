@@ -91,7 +91,10 @@ def main() -> None:
         token_corrente[:] = [token]
         save_session_token(token)
 
-        shell = AppShell(sidebar_items)
+        utente = gestore_autenticazione.utente_da_token(token)
+        user_name = f"{utente.nome} {utente.cognome}" if utente is not None else "Davide"
+
+        shell = AppShell(sidebar_items, user_name=user_name)
         dashboard_page = DashboardPage()
         pianificazione_page = PianificazionePage()
         for item in sidebar_items:
