@@ -25,9 +25,14 @@ from gestionale_logistica.gui.components import (
     Tooltip,
 )
 from gestionale_logistica.gui.components.icon_chip import VARIANT_COLORS
-from gestionale_logistica.gui.pianificazione.components import DateFilterField, PlanKpiCard
+from gestionale_logistica.gui.pianificazione.components import (
+    DateFilterField,
+    DettaglioViaggioPropostoModal,
+    PlanKpiCard,
+)
 from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     conta_composizioni_disponibili,
+    costruisci_dettaglio_viaggio_proposto,
     costruisci_righe_piano,
 )
 from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
@@ -39,21 +44,16 @@ AMBER = "#B45309"
 NAVY = "#163A6B"
 AZZURRO = VARIANT_COLORS[IconChipVariant.LIGHT_BLUE][0]
 
-TABLE_COLUMNS = [
+# Colonne fisse della Proposed Trips Table, condivise da tutte le istanze: la sola colonna
+# "dettaglio" ha una callback per-istanza (apre il modale con lo stato della tab), quindi la lista
+# completa è assemblata da AutomaticaTab._table_columns() invece di essere un costante di modulo.
+_BASE_TABLE_COLUMNS = [
     ColumnDef(key="squadra", label="Squadra", column_type=ColumnType.LINK, width=100),
     ColumnDef(key="numero_ordini", label="N. ordini", stretch=2),
     ColumnDef(key="partenza", label="Partenza", sortable=True, stretch=1),
     ColumnDef(key="arrivo", label="Arrivo", sortable=True, stretch=1),
     ColumnDef(key="stato", label="Stato", column_type=ColumnType.STATUS_BADGE, width=140),
     ColumnDef(key="capacita", label="Capacità", column_type=ColumnType.CAPACITY_BAR, width=90),
-    ColumnDef(
-        key="dettaglio",
-        label="",
-        column_type=ColumnType.ACTIONS,
-        width=40,
-        # Affordance "espandi riga" del mockup: nessun comportamento/modale specificato, no-op.
-        actions=[RowAction("chevron-right", lambda row: None)],
-    ),
 ]
 
 
@@ -81,6 +81,7 @@ class AutomaticaTab(QWidget):
     # Il risultato di calcola_piano_async arriva su un thread in background (RNF3): emesso come
     # Signal (thread-safe in Qt anche da un thread non-Qt) invece di toccare i widget da lì.
     _pianoCalcolato = Signal(object, object)  # (Future[PianoGiornaliero], ora_partenza)
+    pianoApplicato = Signal(int)  # numero di viaggi appena persistiti
 
     def __init__(self, session_factory: sessionmaker = SessionLocal, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -90,6 +91,7 @@ class AutomaticaTab(QWidget):
         self._piano: PianoGiornaliero | None = None
         self._ora_partenza: datetime | None = None
         self._durata_viaggio: timedelta | None = None
+        self._numero_viaggi_proposti = 0
 
         self._pianoCalcolato.connect(self._on_piano_calcolato)
 
@@ -192,9 +194,21 @@ class AutomaticaTab(QWidget):
             )
         )
 
+    def _table_columns(self) -> list[ColumnDef]:
+        return [
+            *_BASE_TABLE_COLUMNS,
+            ColumnDef(
+                key="dettaglio",
+                label="",
+                column_type=ColumnType.ACTIONS,
+                width=40,
+                actions=[RowAction("chevron-right", self._apri_dettaglio_viaggio)],
+            ),
+        ]
+
     def _show_table(self, righe) -> None:
         self._clear_results()
-        table = Table(TABLE_COLUMNS, show_footer=False)
+        table = Table(self._table_columns(), show_footer=False)
         table.set_rows(
             [
                 {
@@ -204,11 +218,29 @@ class AutomaticaTab(QWidget):
                     "arrivo": riga.arrivo_label,
                     "stato": "Proposto",
                     "capacita": riga.capacita_percentuale,
+                    # Extra rispetto alle colonne dichiarate: la Table lo ignora nel render, ma
+                    # RowAction lo riceve nel dict `row` — serve ad _apri_dettaglio_viaggio.
+                    "composizione_id": riga.composizione_id,
                 }
                 for riga in righe
             ]
         )
         self._results_container.addWidget(table)
+
+    def _apri_dettaglio_viaggio(self, row: dict) -> None:
+        if self._piano is None or self._ora_partenza is None or self._durata_viaggio is None:
+            return
+        dettaglio = costruisci_dettaglio_viaggio_proposto(
+            self._piano,
+            row["composizione_id"],
+            self._ora_partenza,
+            self._durata_viaggio,
+            self._session_factory,
+        )
+        if dettaglio is None:
+            return
+        self._dettaglio_modal = DettaglioViaggioPropostoModal(dettaglio, self)
+        self._dettaglio_modal.show_over(self)
 
     # -- Footer Actions ----------------------------------------------------------------------
 
@@ -259,6 +291,7 @@ class AutomaticaTab(QWidget):
             piano, ora_partenza, self._durata_viaggio, self._session_factory
         )
         ordini_assegnati = sum(riga.numero_ordini for riga in righe)
+        self._numero_viaggi_proposti = len(righe)
 
         self._kpi_viaggi.set_value(str(len(righe)))
         self._kpi_ordini_assegnati.set_value(str(ordini_assegnati))
@@ -287,6 +320,8 @@ class AutomaticaTab(QWidget):
     def _applica_piano(self) -> None:
         if self._piano is None or self._ora_partenza is None or self._durata_viaggio is None:
             return
+        numero_viaggi = self._numero_viaggi_proposti
         self._motore.applica_piano(self._piano, self._ora_partenza, self._durata_viaggio)
         self._annulla()
         self._refresh_hint()
+        self.pianoApplicato.emit(numero_viaggi)

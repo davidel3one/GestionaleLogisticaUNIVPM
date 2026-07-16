@@ -13,6 +13,7 @@ from gestionale_logistica.gui.components import EmptyState
 from gestionale_logistica.gui.pianificazione.components import AvvioCard, CompositionCard
 from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     costruisci_stato_composizione,
+    descrizione_composizioni_disponibili,
     elenca_composizioni_disponibili,
     elenca_ordini_candidati,
 )
@@ -52,6 +53,7 @@ class ManualeTab(QWidget):
         self._avvio_card.set_composizioni_disponibili(
             elenca_composizioni_disponibili(giorno, self._session_factory)
         )
+        self._avvio_card.set_hint(descrizione_composizioni_disponibili(giorno, self._session_factory))
 
     # -- Composizione Card / stato vuoto ----------------------------------------------------
 
@@ -104,9 +106,9 @@ class ManualeTab(QWidget):
         self._card.set_ordini(stato.righe_ordini)
         assegnati = {riga.ordine_id for riga in stato.righe_ordini}
         candidati = [
-            (oid, cliente)
-            for oid, cliente in elenca_ordini_candidati(self._session_factory)
-            if oid not in assegnati
+            riga
+            for riga in elenca_ordini_candidati(self._session_factory)
+            if riga.ordine_id not in assegnati
         ]
         self._card.set_ordini_disponibili(candidati)
 

@@ -1,8 +1,9 @@
 """CompositionCard: card "Viaggio in composizione", condivisa da Pianificazione — Manuale
 (RF10/RF11) e Assistita (RF12) — stesso layout misurato su entrambi i mockup Sketch: intestazione
 (squadra/camion/partenza), barre Peso/Volume, elenco ordini nel viaggio (con badge categoria),
-riga "Aggiungi ordine" (select senza label + bottone), messaggio di rifiuto opzionale (RF11),
-footer Annulla/Chiudi viaggio.
+sezione "Aggiungi ordine" (tabella paginata di candidati, non la select del mockup — vedi nota
+su `_CANDIDATI_TABLE_COLUMNS`), messaggio di rifiuto opzionale (RF11), footer Annulla/Chiudi
+viaggio.
 
 `add_extra_section(widget)` inserisce un blocco aggiuntivo prima della sezione "Aggiungi ordine"
 (usato da Assistita per il blocco "Suggerimento automatico" — non ancora costruito)."""
@@ -15,7 +16,17 @@ from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from gestionale_logistica.gui.components import Button, ButtonVariant, Card, ProgressBar, Select, Tooltip
+from gestionale_logistica.gui.components import (
+    Button,
+    ButtonVariant,
+    Card,
+    ColumnDef,
+    ColumnType,
+    ProgressBar,
+    RowAction,
+    Table,
+    Tooltip,
+)
 
 TITLE_COLOR = "#2E2E2E"
 HINT_COLOR = "#9AA1AA"
@@ -25,6 +36,10 @@ ALERT_COLOR = "#C0392B"
 BAR_WIDTH = 350
 BAR_HEIGHT = 7
 BAR_COLUMN_GAP = 46
+
+# Pagina della tabella "Aggiungi ordine": stessa dimensione di SuggestionSection.PAGE_SIZE per
+# coerenza fra le tabelle di Pianificazione (Manuale/Assistita).
+PAGE_SIZE = 10
 
 # "Standard" raggruppa le categorie senza vincoli particolari (BordoStrada/InstallazioneSemplice
 # AlPiano/Incasso): il mockup mostra solo badge "Standard"/"Big" — nessuna istanza con
@@ -37,11 +52,31 @@ CATEGORIA_BADGE_LABELS = {
     "Big": "Big",
     "CertificazioneGas": "Certificazione Gas",
 }
-_BADGE_COLORS = {
+CATEGORIA_BADGE_COLORS = {
     "Standard": ("#EAEAEA", "#2E2E2E"),
     "Big": ("#FEF3C7", "#B45309"),
     "Certificazione Gas": ("#FEF3C7", "#B45309"),
 }
+
+# Colonne fisse della tabella "Aggiungi ordine" (deviazione dal mockup, che mostra una select a
+# singola riga di testo: concordata con l'utente 2026-07-16 per lo stesso motivo già affrontato in
+# SuggestionSection — una select con centinaia di candidati senza peso/volume/categoria è difficile
+# da scandagliare). Stesse colonne di SuggestionSection.TABLE_COLUMNS, duplicate qui invece che
+# condivise (stesso principio di CATEGORIA_BADGE_COLORS, vedi componenti-gui.md).
+_CANDIDATI_TABLE_COLUMNS = [
+    ColumnDef(key="ordine_id", label="Ordine", width=90),
+    ColumnDef(key="cliente", label="Cliente", stretch=2),
+    ColumnDef(key="peso", label="Peso", width=90),
+    ColumnDef(key="volume", label="Volume", width=90),
+    ColumnDef(
+        key="categoria_label",
+        label="Categoria",
+        column_type=ColumnType.STATUS_BADGE,
+        status_colors=CATEGORIA_BADGE_COLORS,
+        width=140,
+    ),
+]
+_CANDIDATI_ACTION_COLUMN_WIDTH = 40
 
 
 def _heading(text: str = "") -> QLabel:
@@ -82,7 +117,7 @@ def _divider() -> QFrame:
 
 
 def _badge(categoria_label: str) -> QLabel:
-    bg, color = _BADGE_COLORS.get(categoria_label, _BADGE_COLORS["Standard"])
+    bg, color = CATEGORIA_BADGE_COLORS.get(categoria_label, CATEGORIA_BADGE_COLORS["Standard"])
     label = QLabel(categoria_label)
     font = QFont("Inter")
     font.setWeight(QFont.Weight(600))
@@ -105,7 +140,7 @@ class RigaOrdineComposizione:
 
 
 class CompositionCard(Card):
-    aggiungiOrdineRequested = Signal(str)  # ordine_id selezionato nel campo "Aggiungi ordine"
+    aggiungiOrdineRequested = Signal(str)  # ordine_id scelto nella tabella "Aggiungi ordine"
     annullaRequested = Signal()
     chiudiViaggioRequested = Signal()
 
@@ -158,17 +193,27 @@ class CompositionCard(Card):
         aggiungi_heading_row.addStretch(1)
         manual_add_layout.addLayout(aggiungi_heading_row)
 
-        add_row = QHBoxLayout()
-        add_row.setContentsMargins(0, 0, 0, 0)
-        add_row.setSpacing(12)
-        self._select_ordine = Select(placeholder="Seleziona ordine ricevuto")
-        self._select_ordine.setFixedWidth(300)
-        add_row.addWidget(self._select_ordine)
-        self._aggiungi_button = Button(ButtonVariant.PRIMARY, "Aggiungi")
-        self._aggiungi_button.clicked.connect(self._on_aggiungi_clicked)
-        add_row.addWidget(self._aggiungi_button)
-        add_row.addStretch(1)
-        manual_add_layout.addLayout(add_row)
+        self._ordini_disponibili: list[RigaOrdineComposizione] = []
+        self._pagina_disponibili = 1
+
+        colonne_disponibili = [
+            *_CANDIDATI_TABLE_COLUMNS,
+            ColumnDef(
+                key="azioni",
+                label="",
+                column_type=ColumnType.ACTIONS,
+                width=_CANDIDATI_ACTION_COLUMN_WIDTH,
+                actions=[RowAction("circle-plus", self._on_aggiungi_clicked, tooltip="Aggiungi al viaggio")],
+            ),
+        ]
+        self._tabella_disponibili = Table(colonne_disponibili)
+        self._tabella_disponibili.pageChanged.connect(self._on_pagina_disponibili_cambiata)
+        self._tabella_disponibili.hide()
+        manual_add_layout.addWidget(self._tabella_disponibili)
+
+        self._disponibili_hint = _hint("Nessun ordine disponibile da aggiungere")
+        self._disponibili_hint.hide()
+        manual_add_layout.addWidget(self._disponibili_hint)
 
         self.content_layout.addWidget(self._manual_add_section)
 
@@ -199,8 +244,6 @@ class CompositionCard(Card):
         # documentato per il pannello "Attività recente" della Dashboard.
         self.content_layout.addStretch(1)
 
-        self._ordine_id_by_display: dict[str, str] = {}
-
     def _build_bar_column(self) -> tuple[QLabel, ProgressBar, QWidget]:
         column = QWidget()
         layout = QVBoxLayout(column)
@@ -212,11 +255,33 @@ class CompositionCard(Card):
         layout.addWidget(bar)
         return label, bar, column
 
-    def _on_aggiungi_clicked(self) -> None:
-        display = self._select_ordine.value()
-        ordine_id = self._ordine_id_by_display.get(display) if display else None
-        if ordine_id:
-            self.aggiungiOrdineRequested.emit(ordine_id)
+    def _on_aggiungi_clicked(self, row: dict) -> None:
+        self.aggiungiOrdineRequested.emit(row["ordine_id"])
+
+    def _on_pagina_disponibili_cambiata(self, page: int) -> None:
+        self._pagina_disponibili = page
+        self._render_pagina_disponibili()
+
+    def _render_pagina_disponibili(self) -> None:
+        self._tabella_disponibili.setVisible(bool(self._ordini_disponibili))
+        self._disponibili_hint.setVisible(not self._ordini_disponibili)
+        inizio = (self._pagina_disponibili - 1) * PAGE_SIZE
+        pagina = self._ordini_disponibili[inizio : inizio + PAGE_SIZE]
+        self._tabella_disponibili.set_rows(
+            [
+                {
+                    "ordine_id": riga.ordine_id,
+                    "cliente": riga.cliente,
+                    "peso": f"{riga.peso:g} kg",
+                    "volume": f"{riga.volume:g} m³",
+                    "categoria_label": riga.categoria_label,
+                }
+                for riga in pagina
+            ]
+        )
+        self._tabella_disponibili.set_pagination(
+            self._pagina_disponibili, len(self._ordini_disponibili), PAGE_SIZE
+        )
 
     # -- API pubblica --------------------------------------------------------------------
 
@@ -275,10 +340,11 @@ class CompositionCard(Card):
         layout.addWidget(_badge(riga.categoria_label))
         return row
 
-    def set_ordini_disponibili(self, ordini: list[tuple[str, str]]) -> None:
-        """`ordini`: lista di (ordine_id, cliente) candidati per "Aggiungi ordine"."""
-        self._ordine_id_by_display = {f"{oid}  ·  {cliente}": oid for oid, cliente in ordini}
-        self._select_ordine.set_options(list(self._ordine_id_by_display.keys()))
+    def set_ordini_disponibili(self, ordini: list[RigaOrdineComposizione]) -> None:
+        """`ordini`: righe candidate per la tabella "Aggiungi ordine"."""
+        self._ordini_disponibili = ordini
+        self._pagina_disponibili = 1
+        self._render_pagina_disponibili()
 
     def show_alert(self, messaggio: str) -> None:
         self._alert_label.setText(f"⚠  {messaggio}")
@@ -294,9 +360,3 @@ class CompositionCard(Card):
         """Assistita (RF12) nasconde del tutto la sezione "Aggiungi ordine" manuale: il mockup
         la sostituisce con `SuggestionSection` (via `add_extra_section`), non la affianca."""
         self._manual_add_section.setVisible(visible)
-
-    def set_footer_primary_label(self, text: str) -> None:
-        """Assistita usa "Applica suggerimento e chiudi viaggio" invece di "Chiudi viaggio" —
-        stesso segnale `chiudiViaggioRequested` (il bottone chiude comunque il viaggio), solo
-        l'etichetta cambia; è il chiamante (AssistitaTab) ad applicare prima i suggerimenti."""
-        self._chiudi_button.set_text(text)
