@@ -530,6 +530,20 @@ ProgressBar(91.0, fill_color="#C0392B")               # colore esplicito (soglie
 
 `bar.set_percent(percent, fill_color=None)` — aggiorna percentuale (e opzionalmente colore) a runtime senza ricreare il widget, con un semplice `update()`/repaint.
 
+## LoadingSpinner
+
+`LoadingSpinner(size=24, parent=None)` — sottoclasse di `QWidget` in `gui/components/loading_spinner.py`: cerchio indeterminato animato (arco che ruota), disegnato con `QPainter`+`QTimer` (nessuna dipendenza da animazioni Qt). Aggiunto 2026-07-16 per il pulsante "Calcola piano" di Pianificazione — Automatica (RF13): il calcolo gira in background fino a RNF4=3min senza una percentuale nota, quindi un indicatore indeterminato (non una `ProgressBar` con `%` finta) è la scelta corretta.
+
+```python
+from gestionale_logistica.gui.components import LoadingSpinner
+LoadingSpinner()      # 24x24, arco blu #2563C9 su track #EAEAEA
+LoadingSpinner(32)    # dimensione esplicita
+```
+
+**Non nel mockup Sketch**: nessun artboard modella uno stato di caricamento (verificato via `get_document_info`/`get_layer_tree_summary` sull'artboard "Pianificazione" — la Proposed Trips Table è disegnata solo nello stato "risultato già calcolato"). Colori derivati dalla Palette invece che misurati: track `#EAEAEA` (stesso token di `ProgressBar`), arco Blu `#2563C9` (colore di `Button` PRIMARY, non l'Azzurro `#3D9BE9` di `ProgressBar`) per leggere come "azione primaria in corso" coerentemente col bottone che l'ha avviata.
+
+**Uso in `automatica_tab.py`**: `_show_loading_state()` sostituisce l'area risultati (stesso `_results_container` di `_show_empty_state`) con `LoadingSpinner(32)` + testo "Calcolo del piano in corso…" centrati — stessa struttura/colore/font di `EmptyState` (icona + titolo `#8A93A0` 14px/600), solo con lo spinner al posto dell'icona statica. Il bottone "Calcola piano" mantiene in aggiunta il proprio testo di stato ("Calcolo in corso…", preesistente) e si disabilita insieme ad "Annulla"/"Applica piano" per non lasciare azioni attive su un piano che sta per essere sostituito.
+
 ## Icone: `load_lucide_icon`
 
 Le icone del mockup sono icone [Lucide](https://lucide.dev) (libreria open-source, licenza ISC) — confermato per confronto diretto byte-a-byte tra gli SVG esportati da Sketch e gli SVG reali di Lucide, non per somiglianza visiva.

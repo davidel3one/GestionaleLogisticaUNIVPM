@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 from sqlalchemy.orm import sessionmaker
@@ -20,6 +20,7 @@ from gestionale_logistica.gui.components import (
     ColumnType,
     EmptyState,
     IconChipVariant,
+    LoadingSpinner,
     RowAction,
     Table,
     Tooltip,
@@ -194,6 +195,27 @@ class AutomaticaTab(QWidget):
             )
         )
 
+    def _show_loading_state(self) -> None:
+        """Non nel mockup Sketch (nessun artboard modella uno stato di caricamento): stessa
+        struttura centrata di EmptyState (icona/indicatore + testo), con LoadingSpinner al posto
+        dell'icona statica — coerenza di stile richiesta dalla regola GUI #7 in assenza di mockup."""
+        self._clear_results()
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+        layout.addStretch(1)
+        layout.addWidget(LoadingSpinner(32), alignment=Qt.AlignmentFlag.AlignHCenter)
+        label = QLabel("Calcolo del piano in corso…")
+        label.setStyleSheet("color: #8A93A0; background: transparent;")
+        font = QFont("Inter")
+        font.setWeight(QFont.Weight(600))
+        font.setPixelSize(14)
+        label.setFont(font)
+        layout.addWidget(label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addStretch(1)
+        self._results_container.addWidget(container)
+
     def _table_columns(self) -> list[ColumnDef]:
         return [
             *_BASE_TABLE_COLUMNS,
@@ -271,6 +293,9 @@ class AutomaticaTab(QWidget):
 
         self._calcola_button.setEnabled(False)
         self._calcola_button.setText("Calcolo in corso…")
+        self._annulla_button.setEnabled(False)
+        self._applica_button.setEnabled(False)
+        self._show_loading_state()
 
         future = self._motore.calcola_piano_async(
             ora_partenza,

@@ -166,6 +166,12 @@ class GestoreAutenticazione:
         sessione = self.session.scalar(select(Sessione).where(Sessione.token == token))
         return sessione is not None and sessione.data_scadenza > datetime.now()
 
+    def utente_da_token(self, token: str) -> Utente | None:
+        sessione = self.session.scalar(select(Sessione).where(Sessione.token == token))
+        if sessione is None:
+            return None
+        return self.session.get(Utente, sessione.utente_id)
+
     def logout(self, token: str) -> None:
         sessione = self.session.scalar(select(Sessione).where(Sessione.token == token))
         if sessione is not None:
