@@ -6,12 +6,27 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 CONFIG_PATH = Path("config.ini")
+SESSION_TOKEN_PATH = Path(".session_token")
 
 
 def load_config() -> configparser.ConfigParser:
     config = configparser.ConfigParser()
     config.read(CONFIG_PATH)
     return config
+
+
+def save_session_token(token: str) -> None:
+    SESSION_TOKEN_PATH.write_text(token)
+
+
+def load_session_token() -> str | None:
+    if not SESSION_TOKEN_PATH.is_file():
+        return None
+    return SESSION_TOKEN_PATH.read_text().strip() or None
+
+
+def clear_session_token() -> None:
+    SESSION_TOKEN_PATH.unlink(missing_ok=True)
 
 
 @dataclass

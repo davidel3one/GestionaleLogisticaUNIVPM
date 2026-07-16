@@ -14,6 +14,7 @@ app.log
 gestionale.db
 allegati/
 report/
+.session_token
 
 .DS_Store
 
