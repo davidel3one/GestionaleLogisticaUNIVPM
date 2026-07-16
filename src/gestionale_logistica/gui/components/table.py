@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
+from gestionale_logistica.gui.components.progress_bar import ProgressBar
 
 FONT_FAMILY = "Inter"
 
@@ -38,6 +39,25 @@ PAGER_ACTIVE_TEXT = "#FFFFFF"
 PAGER_INACTIVE_TEXT = "#5B6472"
 PAGER_HOVER_BG = "#F7F9FC"  # affordance hover, non presente nel mockup statico
 NEUTRAL_BADGE_COLORS = ("#EAEAEA", "#5B6472")
+CAPACITY_BAR_TRACK_COLOR = "#EAEAEA"
+CAPACITY_BAR_WIDTH = 70
+CAPACITY_BAR_HEIGHT = 6
+# Soglie misurate sul mockup ("Proposed Trips Table"): 30/45/68% -> blu, 82% -> ambra, 91% -> rosso.
+# Il mockup non mostra i valori esatti di soglia (solo questi 5 campioni): 80/90 sono i numeri
+# tondi più plausibili tra 68→82 e 82→91 - dichiarato, non misurato pixel-per-pixel.
+CAPACITY_BAR_COLOR_NORMAL = "#3D9BE9"
+CAPACITY_BAR_COLOR_WARNING = "#B45309"
+CAPACITY_BAR_COLOR_CRITICAL = "#C0392B"
+CAPACITY_BAR_WARNING_THRESHOLD = 80
+CAPACITY_BAR_CRITICAL_THRESHOLD = 90
+
+
+def _capacity_bar_color(percent: float) -> str:
+    if percent >= CAPACITY_BAR_CRITICAL_THRESHOLD:
+        return CAPACITY_BAR_COLOR_CRITICAL
+    if percent >= CAPACITY_BAR_WARNING_THRESHOLD:
+        return CAPACITY_BAR_COLOR_WARNING
+    return CAPACITY_BAR_COLOR_NORMAL
 
 DEFAULT_STATUS_BADGE_COLORS: dict[str, tuple[str, str]] = {
     "Consegnato": ("#DFF5E5", "#1E8E3E"),
@@ -64,6 +84,7 @@ class ColumnType(str, Enum):
     LINK = "link"
     STATUS_BADGE = "status_badge"
     BOOLEAN_BADGE = "boolean_badge"
+    CAPACITY_BAR = "capacity_bar"
     ACTIONS = "actions"
 
 
@@ -304,6 +325,31 @@ class _HeaderCell(QWidget):
         super().mousePressEvent(event)
 
 
+def _build_capacity_bar_cell(value) -> QWidget:
+    percent = float(value) if value is not None else 0.0
+    container = QWidget()
+    layout = QVBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(4)
+    layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+    label = QLabel(f"{round(percent)}%")
+    font = QFont(FONT_FAMILY)
+    font.setWeight(QFont.Weight(600))
+    font.setPixelSize(11)
+    label.setFont(font)
+    label.setStyleSheet(f"color: {HEADER_TEXT_COLOR}; background: transparent;")
+    layout.addWidget(label)
+    layout.addWidget(
+        ProgressBar(
+            percent,
+            width=CAPACITY_BAR_WIDTH,
+            height=CAPACITY_BAR_HEIGHT,
+            fill_color=_capacity_bar_color(percent),
+        )
+    )
+    return container
+
+
 def _build_actions_cell(actions: list[RowAction], row: dict) -> QWidget:
     container = QWidget()
     layout = QHBoxLayout(container)
@@ -338,6 +384,9 @@ def _build_cell(column: ColumnDef, row: dict) -> QWidget:
             bg, color = NEUTRAL_BADGE_COLORS
             return _build_badge(column.true_label, bg, color)
         return _build_text_label(column.false_label, TextEmphasis.SECONDARY)
+
+    if column.column_type == ColumnType.CAPACITY_BAR:
+        return _build_capacity_bar_cell(row.get(column.key))
 
     if column.column_type == ColumnType.ACTIONS:
         return _build_actions_cell(column.actions, row)

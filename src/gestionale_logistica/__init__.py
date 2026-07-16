@@ -1,4 +1,9 @@
-from gestionale_logistica.config import load_config
+from gestionale_logistica.config import (
+    clear_session_token,
+    load_config,
+    load_session_token,
+    save_session_token,
+)
 import configparser
 import logging
 import sys
@@ -13,6 +18,7 @@ from gestionale_logistica.gui.autenticazione import AutenticazionePage
 from gestionale_logistica.gui.components import EmptyState, SidebarItem
 from gestionale_logistica.gui.dashboard import DashboardPage
 from gestionale_logistica.gui.main_window import AppShell
+from gestionale_logistica.gui.pianificazione import PianificazionePage
 from gestionale_logistica.scheduler import avvia_scheduler
 
 from gestionale_logistica.database.base import Base, SessionLocal, engine
@@ -64,11 +70,15 @@ def main() -> None:
 
     def _on_authenticated(token: str) -> None:
         token_corrente[:] = [token]
+        save_session_token(token)
 
         shell = AppShell(sidebar_items)
         for item in sidebar_items:
             if item.id == "dashboard":
                 shell.add_page(item.id, DashboardPage())
+                continue
+            if item.id == "pianificazione":
+                shell.add_page(item.id, PianificazionePage())
                 continue
             shell.add_page(
                 item.id,
@@ -86,11 +96,20 @@ def main() -> None:
     def _on_logout() -> None:
         if token_corrente:
             gestore_autenticazione.logout(token_corrente.pop())
+        clear_session_token()
         if shell_holder:
             shell_holder.pop().close()
         auth_page.reset_to_login()
         auth_page.show()
 
     auth_page.authenticated.connect(_on_authenticated)
-    auth_page.show()
+
+    token_salvato = load_session_token()
+    if token_salvato is not None and gestore_autenticazione.sessione_valida(token_salvato):
+        _on_authenticated(token_salvato)
+    else:
+        if token_salvato is not None:
+            clear_session_token()
+        auth_page.show()
+
     sys.exit(app.exec())

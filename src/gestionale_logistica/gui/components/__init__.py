@@ -17,6 +17,7 @@ from gestionale_logistica.gui.components.link_button import LinkButton
 from gestionale_logistica.gui.components.modal import Modal
 from gestionale_logistica.gui.components.otp_input import OtpInput
 from gestionale_logistica.gui.components.page_header import PageHeader
+from gestionale_logistica.gui.components.progress_bar import ProgressBar
 from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 from gestionale_logistica.gui.components.search_field import SearchField
 from gestionale_logistica.gui.components.sidebar import Sidebar, SidebarItem
@@ -50,6 +51,7 @@ __all__ = [
     "MultiSelect",
     "OtpInput",
     "PageHeader",
+    "ProgressBar",
     "RowAction",
     "SearchField",
     "Select",

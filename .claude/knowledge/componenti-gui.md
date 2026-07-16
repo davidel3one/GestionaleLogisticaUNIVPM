@@ -30,6 +30,8 @@ Button(ButtonVariant.ICON_ONLY, icon=load_lucide_icon("x", "#5B6472", 15))
 
 **Personalizzazione**: il componente **non** espone parametri per colori/radius/padding — quei valori sono fissi per variante perché replicano esattamente il mockup. Se serve un aspetto diverso da uno dei 5, non forzare i parametri esistenti: è una nuova variante da aggiungere ispezionando prima Sketch (vedi "Aggiungere un componente nuovo" più sotto).
 
+**Cambiare l'etichetta a runtime**: `button.set_text("Nuovo testo")` (aggiunto 2026-07-16 per il footer di `CompositionCard` in Assistita, che rietichetta "Chiudi viaggio" in "Applica suggerimento e chiudi viaggio"). **Non** usare l'ereditato `QPushButton.setText()`: il testo visibile è disegnato da una `QLabel` interna, non dalla proprietà nativa `text` di `QPushButton` — chiamare `setText()` fa disegnare anche il testo nativo dello stile sopra/sotto la label custom, producendo testo sovrapposto/illeggibile (bug trovato costruendo Assistita).
+
 **Stati interattivi**: hover/pressed sono derivati automaticamente scurendo il colore base della variante (`HOVER_DARKEN`/`PRESSED_DARKEN` in `button.py`) — il mockup Sketch non li definisce esplicitamente. `disabled` si ottiene con `button.setEnabled(False)`: applica un'opacità ridotta (`DISABLED_OPACITY`, ~45%) a tutto il widget via `QGraphicsOpacityEffect` e cambia il cursore. Nessuno di questi valori viene dal mockup — se in futuro il team definisce colori espliciti per questi stati in Sketch, vanno sostituiti qui.
 
 ## Card
@@ -110,10 +112,11 @@ tabella.pageChanged.connect(lambda pagina: ...)                # riquery server-
 | `STATUS_BADGE` | stato con pillola colorata | mappatura valore→(bg,testo) tramite `ColumnDef.status_colors` (dict), unita a una palette di default già pronta per 7 valori comuni (`Consegnato`/`Attivo`→verde, `Fallito`→rosso, `In consegna`→ambra, `Da pianificare`→grigio, `Pianificato`/`Proposto`→blu) — valori non mappati cadono sul grigio neutro |
 | `BOOLEAN_BADGE` | flag sì/no (es. certificazione gas, sponda idraulica) | vero→pillola grigia con `true_label` (default "Sì"); falso→testo semplice con `false_label` (default "No", usa "—" se serve) |
 | `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale — non limitato a modifica/elimina |
+| `CAPACITY_BAR` | percentuale + barra di riempimento (colonna "CAPACITÀ") | valore = `float` 0-100; renderizza etichetta `N%` (Inter 11px SemiBold `#8A93A0`, misurata) sopra una `ProgressBar` 70×6px (vedi `## ProgressBar`); il colore del fill dipende dalla percentuale — 3 soglie misurate sul mockup: `<80%` blu `#3D9BE9`, `80-90%` ambra `#B45309`, `≥90%` rosso `#C0392B` (campioni reali 30/45/68%→blu, 82%→ambra, 91%→rosso; le soglie tonde 80/90 sono la lettura più plausibile tra i campioni, non pixel-misurate) |
 
 **Personalizzazione**: `ColumnDef.width` (larghezza fissa in px) oppure `ColumnDef.stretch` (fattore di stretch, colonne più larghe in proporzione) — non impostare entrambi sulla stessa colonna, `width` vince se presente. `status_colors` sulla singola colonna sovrascrive/estende la palette di default senza doverla ridefinire tutta.
 
-**Fuori scope in questa versione**: colonna "progress bar" (percentuale + barra, vista nel mockup solo su Pianificazione — Assistita) — rimandata a quando quella pagina verrà costruita davvero, non ancora implementata.
+**`CAPACITY_BAR`** (aggiunta 2026-07-16 costruendo Pianificazione — Automatica, "Proposed Trips Table"): era segnalata "fuori scope" in questo file finché la pagina non fosse stata costruita davvero — ora implementata. Nel mockup la colonna CAPACITÀ ha larghezza 90px; il chevron a destra della barra (affordance "espandi riga", nessun comportamento/modale specificato nel mockup) va aggiunto come colonna `ACTIONS` separata subito dopo, non fa parte di `CAPACITY_BAR`.
 
 **Nota — chrome esterna non condivisa con `Card`**: il contenitore della Table (bianco, radius 14px) **non ha bordo**, a differenza di `Card` che ora ha sempre il bordo (vedi sopra). Non è un'incoerenza: sono due componenti distinti con chrome verificate separatamente nel mockup, non `Table` che riusa `Card`.
 
@@ -182,6 +185,8 @@ tipo.valueChanged.connect(...)
 
 **Valori esatti dal mockup (stato chiuso)**: stessa chrome di `TextField` (container `#FFFFFF`/bordo `#E5EAF0`/radius 9px/altezza 34px/padding 12px, testo Inter 13px/Medium `#5B6472`, label Inter 11px/SemiBold `#8A93A0` con gap 4px) più chevron-down 14×14 allineato a destra, gap 8px dal testo (era uno Stack orizzontale nel mockup).
 
+**`label` opzionale (aggiunta 2026-07-16 costruendo la Composizione Card di Pianificazione)**: `label` di default è `""` — se falsy, la riga della label sopra non viene creata affatto (nessuno spazio riservato, stesso principio di `EmptyState.subtitle`). Serve al campo "Aggiungi ordine" della Composizione Card (Pianificazione — Manuale/Assistita), l'unica istanza nel mockup di un `Select` senza etichetta sopra. Tutte le altre istanze esistenti continuano a passare una label e restano invariate.
+
 **Assunzioni segnalate esplicitamente (non verificate nel mockup, che mostra solo lo stato chiuso)**:
 - **Colore dell'icona chevron**: `#5B6472`, riusato dal testo del campo — il mockup non specifica un colore diverso per l'icona, quindi si riusa quello del testo come assunzione più sicura invece di introdurre un colore non misurato.
 - **Popup delle opzioni**: nessun frame del mockup disegna il Select aperto. Per coerenza con gli altri componenti già fatti, il popup (`QMenu`) è stilato con: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px (stessi token del resto), voce selezionata/hover con sfondo `#F7F9FC` (lo stesso grigio riusato per lo sfondo dei bottoni `SECONDARY` in `button.py`, per non introdurre un token nuovo), testo voci Inter 13px/Medium `#5B6472`. Scelta di implementazione non verificata, analoga a come `Modal` documenta "click sul backdrop chiude" come comportamento standard non nel mockup statico.
@@ -205,7 +210,7 @@ sponda.valueChanged.connect(...)
 
 ## DatePicker
 
-`DatePicker(label: str, parent=None)` — sottoclasse di `QWidget`: label sopra + `QDateEdit` nativo Qt con `calendarPopup=True`.
+`DatePicker(label: str, parent=None)` — sottoclasse di `QWidget`: label sopra + `_DateEditBox` (chrome flat condivisa con `DateFilterField`, wrapper attorno a un `QDateEdit` nativo con `calendarPopup=True`).
 
 ```python
 data = DatePicker("Data consegna")
@@ -218,7 +223,9 @@ data.set_value(QDate(2026, 7, 11))
 - `field.valueChanged` — `Signal(QDate)`, inoltra `QDateEdit.dateChanged`.
 - Formato di visualizzazione: `dd/MM/yyyy` (costante `DATE_FORMAT` in `form_field.py`), coerente con gli esempi nel mockup ("11/07/2026", "14/10/2020").
 
-**Decisione esplicita dell'utente (non un'assunzione)**: il calendario a comparsa è quello **nativo di Qt/OS**, non ridisegnato — nessuno stile del sistema di design applicato al popup del calendario in sé. Solo il chrome del campo chiuso è ristilizzato per combaciare con gli altri field: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, testo Inter 13px/Medium `#5B6472` (stessi identici token/costanti di `TextField`/`Select`, nessun valore duplicato). Il pulsantino calendario integrato di `QDateEdit` (freccia a destra) non è stato toccato: rimuoverlo/sostituirlo avrebbe richiesto stilizzare `QDateEdit::drop-down`, fuori dal perimetro della richiesta ("solo il chrome del campo chiuso").
+**Decisione esplicita dell'utente (non un'assunzione)**: il calendario a comparsa è quello **nativo di Qt/OS**, non ridisegnato — nessuno stile del sistema di design applicato al popup del calendario in sé. Il chrome del campo chiuso è ristilizzato per combaciare con gli altri field: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, testo Inter 13px/Medium `#5B6472` (stessi identici token/costanti di `TextField`/`Select`, nessun valore duplicato).
+
+**Fix 2026-07-16 (bug segnalato dall'utente)**: il pulsantino calendario nativo di `QDateEdit` (freccia a destra) veniva disegnato dallo stile Qt/OS di default — un quadratino "primitivo" incoerente con il resto della UI, mentre il mockup (frame "Data Filter"/"Stato Filter", identiche) mostra la stessa chrome piatta di `Select`: solo testo + chevron vettoriale, nessun bottone visibile. Risolto in `_DateEditBox` (`form_field.py`): `QDateEdit::drop-down` reso trasparente e largo quanto la zona riservata (bordo/sfondo `none`/`transparent`), `QDateEdit::down-arrow` azzerata (`width/height: 0`, `image: none`), e un `QLabel` con `load_lucide_icon("chevron-down", ...)` sovrapposto sopra via posizionamento esplicito in `resizeEvent` (non `QStackedLayout`: in `StackAll` i widget aggiunti dopo il primo non venivano renderizzati nel test manuale). Il `QLabel` ha `WA_TransparentForMouseEvents` così i click passano al drop-down nativo sottostante (verificato: il calendario si apre ancora normalmente). Chrome condivisa tra `DatePicker` e `DateFilterField` tramite la classe `_DateEditBox`.
 
 ## MultiSelect
 
@@ -414,6 +421,21 @@ scroll_area.setStyleSheet(f"QScrollArea {{ background: transparent; border: none
 - **Nessuna variante**: un solo stile per tutta l'app, non parametrico — se in futuro serve una scrollbar diversa (es. più spessa per un'area con contenuto denso), va discusso con l'utente prima di introdurre un parametro.
 - Usata per ora solo nell'area scrollabile di "Attività recente" nella Dashboard (vedi sotto); `Table` non ha ancora una propria area scrollabile (usa paginazione server-side) — se in futuro ne avrà una, riusare questo stesso stile.
 
+## ProgressBar
+
+`ProgressBar(percent: float, width=70, height=6, fill_color="#3D9BE9", parent=None)` — sottoclasse di `QWidget` in `gui/components/progress_bar.py`: barra track+fill disegnata con `QPainter` (non layout absolute). Nata dentro `table.py` per la colonna `CAPACITY_BAR` (2026-07-16) e promossa qui componente condiviso quando è servita una seconda istanza identica: le barre Peso/Volume della Composizione Card (Pianificazione — Manuale/Assistita) hanno stessi colori/stile.
+
+```python
+from gestionale_logistica.gui.components import ProgressBar
+ProgressBar(45.0)                                   # 70x6, blu di default
+ProgressBar(68.0, width=350, height=8)               # barra larga (Composizione Card)
+ProgressBar(91.0, fill_color="#C0392B")               # colore esplicito (soglie capacità, vedi Table)
+```
+
+**Valori esatti dal mockup**: track `#EAEAEA`, fill `#3D9BE9` (default), radius = altezza/2 (capsula). Due dimensioni verificate: 70×6px (colonna CAPACITÀ) e 350×7-8px (barre Peso/Volume Composizione Card — 7 vs 8px sono varianti minori tra istanze del mockup, non critico). Il colore del fill **non** è un parametro fisso del componente: chi lo usa decide (soglie per `Table.CAPACITY_BAR`, sempre blu per le barre Peso/Volume).
+
+`bar.set_percent(percent, fill_color=None)` — aggiorna percentuale (e opzionalmente colore) a runtime senza ricreare il widget, con un semplice `update()`/repaint.
+
 ## Icone: `load_lucide_icon`
 
 Le icone del mockup sono icone [Lucide](https://lucide.dev) (libreria open-source, licenza ISC) — confermato per confronto diretto byte-a-byte tra gli SVG esportati da Sketch e gli SVG reali di Lucide, non per somiglianza visiva.
@@ -507,3 +529,13 @@ Componenti la cui forma è ritagliata esattamente sul layout di **una** pagina (
 **Pannello "Attività recente" — altezza elastica, non fissa (corretto 2026-07-15).** Il contenitore delle righe (`QScrollArea`, `MINIMAL_SCROLLBAR_QSS`) ha solo un **minimo** di 296px (5 righe, il budget del mockup) via `setMinimumHeight`, non un `setFixedHeight`: la card riceve stretch factor 1 nel layout verticale della pagina (`outer.addWidget(self._activity_card, 1)`, **senza** un `addStretch(1)` finale dopo) così si allarga a riempire lo spazio verticale disponibile su schermi grandi/fullscreen invece di lasciare un'area grigia vuota sotto la card, e si comprime fino al minimo (con scroll interno) su finestre piccole. **Prima versione era sbagliata**: altezza fissa via `setFixedHeight` + `outer.addStretch(1)` finale — lo stretch finale assorbiva tutto lo spazio extra come'area grigia morta invece di farlo usare dal contenuto. Se in futuro un'altra pagina ha un pannello a lista simile, riusare questo pattern (min-height + stretch sul contenitore, non fixed-height + stretch finale).
 
 I dati reali (KPI aggregati, conteggio viaggi per i prossimi 7 giorni, feed attività) sono letti da `gui/dashboard/dashboard_data.py` — nessun RF1-RF19 definisce una Dashboard, le query aggregano dai modelli esistenti (vedi docstring del file per le assunzioni dichiarate: definizione di "disponibile", formula dei trend, provenienza dei 4 tipi di evento nel feed attività).
+
+**Pianificazione** (`gui/pianificazione/components/`, import `from gestionale_logistica.gui.pianificazione.components import AvvioCard, CompositionCard, DateFilterField, PlanKpiCard, RigaOrdineComposizione, RigaOrdineSuggerito, SuggestionSection, CATEGORIA_BADGE_LABELS`):
+
+- **`PlanKpiCard(value, label, icon_name, value_color, icon_color, parent=None)`** — card KPI "flat" della Summary Row (Automatica): icona colorata senza chip circolare (diverso da `KpiCard` Dashboard), colori valore/icona indipendenti e parametrici (vedi docstring del file per i colori misurati per card, incluso il caso ambra `#B45309` di "ORDINI NON ASSEGNATI"). `card.set_value(str)` aggiorna il valore a runtime.
+- **`DateFilterField(parent=None)`** — sottoclasse di `_DateEditBox` (`form_field.py`, stessa chrome flat con chevron di `DatePicker`, vedi `## DatePicker`): campo data compatto senza label sopra, testo `"Data: dd/MM/yyyy"` via `setDisplayFormat("'Data: 'dd/MM/yyyy")` sul suo `.input` (letterale tra apici singoli, feature nativa di `QDateEdit`, non un widget custom).
+- **`AvvioCard(parent=None)`** — card "Avvia composizione viaggio": `Select` senza label (composizione) + `DateFilterField` + bottone "Avvia composizione", messaggio di errore opzionale (`show_alert`/`hide_alert`, stesso stile di `CompositionCard`). API: `set_composizioni_disponibili(list[tuple[id, "Composizione: #N"]])`, `data_selezionata() -> date`. Segnali: `avviaRequested(str, date)`, `dataChanged(date)`.
+- **`CompositionCard(parent=None)`** — card "Viaggio in composizione": intestazione (squadra/camion/partenza), barre Peso/Volume (`ProgressBar` 350×7px), elenco ordini nel viaggio con badge categoria (`CATEGORIA_BADGE_LABELS`: `BordoStrada`/`InstallazioneSempliceAlPiano`/`Incasso`→"Standard" bg `#EAEAEA`/testo `#2E2E2E`, `Big`/`CertificazioneGas`→bg `#FEF3C7`/testo `#B45309` — solo "Standard"/"Big" verificati nel mockup, "Certificazione Gas" è la stessa logica applicata per coerenza), riga "Aggiungi ordine" (`Select` **senza label**, vedi `## Select`, + bottone "Aggiungi"), messaggio di rifiuto opzionale (`show_alert(motivo)`/`hide_alert()`, testo rosso `#C0392B` con prefisso `⚠`, **nessun box/bordo** — solo testo, nonostante il nome "Alert Box" nel mockup), footer Annulla + bottone primario con etichetta configurabile (`set_footer_primary_label`, default "Chiudi viaggio"). API: `set_intestazione(...)`, `set_ordini(list[RigaOrdineComposizione])`, `set_ordini_disponibili(list[tuple[id, cliente]])`, `add_extra_section(widget)` (slot per un blocco extra, inserito prima di "Aggiungi ordine"). Segnali: `aggiungiOrdineRequested(str)`, `annullaRequested()`, `chiudiViaggioRequested()`.
+- **`SuggestionSection(parent=None)`** — blocco "Suggerimento automatico": bottone "Suggerisci ordini", elenco righe suggerite (testo `✓  #id  ·  cliente  ·  peso kg · volume m³  ·  categoria`, Inter 12px/500 Blu Scuro `#163A6B`, misurato — diverso dal grigio hint standard), riga di riepilogo capacità (Inter 12px/500 `#9AA1AA`). API: `set_suggerimento(list[RigaOrdineSuggerito], peso_dopo, peso_massimo, volume_dopo, volume_massimo)`, `clear()`. Segnale: `suggerisciRequested()`. Pensato per essere passato a `CompositionCard.add_extra_section()`.
+- **Trappola stretch verticale** (trovata 2026-07-16 costruendo Manuale): senza uno `content_layout.addStretch(1)` finale, se la card riceve più altezza di quella richiesta dal contenuto (finestra grande), `QVBoxLayout` distribuisce lo spazio in eccesso tra le label (size policy `Preferred`, non `Fixed`) invece di lasciarle compatte in cima — sintomo: gap enormi e non uniformi tra le sezioni. Fix: `addStretch(1)` in fondo al `content_layout`. Lo stesso principio vale per qualunque container QVBoxLayout con pochi widget a size policy flessibile dentro un genitore che gli passa uno stretch factor.
+- **Trappola widget "fantasma" dopo `deleteLater()`** (trovata 2026-07-16): un widget rimosso da un layout con `takeAt()` si scollega dal layout ma **non si nasconde** — resta visibile alla sua ultima geometria finché `deleteLater()` non viene effettivamente processato al giro successivo dell'event loop, producendo un frame con il vecchio widget ancora sovrapposto al nuovo in un ciclo "svuota e ripopola". Fix: chiamare `widget.hide()` subito dopo `takeAt()`, prima di `deleteLater()`.
