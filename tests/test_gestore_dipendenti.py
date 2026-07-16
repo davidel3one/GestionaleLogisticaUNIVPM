@@ -567,3 +567,67 @@ def test_elimina_dipendente_definitivamente_rifiutato_se_membro_di_composizione(
     assert not risultato.ok
     with session_factory() as session:
         assert session.get(Dipendente, "D1") is not None
+
+
+def test_elimina_dipendente_soft_delete(session_factory):
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+
+    risultato = gestore.elimina_dipendente("D1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        dip = session.get(Dipendente, "D1")
+        assert dip is not None  # la riga resta a database (RF8), a differenza dell'hard-delete
+        assert dip.flg_eliminato is True
+        assert dip.flg_attivo is False
+    # Escluso da qualunque vista, anche filtrando esplicitamente per "Cessato".
+    assert gestore.visualizza_dipendenti().totale == 0
+    assert gestore.visualizza_dipendenti(filtro_stato=STATO_CESSATO).totale == 0
+
+
+def test_elimina_dipendente_soft_delete_funziona_anche_se_gia_cessato(session_factory):
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+    gestore.licenzia_dipendente("D1")
+
+    risultato = gestore.elimina_dipendente("D1")
+
+    assert risultato.ok
+
+
+def test_elimina_dipendente_soft_delete_inesistente_rifiutato(session_factory):
+    gestore = GestoreDipendenti(session_factory)
+
+    risultato = gestore.elimina_dipendente("INESISTENTE")
+
+    assert not risultato.ok
+    assert "non trovato" in risultato.motivo
+
+
+def test_elimina_dipendente_soft_delete_rifiutato_se_membro_di_composizione(session_factory):
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(Camion(
+            id="CAM1", targa="AB123CD", tipo_mezzo="Furgone", peso_massimo=100.0, volume_massimo=5.0,
+            flg_sponda_idraulica=False, data_acquisizione=datetime(2020, 1, 1), data_dismissione=None,
+            flg_attivo=True,
+        ))
+        session.add(ComposizioneSquadra(
+            id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+            dipendente_1_id="D1", dipendente_2_id="D2",
+            data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+        ))
+        session.commit()
+
+    gestore = GestoreDipendenti(session_factory)
+    gestore.inserisci_dipendente("D1", "Mario", "Rossi", "AAAAAA80A01A001A", datetime(2020, 1, 1))
+    gestore.inserisci_dipendente("D2", "Luca", "Bianchi", "BBBBBB80A01A002A", datetime(2020, 1, 1))
+
+    risultato = gestore.elimina_dipendente("D1")
+
+    assert not risultato.ok
+    with session_factory() as session:
+        dip = session.get(Dipendente, "D1")
+        assert dip is not None
+        assert dip.flg_eliminato is False

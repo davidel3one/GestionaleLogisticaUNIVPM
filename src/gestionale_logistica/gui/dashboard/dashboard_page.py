@@ -162,6 +162,11 @@ class DashboardPage(QWidget):
             item = layout.takeAt(0)
             widget = item.widget()
             if widget is not None:
+                # hide() subito: deleteLater() e' differita al prossimo giro di event loop e
+                # takeAt() scollega il widget dal layout ma non lo nasconde - senza hide() le
+                # vecchie KPI/righe restano a schermo sovrapposte a quelle ricostruite nello
+                # stesso layout a ogni refresh (stesso fix di table._clear_layout).
+                widget.hide()
                 widget.deleteLater()
 
     def _popola_kpi(self) -> None:

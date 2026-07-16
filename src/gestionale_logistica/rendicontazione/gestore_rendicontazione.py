@@ -21,7 +21,7 @@ from gestionale_logistica.database.models import (
     ReportConsuntivo,
     Viaggio,
 )
-from gestionale_logistica.logistica.gestore_logistica import FILTRO_TUTTI
+from gestionale_logistica.logistica.gestore_logistica import FILTRO_TUTTI, _normalizza_filtro_multiplo
 
 esito_consegna = CRUDBase[EsitoConsegna](EsitoConsegna)
 causale_fallimento = CRUDBase[CausaleFallimento](CausaleFallimento)
@@ -377,7 +377,7 @@ class GestoreRendicontazione:
     def elenca_esiti(
         self,
         ricerca: str | None = None,
-        filtro_esito: str = FILTRO_TUTTI,
+        filtro_esito: str | list[str] = FILTRO_TUTTI,
         filtro_data: date | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
@@ -427,8 +427,9 @@ class GestoreRendicontazione:
                 for r in righe_grezze
             ]
 
-            if filtro_esito and filtro_esito != FILTRO_TUTTI:
-                righe = [r for r in righe if r.esito == filtro_esito]
+            valori_esito = _normalizza_filtro_multiplo(filtro_esito, FILTRO_TUTTI)
+            if valori_esito:
+                righe = [r for r in righe if r.esito in valori_esito]
 
             if filtro_data is not None:
                 righe = [r for r in righe if r.data_registrazione.date() == filtro_data]

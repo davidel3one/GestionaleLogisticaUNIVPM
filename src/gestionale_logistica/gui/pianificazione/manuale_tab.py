@@ -5,23 +5,39 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.gui.components import EmptyState
 from gestionale_logistica.gui.pianificazione.components import AvvioCard, CompositionCard
+from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+    evidenzia_giorni_con_squadre_attive,
+)
 from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     costruisci_stato_composizione,
     descrizione_composizioni_disponibili,
     elenca_composizioni_disponibili,
     elenca_ordini_candidati,
 )
-from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.logistica.gestore_logistica import (
+    MOTIVO_CERTIFICAZIONE_GAS_MANCANTE,
+    MOTIVO_SPONDA_IDRAULICA_MANCANTE,
+    GestoreLogistica,
+)
 from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
+
+# Le due sole cause di rifiuto RF11 legate all'idoneita' categoria<->risorsa (non a peso/volume
+# residuo): su richiesta esplicita dell'utente (2026-07-16) queste vanno segnalate con un toast
+# invece del solito alert sotto la tabella "Aggiungi ordine" — piu' vistose perche' indicano un
+# problema di composizione squadra/camion scelta all'avvio, non del singolo ordine.
+_MOTIVI_IDONEITA_COME_TOAST = {MOTIVO_SPONDA_IDRAULICA_MANCANTE, MOTIVO_CERTIFICAZIONE_GAS_MANCANTE}
 
 
 class ManualeTab(QWidget):
+    ordineNonIdoneo = Signal(str)  # motivo, per un toast (vedi _MOTIVI_IDONEITA_COME_TOAST)
+
     def __init__(self, session_factory: sessionmaker = SessionLocal, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._session_factory = session_factory
@@ -36,6 +52,7 @@ class ManualeTab(QWidget):
         self._avvio_card = AvvioCard()
         self._avvio_card.avviaRequested.connect(self._avvia_composizione)
         self._avvio_card.dataChanged.connect(self._on_data_changed)
+        evidenzia_giorni_con_squadre_attive(self._avvio_card.calendario(), self._session_factory)
         outer.addWidget(self._avvio_card)
 
         self._composizione_container = QVBoxLayout()
@@ -82,7 +99,9 @@ class ManualeTab(QWidget):
     def _show_composizione_card(self) -> None:
         self._clear_composizione_container()
         self._card = CompositionCard()
+        self._card.set_rimozione_ordine_abilitata(True)
         self._card.aggiungiOrdineRequested.connect(self._aggiungi_ordine)
+        self._card.rimuoviOrdineRequested.connect(self._rimuovi_ordine)
         self._card.annullaRequested.connect(self._annulla)
         self._card.chiudiViaggioRequested.connect(self._chiudi_viaggio)
         self._composizione_container.addWidget(self._card)
@@ -133,7 +152,21 @@ class ManualeTab(QWidget):
             return
         esito = self._gestore.aggiungi_ordine_a_viaggio(self._viaggio_id, ordine_id)
         if not esito.ammesso:
-            self._card.show_alert(esito.motivo or "Ordine non ammesso")
+            if esito.motivo in _MOTIVI_IDONEITA_COME_TOAST:
+                self._card.hide_alert()
+                self.ordineNonIdoneo.emit(esito.motivo)
+            else:
+                self._card.show_alert(esito.motivo or "Ordine non ammesso")
+            return
+        self._card.hide_alert()
+        self._refresh_composizione_card()
+
+    def _rimuovi_ordine(self, ordine_id: str) -> None:
+        if self._viaggio_id is None:
+            return
+        esito = self._gestore.rimuovi_ordine_da_viaggio(self._viaggio_id, ordine_id)
+        if not esito.ok:
+            self._card.show_alert(esito.motivo or "Impossibile rimuovere l'ordine")
             return
         self._card.hide_alert()
         self._refresh_composizione_card()

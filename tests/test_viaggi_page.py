@@ -62,6 +62,26 @@ def test_viaggi_page_vuota_non_crasha(app, session_factory):
     assert pagina._tabella._rows_layout.count() == 1  # solo lo stretch finale, nessuna riga
 
 
+def test_viaggi_page_bottone_nuova_pianificazione_emette_segnale(app, session_factory):
+    # 2026-07-16, richiesta esplicita dell'utente: il bottone "Nuova pianificazione" non e' piu'
+    # disabilitato, riprende lo stesso pattern di DashboardPage.nuovaPianificazioneRequested (il
+    # composition root collega questo segnale a PianificazionePage.mostra_tab_automatica +
+    # AppShell.navigate_to("pianificazione"), non testato qui - vive in src/__init__.py).
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+
+    from gestionale_logistica.gui.components import Button
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    bottone = next(b for b in pagina.findChildren(Button) if b.isEnabled())
+
+    ricevuti = []
+    pagina.nuovaPianificazioneRequested.connect(lambda: ricevuti.append(True))
+    QTest.mouseClick(bottone, Qt.MouseButton.LeftButton)
+
+    assert ricevuti == [True]
+
+
 def test_viaggi_page_popola_tabella(app, session_factory):
     with session_factory() as session:
         crea_flotta(session)
@@ -148,20 +168,66 @@ def test_viaggi_page_ricerca_filtra_e_ricarica(app, session_factory):
     assert "V-BBB" not in testi
 
 
-def test_viaggi_page_modifica_riga_annulla_ricarica(app, session_factory):
-    # In corso non e' in STATI_MODIFICABILI: la matita deve ancora cambiare stato (annulla), non
-    # aprire il modale di modifica - vedi test_viaggi_page_modifica_riga_apre_modale_modifica per
-    # gli stati In composizione/Pianificato, dove il comportamento della matita e' cambiato.
+@pytest.mark.parametrize(
+    "stato", [StatoViaggio.IN_CORSO, StatoViaggio.COMPLETATO, StatoViaggio.ANNULLATO]
+)
+def test_viaggi_page_pencil_nascosta_per_stati_non_modificabili(app, session_factory, stato):
+    # La RowAction "pencil" ha un predicate che la nasconde del tutto (non solo disabilitata) per
+    # gli stati fuori da STATI_MODIFICABILI - su richiesta esplicita dell'utente un viaggio non
+    # modificabile non deve nemmeno mostrare l'icona.
+    from gestionale_logistica.logistica.gestore_logistica import STATO_VIAGGIO_LABELS
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=stato))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    azioni_col = pagina._tabella._columns[-1]
+    pencil_action = next(a for a in azioni_col.actions if a.icon_name == "pencil")
+
+    assert pencil_action.predicate({"stato": STATO_VIAGGIO_LABELS[stato]}) is False
+
+
+@pytest.mark.parametrize(
+    "stato",
+    [
+        StatoViaggio.IN_COMPOSIZIONE,
+        StatoViaggio.PIANIFICATO,
+        StatoViaggio.COMPLETATO,
+        StatoViaggio.ANNULLATO,
+    ],
+)
+def test_viaggi_page_cestino_visibile_tranne_che_per_in_corso(app, session_factory, stato):
+    # La RowAction "trash-2" ha un predicate che la nasconde del tutto solo per In corso (camion
+    # gia' partito, su richiesta esplicita dell'utente) - per tutti gli altri stati resta visibile.
+    from gestionale_logistica.logistica.gestore_logistica import STATO_VIAGGIO_LABELS
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=stato))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    azioni_col = pagina._tabella._columns[-1]
+    trash_action = next(a for a in azioni_col.actions if a.icon_name == "trash-2")
+
+    assert trash_action.predicate({"stato": STATO_VIAGGIO_LABELS[stato]}) is True
+
+
+def test_viaggi_page_cestino_nascosto_per_in_corso(app, session_factory):
+    from gestionale_logistica.logistica.gestore_logistica import STATO_VIAGGIO_LABELS
+
     with session_factory() as session:
         crea_flotta(session)
         session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.IN_CORSO))
         session.commit()
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
-    pagina._modifica_riga({"id": "V1", "stato": "In corso"})
+    azioni_col = pagina._tabella._columns[-1]
+    trash_action = next(a for a in azioni_col.actions if a.icon_name == "trash-2")
 
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "Annullato" in testi
+    assert trash_action.predicate({"stato": STATO_VIAGGIO_LABELS[StatoViaggio.IN_CORSO]}) is False
 
 
 @pytest.mark.parametrize("stato", [StatoViaggio.IN_COMPOSIZIONE, StatoViaggio.PIANIFICATO])
@@ -188,39 +254,284 @@ def test_viaggi_page_modifica_riga_apre_modale_modifica(app, session_factory, st
         assert viaggio.stato_viaggio == stato
 
 
-def test_viaggi_page_modifica_riga_annulla_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
+def _riga_contiene(layout, *widget):
+    """True se un item diretto di `layout` e' un sotto-layout (riga_2_colonne) che contiene
+    tutti i `widget` passati - modo per verificare che due campi siano affiancati nella stessa
+    riga (addLayout non crea un QWidget contenitore separato: parentWidget() da solo non basta
+    a distinguere "stessa riga" da "stesso modale")."""
+    for i in range(layout.count()):
+        sotto = layout.itemAt(i).layout()
+        if sotto is None:
+            continue
+        contenuti = {sotto.itemAt(j).widget() for j in range(sotto.count())}
+        if all(w in contenuti for w in widget):
+            return True
+    return False
+
+
+def test_viaggi_page_modale_modifica_select_stato_affiancato_a_squadra(app, session_factory):
+    # 2026-07-16, su richiesta esplicita dell'utente: il cambio stato non e' piu' una sezione
+    # separata sotto Squadra (bottone "Conferma pianificazione" + link "Annulla viaggio") - ora
+    # un unico Select "Stato" nella STESSA riga di Squadra (riga_2_colonne).
+    from gestionale_logistica.gui.components import Modal, Select
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.IN_COMPOSIZIONE))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._modifica_riga({"id": "V1", "stato": "In composizione"})
+
+    modale_modifica = pagina.findChildren(Modal)[-1]
+    campo_squadra = next(s for s in modale_modifica.findChildren(Select) if s._label == "Squadra")
+    campo_stato = next(s for s in modale_modifica.findChildren(Select) if s._label == "Stato")
+
+    assert _riga_contiene(modale_modifica.content_layout, campo_squadra, campo_stato)
+
+
+def _click_salva(modale):
+    from gestionale_logistica.gui.components import Button
+
+    bottone = next(b for b in modale.findChildren(Button) if b.findChild(QLabel).text() == "Salva")
+    bottone.clicked.emit()
+
+
+def test_viaggi_page_modale_modifica_stato_non_cambia_alla_sola_selezione(app, session_factory):
+    # 2026-07-16, su richiesta esplicita dell'utente: selezionare un nuovo Stato non deve
+    # eseguire subito l'azione - resta un campo come Squadra/Date, applicato solo premendo
+    # "Salva" (vedi test successivi).
+    from gestionale_logistica.gui.components import Modal, Select
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.IN_COMPOSIZIONE))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._modifica_riga({"id": "V1", "stato": "In composizione"})
+
+    modale_modifica = pagina.findChildren(Modal)[-1]
+    campo_stato = next(s for s in modale_modifica.findChildren(Select) if s._label == "Stato")
+    campo_stato.set_value("Pianificato")
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == StatoViaggio.IN_COMPOSIZIONE  # invariato
+
+
+def test_viaggi_page_modale_modifica_conferma_pianificazione_in_composizione(app, session_factory):
+    # 2026-07-16, su richiesta esplicita dell'utente: prima non esisteva nessun modo dalla GUI di
+    # Viaggi per chiudere una composizione (In composizione -> Pianificato) - solo dal flusso di
+    # Pianificazione manuale/assistita. Selezionare "Pianificato" nel Select "Stato" e premere
+    # Salva chiude la composizione se c'e' almeno un ordine agganciato, stesso vincolo hard gia'
+    # imposto da chiudi_composizione_viaggio.
+    from gestionale_logistica.database.models import Ordine
+    from gestionale_logistica.database.enums import CategoriaConsegna, StatoOrdine
+    from gestionale_logistica.gui.components import Modal, Select
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.IN_COMPOSIZIONE))
+        session.add(Ordine(
+            id="ORD-1", indirizzo="Via Roma 12", comune="Ancona", provincia="AN", lat=None, lon=None,
+            cliente="Mario Bianchi", peso=10.0, volume_cargo=0.1,
+            categoria_consegna=CategoriaConsegna.BORDO_STRADA, stato_ordine=StatoOrdine.PIANIFICATO,
+            data_importazione=datetime.now(), viaggio_id="V1",
+        ))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._modifica_riga({"id": "V1", "stato": "In composizione"})
+
+    modale_modifica = pagina.findChildren(Modal)[-1]
+    campo_stato = next(s for s in modale_modifica.findChildren(Select) if s._label == "Stato")
+    assert campo_stato._options == ["In composizione", "Pianificato", "Annullato"]
+
+    campo_stato.set_value("Pianificato")
+    _click_salva(modale_modifica)
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == StatoViaggio.PIANIFICATO
+
+
+def test_viaggi_page_modale_modifica_pianificazione_rifiutata_senza_ordini(app, session_factory, monkeypatch):
+    # Senza ordini agganciati chiudi_composizione_viaggio rifiuta al momento del Salva (stesso
+    # vincolo hard del backend), mostrando un Toast invece del vecchio bottone semplicemente
+    # disabilitato in anticipo.
+    from gestionale_logistica.gui.components import Modal, Select
     from gestionale_logistica.gui.pages import viaggi as modulo_viaggi
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_viaggi.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_viaggi.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
         crea_flotta(session)
-        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.COMPLETATO))
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.IN_COMPOSIZIONE))
         session.commit()
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
-    pagina._modifica_riga({"id": "V1", "stato": "Completato"})
+    pagina._modifica_riga({"id": "V1", "stato": "In composizione"})
+
+    modale_modifica = pagina.findChildren(Modal)[-1]
+    campo_stato = next(s for s in modale_modifica.findChildren(Select) if s._label == "Stato")
+    campo_stato.set_value("Pianificato")
+    _click_salva(modale_modifica)
 
     assert len(chiamate) == 1
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == StatoViaggio.IN_COMPOSIZIONE
 
 
-def test_viaggi_page_modifica_riga_ripristina_ricarica(app, session_factory):
+def test_viaggi_page_modale_modifica_select_stato_pianificato_non_permette_tornare_in_composizione(app, session_factory):
+    # Pianificato non ha un'operazione di ripristino verso In composizione (vedi nota in cima a
+    # gui/pages/viaggi/__init__.py): le uniche opzioni del Select devono essere se stesso e
+    # Annullato.
+    from gestionale_logistica.gui.components import Modal, Select
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.PIANIFICATO))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._modifica_riga({"id": "V1", "stato": "Pianificato"})
+
+    modale_modifica = pagina.findChildren(Modal)[-1]
+    campo_stato = next(s for s in modale_modifica.findChildren(Select) if s._label == "Stato")
+    assert campo_stato._options == ["Pianificato", "Annullato"]
+
+
+@pytest.mark.parametrize("stato", [StatoViaggio.IN_COMPOSIZIONE, StatoViaggio.PIANIFICATO])
+def test_viaggi_page_modale_modifica_annulla_viaggio(app, session_factory, stato):
+    # Selezionare "Annullato" nel Select "Stato" e premere Salva deve essere possibile per
+    # entrambi gli stati modificabili (2026-07-16, su richiesta esplicita dell'utente) e passare
+    # da una ConfirmModal al momento del Salva, non annullare subito alla selezione ne' al primo
+    # click su Salva senza conferma.
+    from gestionale_logistica.gui.components import ConfirmModal, Modal, Select
+    from gestionale_logistica.logistica.gestore_logistica import STATO_VIAGGIO_LABELS
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=stato))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._modifica_riga({"id": "V1", "stato": STATO_VIAGGIO_LABELS[stato]})
+
+    modale_modifica = pagina.findChildren(Modal)[-1]
+    campo_stato = next(s for s in modale_modifica.findChildren(Select) if s._label == "Stato")
+    campo_stato.set_value("Annullato")
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == stato  # non ancora annullato, solo selezionato
+
+    _click_salva(modale_modifica)
+
+    conferme = modale_modifica.findChildren(ConfirmModal)
+    assert len(conferme) == 1
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == stato  # non ancora annullato, in attesa di conferma
+
+    conferme[0].confirmed.emit()
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == StatoViaggio.ANNULLATO
+
+
+def test_viaggi_page_modale_modifica_annulla_viaggio_conferma_negata_non_applica_nulla(app, session_factory):
+    # Se l'utente chiude/annulla la ConfirmModal invece di confermare, il modale di modifica resta
+    # aperto e nessuna modifica (stato incluso) viene applicata - l'utente puo' correggere la
+    # selezione o premere di nuovo Salva.
+    from gestionale_logistica.gui.components import ConfirmModal, Modal, Select
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.PIANIFICATO))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._modifica_riga({"id": "V1", "stato": "Pianificato"})
+
+    modale_modifica = pagina.findChildren(Modal)[-1]
+    campo_stato = next(s for s in modale_modifica.findChildren(Select) if s._label == "Stato")
+    campo_stato.set_value("Annullato")
+    _click_salva(modale_modifica)
+
+    conferma = modale_modifica.findChildren(ConfirmModal)[-1]
+    conferma.close()
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == StatoViaggio.PIANIFICATO
+
+
+def test_viaggi_page_elimina_riga_annullato_apre_conferma_senza_eliminare_subito(app, session_factory):
+    # Un viaggio gia' Annullato non ammette piu' cambi di stato (niente ripristina): il cestino e'
+    # l'unica azione residua e per questo stato deve eliminare in modo definitivo, dietro conferma
+    # esplicita data l'irreversibilita' - stesso pattern di Dipendenti/Camion.
+    from gestionale_logistica.gui.components import ConfirmModal
+
     with session_factory() as session:
         crea_flotta(session)
         session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.ANNULLATO))
         session.commit()
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
-    pagina._modifica_riga({"id": "V1", "stato": "Annullato"})
+    pagina._elimina_riga({"id": "V1", "stato": "Annullato"})
 
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "In composizione" in testi
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1") is not None  # non ancora eliminato
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+
+    modali[0].confirmed.emit()
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1") is None
 
 
-def test_viaggi_page_elimina_riga_soft_delete(app, session_factory):
+def test_viaggi_page_elimina_riga_annullato_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
+    # elimina_viaggio_definitivamente rifiuta se il viaggio ha ordini agganciati: verifichiamo che
+    # il rifiuto produca un Toast invece di fallire silenziosamente.
+    from gestionale_logistica.gui.components import ConfirmModal
+    from gestionale_logistica.gui.pages import viaggi as modulo_viaggi
+
+    chiamate = []
+    monkeypatch.setattr(
+        modulo_viaggi.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
+    )
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.ANNULLATO))
+        session.add(Ordine(
+            id="ORD-1", indirizzo="Via Roma 12", comune="Ancona", provincia="AN", lat=None, lon=None,
+            cliente="Mario Bianchi", peso=10.0, volume_cargo=0.1,
+            categoria_consegna=CategoriaConsegna.BORDO_STRADA, stato_ordine=StatoOrdine.COMPLETATO,
+            data_importazione=datetime.now(), data_consegna=datetime.now(), viaggio_id="V1",
+        ))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._elimina_riga({"id": "V1", "stato": "Annullato"})
+
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+    modali[0].confirmed.emit()
+
+    assert len(chiamate) == 1
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1") is not None
+
+
+def test_viaggi_page_elimina_riga_pianificato_apre_conferma_senza_annullare_subito(app, session_factory):
+    # 2026-07-16, su richiesta esplicita dell'utente: il click sul cestino per Pianificato/In
+    # composizione eseguiva annulla_viaggio subito, senza alcun passaggio intermedio visibile -
+    # ora passa prima da una ConfirmModal, stesso principio gia' usato per l'hard-delete su una
+    # riga gia' Annullata.
+    from gestionale_logistica.gui.components import ConfirmModal
+
     with session_factory() as session:
         crea_flotta(session)
         session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.PIANIFICATO))
@@ -228,6 +539,13 @@ def test_viaggi_page_elimina_riga_soft_delete(app, session_factory):
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
     pagina._elimina_riga({"id": "V1", "stato": "Pianificato"})
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1").stato_viaggio == StatoViaggio.PIANIFICATO  # non ancora annullato
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+
+    modali[0].confirmed.emit()
 
     with session_factory() as session:
         assert session.get(Viaggio, "V1").stato_viaggio == StatoViaggio.ANNULLATO
@@ -240,7 +558,7 @@ def test_viaggi_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory, 
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_viaggi.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_viaggi.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -265,11 +583,27 @@ def test_viaggi_page_filtro_stato_si_puo_azzerare(app, session_factory):
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
 
-    pagina._select_stato.set_value("Pianificato")
+    pagina._select_stato.set_value(["Pianificato"])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 viaggi"
 
-    pagina._select_stato.set_value(None)
+    pagina._select_stato.set_value([])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "2 viaggi"
+
+
+def test_viaggi_page_filtro_stato_multiplo(app, session_factory):
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.PIANIFICATO))
+        session.add(crea_viaggio("V2", "SQ1", stato=StatoViaggio.ANNULLATO))
+        session.add(crea_viaggio("V3", "SQ1", stato=StatoViaggio.IN_CORSO))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+
+    # Piu' stati selezionati insieme (MultiSelect): righe che soddisfano uno qualsiasi dei valori.
+    pagina._select_stato.set_value(["Pianificato", "Annullato"])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "2 viaggi"
 
@@ -296,7 +630,7 @@ def test_viaggi_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
     pagina._campo_ricerca.set_value("v1")
-    pagina._select_stato.set_value("Pianificato")
+    pagina._select_stato.set_value(["Pianificato"])
     pagina._campo_data.set_value(QDate(2026, 7, 20))
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 viaggi"
@@ -304,7 +638,7 @@ def test_viaggi_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory
     pagina._ripristina_filtri()
 
     assert pagina._campo_ricerca.value() == ""
-    assert pagina._select_stato.value() is None
+    assert pagina._select_stato.value() == []
     assert pagina._filtro_data is None
     assert pagina._etichetta_conteggio.text() == "2 viaggi"
 

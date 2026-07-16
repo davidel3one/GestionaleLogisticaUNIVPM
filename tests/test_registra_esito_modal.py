@@ -184,7 +184,7 @@ def test_modal_salva_rifiutato_mostra_avviso(app, session_factory, monkeypatch):
     # Nessun viaggio in DB: registra_esito rifiuta con "ordine non trovato".
     chiamate = []
     monkeypatch.setattr(
-        modulo, "QMessageBox", type("_M", (), {"warning": staticmethod(lambda *a: chiamate.append(a))})
+        modulo.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     modal = RegistraEsitoModal(_riga("INESISTENTE"), GestoreRendicontazione(session_factory))

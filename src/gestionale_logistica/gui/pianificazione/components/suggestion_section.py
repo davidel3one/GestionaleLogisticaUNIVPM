@@ -28,7 +28,7 @@ from gestionale_logistica.gui.components import (
 TITLE_COLOR = "#2E2E2E"
 HINT_COLOR = "#9AA1AA"
 
-PAGE_SIZE = 10
+PAGE_SIZE = 20
 
 # Stessi colori di CompositionCard._BADGE_COLORS (composition_card.py, misurati sul mockup):
 # costante di stile duplicata per file, non condivisa (stesso pattern di DIVIDER_COLOR, vedi

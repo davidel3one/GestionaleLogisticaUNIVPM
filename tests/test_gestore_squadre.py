@@ -17,22 +17,23 @@ from gestionale_logistica.risorse.gestore_squadre import (
 )
 
 
-def inserisci_camion(session, id_="CAM1", flg_attivo=True, targa=None):
+def inserisci_camion(session, id_="CAM1", flg_attivo=True, targa=None, flg_sponda_idraulica=False):
     session.add(
         Camion(
             id=id_, targa=targa or f"TARGA-{id_}", tipo_mezzo="Furgone", peso_massimo=100.0,
-            volume_massimo=5.0, flg_sponda_idraulica=False, data_acquisizione=datetime(2020, 1, 1),
-            data_dismissione=None, flg_attivo=flg_attivo,
+            volume_massimo=5.0, flg_sponda_idraulica=flg_sponda_idraulica,
+            data_acquisizione=datetime(2020, 1, 1), data_dismissione=None, flg_attivo=flg_attivo,
         )
     )
 
 
-def inserisci_dipendente(session, id_, flg_attivo=True, nome="Mario", cognome="Rossi"):
+def inserisci_dipendente(session, id_, flg_attivo=True, nome="Mario", cognome="Rossi",
+                          flg_certificazione_gas=False):
     session.add(
         Dipendente(
             id=id_, nome=nome, cognome=cognome, codice_fiscale=f"CF-{id_}",
             data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
-            flg_attivo=flg_attivo, flg_certificazione_gas=False,
+            flg_attivo=flg_attivo, flg_certificazione_gas=flg_certificazione_gas,
         )
     )
 
@@ -72,14 +73,17 @@ def inserisci_ordine(session, id_, viaggio_id):
 
 def _squadra_con_composizione(session, squadra_id, flg_attiva_squadra=True, targa=None,
                               nome1="Mario", cognome1="Bianchi", nome2="Elena", cognome2="Conti",
-                              data_creazione=datetime(2026, 1, 1)):
+                              data_creazione=datetime(2026, 1, 1), flg_sponda_idraulica=False,
+                              flg_certificazione_gas=False):
     """Crea una squadra con camion + 2 dipendenti dedicati e una composizione attiva. Camion e
     dipendenti hanno id derivati dallo squadra_id per non collidere tra piu' squadre nello stesso test."""
     cam_id = f"CAM-{squadra_id}"
     d1_id = f"{squadra_id}-D1"
     d2_id = f"{squadra_id}-D2"
-    inserisci_camion(session, cam_id, targa=targa or f"TARGA-{squadra_id}")
-    inserisci_dipendente(session, d1_id, nome=nome1, cognome=cognome1)
+    inserisci_camion(session, cam_id, targa=targa or f"TARGA-{squadra_id}",
+                      flg_sponda_idraulica=flg_sponda_idraulica)
+    inserisci_dipendente(session, d1_id, nome=nome1, cognome=cognome1,
+                          flg_certificazione_gas=flg_certificazione_gas)
     inserisci_dipendente(session, d2_id, nome=nome2, cognome=cognome2)
     session.add(Squadra(id=squadra_id, flg_attiva=flg_attiva_squadra, data_creazione=data_creazione))
     inserisci_composizione(session, f"C-{squadra_id}", squadra_id, camion_id=cam_id, d1=d1_id, d2=d2_id)
@@ -276,6 +280,39 @@ def test_visualizza_squadre_senza_composizione_placeholder(session_factory):
 
     assert vista.membri == "—"
     assert vista.camion == "—"
+    assert vista.flg_certificazione_gas is False
+    assert vista.flg_sponda_idraulica is False
+
+
+def test_visualizza_squadre_flag_sponda_e_certificazione_da_composizione(session_factory):
+    with session_factory() as session:
+        cam_id, d1_id, d2_id = "CAM-SQ1", "SQ1-D1", "SQ1-D2"
+        inserisci_camion(session, cam_id, targa="TARGA-SQ1", flg_sponda_idraulica=True)
+        inserisci_dipendente(session, d1_id, nome="Mario", cognome="Bianchi",
+                              flg_certificazione_gas=True)
+        inserisci_dipendente(session, d2_id, nome="Elena", cognome="Conti")
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2026, 1, 1)))
+        inserisci_composizione(session, "C-SQ1", "SQ1", camion_id=cam_id, d1=d1_id, d2=d2_id)
+        session.commit()
+
+    vista = GestoreSquadre(session_factory).visualizza_squadre().squadre[0]
+
+    # Sponda idraulica: propria del camion della composizione attiva. Certificazione gas: basta
+    # che UNO dei 2 dipendenti sia certificato (qui solo il primo) - stessa idoneita' gia'
+    # verificata da GestoreLogistica.verifica_idoneita_risorsa per RF11.
+    assert vista.flg_sponda_idraulica is True
+    assert vista.flg_certificazione_gas is True
+
+
+def test_visualizza_squadre_certificazione_gas_false_se_nessun_dipendente_certificato(session_factory):
+    with session_factory() as session:
+        _squadra_con_composizione(session, "SQ1")
+        session.commit()
+
+    vista = GestoreSquadre(session_factory).visualizza_squadre().squadre[0]
+
+    assert vista.flg_certificazione_gas is False
+    assert vista.flg_sponda_idraulica is False
 
 
 # ---------- visualizza_squadre: ricerca / filtro / ordinamento / paginazione ----------
@@ -320,6 +357,51 @@ def test_visualizza_squadre_filtro_stato(session_factory):
     assert [s.id for s in gestore.visualizza_squadre(filtro_stato=STATO_NON_ATTIVA).squadre] == ["SQ3"]
     # Default (FILTRO_TUTTE): SQ3 (Non attiva) resta escluso, solo SQ1+SQ2.
     assert gestore.visualizza_squadre().totale == 2
+
+
+def test_visualizza_squadre_filtro_certificazione_gas(session_factory):
+    with session_factory() as session:
+        _squadra_con_composizione(session, "SQ1", flg_certificazione_gas=True)
+        _squadra_con_composizione(session, "SQ2", flg_certificazione_gas=False)
+        session.commit()
+
+    gestore = GestoreSquadre(session_factory)
+
+    assert [s.id for s in gestore.visualizza_squadre(filtro_certificazione_gas=True).squadre] == ["SQ1"]
+    assert [s.id for s in gestore.visualizza_squadre(filtro_certificazione_gas=False).squadre] == ["SQ2"]
+    assert gestore.visualizza_squadre(filtro_certificazione_gas=None).totale == 2
+
+
+def test_visualizza_squadre_filtro_sponda_idraulica(session_factory):
+    with session_factory() as session:
+        _squadra_con_composizione(session, "SQ1", flg_sponda_idraulica=True)
+        _squadra_con_composizione(session, "SQ2", flg_sponda_idraulica=False)
+        session.commit()
+
+    gestore = GestoreSquadre(session_factory)
+
+    assert [s.id for s in gestore.visualizza_squadre(filtro_sponda_idraulica=True).squadre] == ["SQ1"]
+    assert [s.id for s in gestore.visualizza_squadre(filtro_sponda_idraulica=False).squadre] == ["SQ2"]
+    assert gestore.visualizza_squadre(filtro_sponda_idraulica=None).totale == 2
+
+
+def test_visualizza_squadre_filtro_certificazione_gas_e_sponda_combinati(session_factory):
+    with session_factory() as session:
+        _squadra_con_composizione(
+            session, "SQ1", flg_certificazione_gas=True, flg_sponda_idraulica=True
+        )
+        _squadra_con_composizione(
+            session, "SQ2", flg_certificazione_gas=True, flg_sponda_idraulica=False
+        )
+        _squadra_con_composizione(
+            session, "SQ3", flg_certificazione_gas=False, flg_sponda_idraulica=True
+        )
+        session.commit()
+
+    gestore = GestoreSquadre(session_factory)
+
+    pagina = gestore.visualizza_squadre(filtro_certificazione_gas=True, filtro_sponda_idraulica=True)
+    assert [s.id for s in pagina.squadre] == ["SQ1"]
 
 
 def test_visualizza_squadre_ordinamento_per_data_creazione(session_factory):

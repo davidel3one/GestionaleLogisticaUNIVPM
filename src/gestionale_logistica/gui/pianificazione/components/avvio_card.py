@@ -1,8 +1,10 @@
 """AvvioCard: card "Avvia composizione viaggio", condivisa da Pianificazione — Manuale (RF10) e
-Assistita (RF12) — stesso layout misurato su entrambi i mockup Sketch: selezione composizione
-squadra disponibile, data, bottone "Avvia composizione". L'hint finale ("N composizioni attive
-disponibili per il ...") non è nel mockup: deviazione richiesta dall'utente 2026-07-16 per
-allineare Manuale/Assistita alla stessa label già presente nel Config Card di Automatica."""
+Assistita (RF12) — stesso layout misurato su entrambi i mockup Sketch: selezione squadra
+disponibile, data, bottone "Avvia composizione". L'hint finale ("N squadre attive disponibili
+per il ...") non è nel mockup: deviazione richiesta dall'utente 2026-07-16 per allineare
+Manuale/Assistita alla stessa label già presente nel Config Card di Automatica ("composizione"
+diventato "squadra" nel testo visibile all'utente, stessa data, su ulteriore richiesta esplicita
+dello stesso giorno)."""
 
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ from datetime import date
 
 from PySide6.QtCore import Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QCalendarWidget, QHBoxLayout, QLabel, QWidget
 
 from gestionale_logistica.gui.components import Button, ButtonVariant, Card, DateFilterField, Select
 
@@ -53,7 +55,7 @@ class AvvioCard(Card):
         filter_row.setContentsMargins(0, 0, 0, 0)
         filter_row.setSpacing(12)
 
-        self._select_composizione = Select(placeholder="Seleziona composizione")
+        self._select_composizione = Select(placeholder="Seleziona squadra")
         self._select_composizione.setFixedWidth(220)
         filter_row.addWidget(self._select_composizione)
 
@@ -90,8 +92,12 @@ class AvvioCard(Card):
     def data_selezionata(self) -> date:
         return self._date_field.value().toPython()
 
+    def calendario(self) -> QCalendarWidget:
+        """Popup calendario nativo del campo data, per collegare `evidenzia_giorni_con_squadre_attive`."""
+        return self._date_field.input.calendarWidget()
+
     def set_composizioni_disponibili(self, composizioni: list[tuple[str, str]]) -> None:
-        """`composizioni`: lista di (composizione_id, "Composizione: #N")."""
+        """`composizioni`: lista di (composizione_id, "Squadra: #N")."""
         self._composizione_id_by_display = {display: cid for cid, display in composizioni}
         self._select_composizione.set_options(list(self._composizione_id_by_display.keys()))
 

@@ -9,9 +9,9 @@ autosufficienti (`Button`, `Card`, ecc.).
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPaintEvent, QPainter
-from PySide6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
+from PySide6.QtCore import QEvent, QPoint, QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPaintEvent, QPainter, QPen
+from PySide6.QtWidgets import QLabel, QWidget
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
 
@@ -26,6 +26,14 @@ ICON_COLOR = "#8A93A0"
 POPOVER_BG = QColor("#EAEAEA")
 POPOVER_TEXT_COLOR = "#2E2E2E"
 POPOVER_RADIUS = 10
+# Bordo 1px (2026-07-16, richiesta esplicita dell'utente): il fill arrotondato era dipinto a mano
+# senza contorno (solo `NoPen`), con il bordo esterno affidato alla sola antialiasing del
+# riempimento - risultato leggermente diverso a seconda dello sfondo sottostante. Un contorno
+# esplicito rende il popover uniforme ovunque compaia (stesso `Popover` riusato da `Tooltip` e
+# dall'hover di troncamento in `Table._ElidingLabel`). Colore = `POPOVER_TEXT_COLOR`, riusato
+# invece di introdurne uno nuovo.
+POPOVER_BORDER_COLOR = QColor(POPOVER_TEXT_COLOR)
+POPOVER_BORDER_WIDTH = 1
 POPOVER_PADDING_H = 16
 POPOVER_PADDING_V = 12
 POPOVER_MIN_HEIGHT = 40
@@ -34,9 +42,6 @@ POPOVER_MIN_HEIGHT = 40
 # solo per far andare a capo spiegazioni molto lunghe invece di crescere all'infinito in
 # orizzontale — valore scelto, non misurato.
 POPOVER_MAX_WIDTH = 320
-POPOVER_SHADOW_COLOR = QColor(0, 0, 0, 38)  # #00000026
-POPOVER_SHADOW_OFFSET_Y = 8
-POPOVER_SHADOW_BLUR = 24
 
 POPOVER_GAP = 10
 
@@ -58,14 +63,37 @@ class Popover(QLabel):
         self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWordWrap(True)
-        self.setMaximumWidth(POPOVER_MAX_WIDTH)
         self.setMinimumHeight(POPOVER_MIN_HEIGHT)
 
         font = QFont(FONT_FAMILY)
         font.setWeight(QFont.Weight(500))
         font.setPixelSize(12)
         self.setFont(font)
+
+        # Word wrap attivato SOLO se il testo non ci sta su una riga sola entro
+        # POPOVER_MAX_WIDTH. Con wordWrap sempre attivo, il sizeHint di una QLabel
+        # word-wrap usa un'euristica interna di Qt che sceglie una wrap-width "stretta"
+        # per avvicinare l'aspect ratio al golden ratio, e quella scelta resta impressa
+        # nel layout del testo indipendentemente da un resize/setFixedWidth successivo:
+        # per questo un ID corto come "V-STORICO-20260715-03" veniva comunque spezzato
+        # dopo il primo "-" anche forzando la larghezza del widget. Disabilitare il
+        # word wrap quando non serve evita del tutto quel percorso euristico.
+        #
+        # +4px di margine di sicurezza: su finestra reale (font Inter effettivo, non il
+        # fallback usato offscreen) `horizontalAdvance` misura l'avanzamento del cursore,
+        # non il bounding box visivo del glyph renderizzato - su schermi ad alto DPI lo
+        # scarto di arrotondamento (sub-pixel) tra le due misure tronca l'ultimo carattere
+        # contro il bordo destro del popover (verificato su ID reali, es.
+        # "V-STORICO-20260715-03" con la "3" finale tagliata).
+        content_width = (
+            QFontMetrics(font).horizontalAdvance(text) + 2 * POPOVER_PADDING_H + 4
+        )
+        if content_width <= POPOVER_MAX_WIDTH:
+            self.setWordWrap(False)
+            self.setFixedWidth(content_width)
+        else:
+            self.setWordWrap(True)
+            self.setFixedWidth(POPOVER_MAX_WIDTH)
 
         self.setStyleSheet(
             f"""
@@ -77,18 +105,16 @@ class Popover(QLabel):
             """
         )
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setColor(POPOVER_SHADOW_COLOR)
-        shadow.setOffset(0, POPOVER_SHADOW_OFFSET_Y)
-        shadow.setBlurRadius(POPOVER_SHADOW_BLUR)
-        self.setGraphicsEffect(shadow)
-
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setPen(QPen(POPOVER_BORDER_COLOR, POPOVER_BORDER_WIDTH))
         painter.setBrush(POPOVER_BG)
-        painter.drawRoundedRect(self.rect(), POPOVER_RADIUS, POPOVER_RADIUS)
+        # Inset di mezzo pixel: il tratto del QPen e' centrato sul bordo del rettangolo, quindi
+        # a filo coi bordi del widget verrebbe tagliato a meta' e sparirebbe nell'antialiasing.
+        inset = POPOVER_BORDER_WIDTH / 2
+        rect = QRectF(self.rect()).adjusted(inset, inset, -inset, -inset)
+        painter.drawRoundedRect(rect, POPOVER_RADIUS, POPOVER_RADIUS)
         painter.end()
         super().paintEvent(event)
 

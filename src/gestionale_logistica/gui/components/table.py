@@ -11,22 +11,26 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QEventLoop, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QIcon, QMouseEvent, QPainter
 from PySide6.QtWidgets import (
     QAbstractButton,
+    QApplication,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLayout,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
 from gestionale_logistica.gui.components.progress_bar import ProgressBar
+from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 from gestionale_logistica.gui.components.tooltip import Popover
 
 TOOLTIP_GAP = 6
@@ -169,6 +173,12 @@ def _clear_layout(layout: QLayout) -> None:
         item = layout.takeAt(0)
         widget = item.widget()
         if widget is not None:
+            # hide() subito: deleteLater() e' differita al prossimo giro di event loop, e un
+            # widget rimosso dal layout con takeAt() resta visibile alla sua ultima geometria
+            # finche' non viene nascosto o distrutto - senza hide() le vecchie righe restano
+            # a schermo, sovrapposte alle nuove appena aggiunte nello stesso layout (stesso bug
+            # gia' risolto in ManualeTab._clear_composizione_container).
+            widget.hide()
             widget.deleteLater()
 
 
@@ -538,6 +548,23 @@ def _build_cell(column: ColumnDef, row: dict) -> QWidget:
     raise ValueError(f"Tipo colonna non supportato: {column.column_type}")
 
 
+class _RowsScrollArea(QScrollArea):
+    """QScrollArea che riporta come sizeHint l'altezza reale del contenuto (somma delle righe),
+    non il default generico di QScrollArea (~288px fissi, cfr. Qt) che sottostimerebbe la Table
+    ogni volta che nessuno le impone un vincolo di altezza (es. dentro un Modal senza stretch) -
+    senza questo fix la Table si "accorciava" da sola in quei casi, tagliando l'ultima riga sotto
+    il footer. Quando invece un genitore le assegna meno spazio del sizeHint (stretch di pagina,
+    o un maxHeight esplicito) la QScrollArea scorre comunque normalmente: sizeHint è solo la
+    dimensione desiderata, non un vincolo."""
+
+    def sizeHint(self) -> QSize:
+        content = self.widget()
+        if content is None:
+            return super().sizeHint()
+        frame = 2 * self.frameWidth()
+        return QSize(content.sizeHint().width() + frame, content.sizeHint().height() + frame)
+
+
 class Table(QFrame):
     """Tabella dati riusabile: colonne configurabili, ordinamento/paginazione server-side.
 
@@ -565,6 +592,7 @@ class Table(QFrame):
         self._show_footer = show_footer
 
         self._apply_style()
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
@@ -577,12 +605,48 @@ class Table(QFrame):
         self._rows_layout = QVBoxLayout(self._rows_container)
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.setSpacing(0)
-        outer_layout.addWidget(self._rows_container)
+
+        # Righe in una QScrollArea interna (stesso stile MINIMAL_SCROLLBAR_QSS gia' usato per
+        # "Attivita' recente" della Dashboard e per le mini-tabelle nei modali) cosi' che sia la
+        # Table stessa a scorrere in verticale quando il numero di righe eccede lo spazio
+        # disponibile - header e footer (paginazione) restano sempre visibili, fuori dall'area
+        # che scorre. Stretch 1 nell'outer_layout: quando la pagina che la ospita le da' piu'
+        # spazio del minimo (vedi `layout.addWidget(self._tabella, 1)` nelle pagine), e' l'area
+        # scorrevole a occupare lo spazio in piu', non le righe a stirarsi.
+        self._rows_scroll = _RowsScrollArea(self)
+        self._rows_scroll.setWidgetResizable(True)
+        self._rows_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._rows_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._rows_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._rows_scroll.setStyleSheet(
+            f"QScrollArea {{ background: transparent; border: none; }} {MINIMAL_SCROLLBAR_QSS}"
+        )
+        self._rows_scroll.viewport().setStyleSheet("background: transparent;")
+        self._rows_scroll.setWidget(self._rows_container)
+        outer_layout.addWidget(self._rows_scroll, 1)
 
         if self._show_footer:
             outer_layout.addWidget(self._build_footer())
 
     def set_rows(self, rows: list[dict]) -> None:
+        # Fix (2026-07-16): le celle senza `width` fisso (colonne a `stretch`) prendono la loro
+        # larghezza reale solo quando Qt elabora l'evento di layout accodato alla reparent/resize -
+        # se la Table e' gia' visibile (es. ricreata da zero e appena inserita nel layout della
+        # pagina) quell'evento resta in coda per un giro di event loop: nel frattempo quelle celle
+        # vengono dipinte alla larghezza di default di un widget appena creato (~640px in questo
+        # ambiente), poi "saltano" alla larghezza corretta - il bug delle colonne stretchate che
+        # si normalizzano dopo la comparsa. setUpdatesEnabled(False) sopprime il repaint di quel
+        # frame intermedio sbagliato, e un giro esplicito di processEvents() forza subito il
+        # ricalcolo del layout prima di riabilitare il repaint - verificato: senza, le larghezze
+        # restano sbagliate anche dopo layout().activate()/invalidate() espliciti, si sistemano
+        # solo al giro di event loop successivo. Nota: subito dopo un `addWidget` in un layout
+        # gia' visibile, `isVisible()` e' ancora False (Qt non propaga il flag "visibile"
+        # sincronamente) anche se la table e' gia' agganciata a una finestra a schermo - il
+        # controllo giusto e' "ha un genitore reale in una finestra mostrata", non `isVisible()`.
+        needs_fix = self.parentWidget() is not None and self.window().isVisible()
+        if needs_fix:
+            self.setUpdatesEnabled(False)
+
         _clear_layout(self._rows_layout)
         for index, row in enumerate(rows):
             if index > 0:
@@ -593,6 +657,10 @@ class Table(QFrame):
         # spazio in eccesso tra le righe (a dimensione fissa) invece di lasciarlo sotto l'ultima -
         # risultato: righe con un vuoto enorme tra loro invece che compatte in cima alla tabella.
         self._rows_layout.addStretch(1)
+
+        if needs_fix:
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            self.setUpdatesEnabled(True)
 
     def set_pagination(self, current_page: int, total_items: int, page_size: int) -> None:
         self._current_page = current_page

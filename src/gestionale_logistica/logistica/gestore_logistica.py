@@ -30,6 +30,23 @@ viaggio = CRUDBase[Viaggio](Viaggio)
 
 FILTRO_TUTTI = "Tutti"
 
+# Motivi di rifiuto RF11 legati all'idoneita' categoria<->risorsa (non a peso/volume residuo):
+# estratti come costanti (invece che inline in valida_ordine_per_viaggio) cosi' la GUI puo'
+# distinguerli senza duplicare il testo — vedi ManualeTab._aggiungi_ordine, che li mostra come
+# toast invece dell'alert sotto la tabella "Aggiungi ordine".
+MOTIVO_SPONDA_IDRAULICA_MANCANTE = "Il camion non ha la sponda idraulica necessaria per ordini di categoria Big"
+MOTIVO_CERTIFICAZIONE_GAS_MANCANTE = "Nessun membro della squadra ha la certificazione gas necessaria"
+
+
+def _normalizza_filtro_multiplo(valore: str | list[str] | None, sentinella: str | None) -> set[str] | None:
+    """Vedi _normalizza_filtro_multiplo in gestore_dipendenti.py: stessa logica, duplicata perche'
+    i gestori non condividono un modulo utils comune."""
+    if valore is None or valore == sentinella:
+        return None
+    if isinstance(valore, str):
+        return {valore}
+    return set(valore) or None
+
 # Etichette italiane per la lista Ordini: gli enum StatoOrdine hanno valori CamelCase pensati per
 # la persistenza, non per la UI (es. RICEVUTO -> "Da pianificare", non "Ricevuto" - coerente col
 # mockup, dove un ordine appena importato/non ancora agganciato a un viaggio si legge come "in
@@ -212,14 +229,8 @@ def valida_ordine_per_viaggio(
         )
     if not verifica_idoneita_risorsa(ordine, camion, dipendenti):
         if ordine.categoria_consegna == CategoriaConsegna.BIG:
-            return EsitoValidazioneOrdine(
-                ammesso=False,
-                motivo="Il camion non ha la sponda idraulica necessaria per ordini di categoria Big",
-            )
-        return EsitoValidazioneOrdine(
-            ammesso=False,
-            motivo="Nessun membro della squadra ha la certificazione gas necessaria",
-        )
+            return EsitoValidazioneOrdine(ammesso=False, motivo=MOTIVO_SPONDA_IDRAULICA_MANCANTE)
+        return EsitoValidazioneOrdine(ammesso=False, motivo=MOTIVO_CERTIFICAZIONE_GAS_MANCANTE)
     if peso_occupato + ordine.peso > camion.peso_massimo:
         return EsitoValidazioneOrdine(
             ammesso=False, motivo="Il peso dell'ordine supererebbe la capacita' massima del camion"
@@ -510,6 +521,30 @@ class GestoreLogistica:
             session.commit()
             return esito
 
+    def rimuovi_ordine_da_viaggio(self, viaggio_id: str, ordine_id: str) -> RisultatoOperazioneOrdine:
+        """Inverso di `aggiungi_ordine_a_viaggio`: sgancia l'ordine dal viaggio in composizione
+        e lo riporta a Ricevuto, cosi' torna candidato per un altro viaggio. Stesso vincolo
+        IN_COMPOSIZIONE dell'aggiunta - un viaggio Pianificato/InCorso non e' piu' modificabile."""
+        with self.session_factory() as session:
+            viaggio = session.get(Viaggio, viaggio_id)
+            if viaggio is None:
+                return RisultatoOperazioneOrdine(ok=False, motivo=f"Viaggio '{viaggio_id}' non trovato")
+            if viaggio.stato_viaggio != StatoViaggio.IN_COMPOSIZIONE:
+                return RisultatoOperazioneOrdine(
+                    ok=False, motivo="Il viaggio non e' in fase di composizione"
+                )
+
+            ordine = session.get(Ordine, ordine_id)
+            if ordine is None:
+                return RisultatoOperazioneOrdine(ok=False, motivo=f"Ordine '{ordine_id}' non trovato")
+            if ordine.viaggio_id != viaggio_id:
+                return RisultatoOperazioneOrdine(ok=False, motivo="L'ordine non e' agganciato a questo viaggio")
+
+            ordine.viaggio_id = None
+            ordine.stato_ordine = StatoOrdine.RICEVUTO
+            session.commit()
+            return RisultatoOperazioneOrdine(ok=True, ordine_id=ordine_id)
+
     def chiudi_composizione_viaggio(self, viaggio_id: str) -> RisultatoOperazioneViaggio:
         """RF10 (chiusura): porta il viaggio da IN_COMPOSIZIONE a PIANIFICATO definitivo.
         Richiede almeno un ordine agganciato: un viaggio vuoto non viene salvato come pianificato.
@@ -556,7 +591,7 @@ class GestoreLogistica:
     def visualizza_ordini(
         self,
         ricerca: str | None = None,
-        filtro_stato: str = FILTRO_TUTTI,
+        filtro_stato: str | list[str] = FILTRO_TUTTI,
         filtro_data: date | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
@@ -622,8 +657,9 @@ class GestoreLogistica:
             senza_data = [r for r in righe if r.data_arrivo_viaggio is None]
             righe = con_data + senza_data
 
-            if filtro_stato and filtro_stato != FILTRO_TUTTI:
-                righe = [r for r in righe if r.stato == filtro_stato]
+            valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTI)
+            if valori_stato:
+                righe = [r for r in righe if r.stato in valori_stato]
 
             if filtro_data is not None:
                 righe = [
@@ -653,7 +689,7 @@ class GestoreLogistica:
     def visualizza_viaggi(
         self,
         ricerca: str | None = None,
-        filtro_stato: str = FILTRO_TUTTI,
+        filtro_stato: str | list[str] = FILTRO_TUTTI,
         filtro_data: date | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
@@ -729,8 +765,9 @@ class GestoreLogistica:
             )
             righe.sort(key=campo_ordinamento, reverse=decrescente)
 
-            if filtro_stato and filtro_stato != FILTRO_TUTTI:
-                righe = [r for r in righe if r.stato == filtro_stato]
+            valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTI)
+            if valori_stato:
+                righe = [r for r in righe if r.stato in valori_stato]
 
             if filtro_data is not None:
                 righe = [r for r in righe if r.data_partenza_prevista.date() == filtro_data]

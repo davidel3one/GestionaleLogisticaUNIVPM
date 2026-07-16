@@ -12,7 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from gestionale_logistica.database.enums import StatoEsito
 from gestionale_logistica.gui.components.button import Button, ButtonVariant
@@ -20,6 +20,7 @@ from gestionale_logistica.gui.components.dropzone import Dropzone
 from gestionale_logistica.gui.components.form_field import Select
 from gestionale_logistica.gui.components.icons import load_lucide_icon
 from gestionale_logistica.gui.components.modal import Modal
+from gestionale_logistica.gui.components.toast import ToastManager
 from gestionale_logistica.rendicontazione.gestore_rendicontazione import AllegatoVista, GestoreRendicontazione
 
 # Stessi colori semantici gia' usati per gli esiti altrove (icon_chip.py IconChipVariant.GREEN/
@@ -188,6 +189,8 @@ class RegistraEsitoModal(Modal):
         self._btn_annulla.clicked.connect(self.close)
         self._btn_salva.clicked.connect(self._on_salva)
 
+        self._toasts = ToastManager(self)
+
         self._costruisci_contenuto()
         if esito_id is not None:
             self._precompila_per_modifica()
@@ -285,6 +288,11 @@ class RegistraEsitoModal(Modal):
         while self._lista_prove_layout.count():
             item = self._lista_prove_layout.takeAt(0)
             if item.widget() is not None:
+                # hide() subito: deleteLater() e' differita al prossimo giro di event loop e
+                # takeAt() scollega il widget dal layout ma non lo nasconde - senza hide() le
+                # vecchie chip prova restano a schermo sovrapposte a quelle ricostruite nello
+                # stesso layout a ogni aggiungi/rimuovi prova (stesso fix di table._clear_layout).
+                item.widget().hide()
                 item.widget().deleteLater()
 
         for allegato in self._allegati_esistenti:
@@ -360,7 +368,7 @@ class RegistraEsitoModal(Modal):
             messaggio_errore = "Impossibile registrare l'esito"
 
         if not risultato.ok:
-            QMessageBox.warning(self, messaggio_errore, risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error(messaggio_errore, risultato.motivo or "Operazione rifiutata.")
             return
 
         if esito == StatoEsito.FALLITO:

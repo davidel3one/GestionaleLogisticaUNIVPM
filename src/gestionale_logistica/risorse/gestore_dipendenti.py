@@ -29,6 +29,18 @@ FILTRO_TUTTI = "Tutti"
 SEGNAPOSTO_SQUADRA = "—"
 
 
+def _normalizza_filtro_multiplo(valore: str | list[str] | None, sentinella: str | None) -> set[str] | None:
+    """Riduce un filtro stato/tipo/squadra (stringa singola, lista o None) a un insieme di valori
+    ammessi, o None se non e' stato scelto nessun filtro esplicito. Accetta sia la stringa singola
+    (retrocompatibilita' con le chiamate esistenti, es. dai test) sia la `list[str]` prodotta da
+    `MultiSelect` nei filtri della GUI (2026-07-16, conversione Select -> MultiSelect)."""
+    if valore is None or valore == sentinella:
+        return None
+    if isinstance(valore, str):
+        return {valore}
+    return set(valore) or None
+
+
 @dataclass
 class RisultatoOperazioneDipendente:
     ok: bool
@@ -134,23 +146,27 @@ class GestoreDipendenti:
     def visualizza_dipendenti(
         self,
         ricerca: str | None = None,
-        filtro_squadra: str | None = None,
-        filtro_stato: str = FILTRO_TUTTI,
+        filtro_squadra: str | list[str] | None = None,
+        filtro_stato: str | list[str] = FILTRO_TUTTI,
         filtro_certificazione_gas: bool | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
         decrescente: bool = False,
     ) -> PaginaDipendenti:
-        """Elenco filtrato/ordinato/paginato dei dipendenti. Filtri: ricerca testuale (nome/
-        cognome/codice fiscale), filtro stato (Tutti/Attivo/In viaggio/Cessato - "Tutti" nasconde
-        i Cessato, visibili solo scegliendo esplicitamente quel filtro, vedi sotto), filtro squadra
-        corrente, filtro certificazione gas (None = tutti, non nel mockup - aggiunto su richiesta
-        esplicita dell'utente), ordinamento per data_assunzione, paginazione lato Python. Stesso
-        pattern di GestoreSquadre.visualizza_squadre: stato "In viaggio" derivato con query
-        aggregate sui Viaggio IN_CORSO (niente N+1), squadra corrente con una sola query sulle
-        composizioni attive; "Tutti" nasconde i Cessato esattamente come "Tutte" nasconde le
-        squadre Non attiva (2026-07-16, su richiesta esplicita dell'utente: eliminare un dipendente
-        deve anche far sparire la sua riga dalla tabella, non solo marcarla Cessato lasciandola lì)."""
+        """Elenco filtrato/ordinato/paginato dei dipendenti. I dipendenti eliminati
+        (flg_eliminato, cestino nella GUI - vedi elimina_dipendente) sono esclusi sempre,
+        incondizionatamente, da qualunque filtro Stato incluso "Cessato": non sono un dipendente
+        "gia' licenziato" da poter ancora consultare, sono concettualmente rimossi (RF8 li preserva
+        comunque a database, solo non li mostra piu' qui). Filtri: ricerca testuale (nome/cognome/
+        codice fiscale), filtro stato (Tutti/Attivo/In viaggio/Cessato - "Tutti" nasconde anche i
+        Cessato non eliminati, visibili solo scegliendo esplicitamente quel filtro, vedi sotto),
+        filtro squadra corrente, filtro certificazione gas (None = tutti, non nel mockup - aggiunto
+        su richiesta esplicita dell'utente), ordinamento per data_assunzione, paginazione lato
+        Python. Stesso pattern di GestoreSquadre.visualizza_squadre: stato "In viaggio" derivato con
+        query aggregate sui Viaggio IN_CORSO (niente N+1), squadra corrente con una sola query sulle
+        composizioni attive; "Tutti" nasconde i Cessato esattamente come "Tutte" nasconde le squadre
+        Non attiva (2026-07-16, su richiesta esplicita dell'utente: eliminare un dipendente deve
+        anche far sparire la sua riga dalla tabella, non solo marcarla Cessato lasciandola lì)."""
         with self.session_factory() as session:
             # Insieme dei dipendenti "in viaggio": composizione ATTIVA legata a un Viaggio
             # IN_CORSO. ComposizioneSquadra ha due FK verso Dipendente (dipendente_1_id/
@@ -178,7 +194,9 @@ class GestoreDipendenti:
             squadra_per_dipendente = _squadra_per_dipendente(session)
 
             ordine = Dipendente.data_assunzione.desc() if decrescente else Dipendente.data_assunzione.asc()
-            dipendenti = session.scalars(select(Dipendente).order_by(ordine)).all()
+            dipendenti = session.scalars(
+                select(Dipendente).where(Dipendente.flg_eliminato.is_(False)).order_by(ordine)
+            ).all()
 
             righe: list[DipendenteVista] = []
             for dip in dipendenti:
@@ -196,9 +214,10 @@ class GestoreDipendenti:
                     )
                 )
 
-            if filtro_stato and filtro_stato != FILTRO_TUTTI:
-                righe = [r for r in righe if r.stato == filtro_stato]
-            elif not filtro_stato or filtro_stato == FILTRO_TUTTI:
+            valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTI)
+            if valori_stato:
+                righe = [r for r in righe if r.stato in valori_stato]
+            else:
                 # Su richiesta esplicita dell'utente (2026-07-16): "eliminare" un dipendente
                 # (licenzia_dipendente) deve anche far sparire la sua riga dalla tabella, non solo
                 # marcarla Cessato lasciandola comunque visibile - stesso comportamento gia' in uso
@@ -209,8 +228,9 @@ class GestoreDipendenti:
             if filtro_certificazione_gas is not None:
                 righe = [r for r in righe if r.flg_certificazione_gas == filtro_certificazione_gas]
 
-            if filtro_squadra:
-                righe = [r for r in righe if r.squadra_corrente == filtro_squadra]
+            valori_squadra = _normalizza_filtro_multiplo(filtro_squadra, None)
+            if valori_squadra:
+                righe = [r for r in righe if r.squadra_corrente in valori_squadra]
 
             if ricerca:
                 termine = ricerca.strip().lower()
@@ -355,5 +375,40 @@ class GestoreDipendenti:
                 )
 
             session.delete(dip)
+            session.commit()
+            return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)
+
+    def elimina_dipendente(self, id_: str) -> RisultatoOperazioneDipendente:
+        """Soft-delete "vero" (cestino nella GUI, sostituisce elimina_dipendente_definitivamente
+        dietro quel bottone su richiesta esplicita dell'utente - stessi identici risultati per chi
+        usa l'app, solo l'implementazione cambia da hard a soft): la riga resta a database
+        (flg_eliminato=True, RF8) invece di essere rimossa, ma non compare mai piu' in
+        visualizza_dipendenti - nemmeno scegliendo esplicitamente il filtro Stato "Cessato", a
+        differenza di licenzia_dipendente (che marca solo Cessato, reversibile con
+        riassumi_dipendente e ancora visibile con quel filtro). Funziona sia che il dipendente sia
+        Attivo sia che sia gia' Cessato, senza distinzione: nessun errore "gia' licenziato". Stesso
+        vincolo di rifiuto dell'hard-delete se il dipendente ha fatto parte di una squadra (qui non
+        piu' necessario per l'integrita' referenziale, che la riga preservata garantisce da sola,
+        ma mantenuto per non cambiare il risultato osservabile)."""
+        with self.session_factory() as session:
+            dip = session.get(Dipendente, id_)
+            if dip is None:
+                return RisultatoOperazioneDipendente(ok=False, motivo=f"Dipendente '{id_}' non trovato")
+
+            composizione_bloccante = session.scalar(
+                select(ComposizioneSquadra.id_composizione).where(
+                    or_(
+                        ComposizioneSquadra.dipendente_1_id == id_,
+                        ComposizioneSquadra.dipendente_2_id == id_,
+                    )
+                )
+            )
+            if composizione_bloccante is not None:
+                return RisultatoOperazioneDipendente(
+                    ok=False, motivo="Impossibile eliminare: il dipendente ha fatto parte di una squadra"
+                )
+
+            dip.flg_eliminato = True
+            dip.flg_attivo = False
             session.commit()
             return RisultatoOperazioneDipendente(ok=True, dipendente_id=id_)

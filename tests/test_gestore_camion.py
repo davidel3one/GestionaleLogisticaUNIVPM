@@ -509,3 +509,71 @@ def test_elimina_camion_definitivamente_rifiutato_se_membro_di_composizione(sess
     assert not risultato.ok
     with session_factory() as session:
         assert session.get(Camion, "CAM1") is not None
+
+
+def test_elimina_camion_soft_delete(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 1200.0, 8.0)
+
+    risultato = gestore.elimina_camion("C1")
+
+    assert risultato.ok
+    with session_factory() as session:
+        mezzo = session.get(Camion, "C1")
+        assert mezzo is not None  # la riga resta a database (RF8), a differenza dell'hard-delete
+        assert mezzo.flg_eliminato is True
+        assert mezzo.flg_attivo is False
+    # Escluso da qualunque vista, anche filtrando esplicitamente per "Dismesso".
+    assert gestore.visualizza_camion().totale == 0
+    assert gestore.visualizza_camion(filtro_stato=STATO_DISMESSO).totale == 0
+
+
+def test_elimina_camion_soft_delete_funziona_anche_se_gia_dismesso(session_factory):
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("C1", "AB123CD", "Furgone", datetime(2020, 1, 1), 1200.0, 8.0)
+    gestore.disattiva_camion("C1")
+
+    risultato = gestore.elimina_camion("C1")
+
+    assert risultato.ok
+
+
+def test_elimina_camion_soft_delete_inesistente_rifiutato(session_factory):
+    gestore = GestoreCamion(session_factory)
+
+    risultato = gestore.elimina_camion("INESISTENTE")
+
+    assert not risultato.ok
+    assert "non trovato" in risultato.motivo
+
+
+def test_elimina_camion_soft_delete_rifiutato_se_membro_di_composizione(session_factory):
+    with session_factory() as session:
+        session.add(Squadra(id="SQ1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(Dipendente(
+            id="D1", nome="Mario", cognome="Rossi", codice_fiscale="AAAAAA80A01A001A",
+            data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
+            flg_attivo=True, flg_certificazione_gas=False,
+        ))
+        session.add(Dipendente(
+            id="D2", nome="Luca", cognome="Bianchi", codice_fiscale="BBBBBB80A01A002A",
+            data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
+            flg_attivo=True, flg_certificazione_gas=False,
+        ))
+        session.add(ComposizioneSquadra(
+            id_composizione="C1", squadra_id="SQ1", camion_id="CAM1",
+            dipendente_1_id="D1", dipendente_2_id="D2",
+            data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+        ))
+        session.commit()
+
+    gestore = GestoreCamion(session_factory)
+    gestore.inserisci_camion("CAM1", "AB123CD", "Furgone", datetime(2020, 1, 1), 1200.0, 8.0)
+
+    risultato = gestore.elimina_camion("CAM1")
+
+    assert not risultato.ok
+    with session_factory() as session:
+        mezzo = session.get(Camion, "CAM1")
+        assert mezzo is not None
+        assert mezzo.flg_eliminato is False

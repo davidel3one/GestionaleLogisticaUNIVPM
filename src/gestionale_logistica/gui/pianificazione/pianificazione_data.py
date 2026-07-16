@@ -47,29 +47,75 @@ def _composizioni_disponibili(session: Session, giorno: date) -> list[Composizio
 
 
 def conta_composizioni_disponibili(giorno: date, session_factory: sessionmaker = SessionLocal) -> int:
-    """Testo di supporto del Filter Bar ("N composizioni attive disponibili per il ...")."""
+    """Testo di supporto del Filter Bar ("N squadre attive disponibili per il ...")."""
     with session_factory() as session:
         return len(_composizioni_disponibili(session, giorno))
+
+
+def giorni_con_composizioni_disponibili(
+    mese_riferimento: date, session_factory: sessionmaker = SessionLocal
+) -> set[date]:
+    """Giorni del mese di `mese_riferimento` con almeno una composizione disponibile (stessa
+    condizione di `_composizioni_disponibili`, applicata all'intero mese in 2 query invece di
+    una per giorno) - usata per evidenziare in verde il popup calendario di Pianificazione."""
+    primo_giorno = mese_riferimento.replace(day=1)
+    if primo_giorno.month == 12:
+        primo_giorno_mese_dopo = primo_giorno.replace(year=primo_giorno.year + 1, month=1)
+    else:
+        primo_giorno_mese_dopo = primo_giorno.replace(month=primo_giorno.month + 1)
+
+    with session_factory() as session:
+        composizioni = session.scalars(
+            select(ComposizioneSquadra).where(ComposizioneSquadra.flg_attiva.is_(True))
+        ).all()
+        occupazioni = session.execute(
+            select(Viaggio.composizione_id, Viaggio.data_partenza_prevista).where(
+                Viaggio.data_partenza_prevista >= datetime.combine(primo_giorno, datetime.min.time()),
+                Viaggio.data_partenza_prevista < datetime.combine(primo_giorno_mese_dopo, datetime.min.time()),
+            )
+        ).all()
+
+    occupate_per_giorno: dict[date, set[str]] = {}
+    for composizione_id, partenza in occupazioni:
+        occupate_per_giorno.setdefault(partenza.date(), set()).add(composizione_id)
+
+    giorni_disponibili: set[date] = set()
+    giorno = primo_giorno
+    while giorno < primo_giorno_mese_dopo:
+        occupate_oggi = occupate_per_giorno.get(giorno, set())
+        if any(
+            c.data_inizio_validita.date() <= giorno
+            and (c.data_fine_validita is None or c.data_fine_validita.date() >= giorno)
+            and c.id_composizione not in occupate_oggi
+            for c in composizioni
+        ):
+            giorni_disponibili.add(giorno)
+        giorno += timedelta(days=1)
+
+    return giorni_disponibili
 
 
 def descrizione_composizioni_disponibili(
     giorno: date, session_factory: sessionmaker = SessionLocal
 ) -> str:
-    """Stessa label di supporto del Filter Bar di Automatica ("N composizioni attive disponibili
+    """Stessa label di supporto del Filter Bar di Automatica ("N squadre attive disponibili
     per il ..."), riusata anche dall'Avvio Card di Assistita/Manuale (deviazione dal mockup,
-    che non la modella lì — richiesta esplicita dell'utente 2026-07-16 per coerenza fra le 3 tab)."""
+    che non la modella lì — richiesta esplicita dell'utente 2026-07-16 per coerenza fra le 3 tab).
+    "Squadre" invece di "composizioni" (2026-07-16, richiesta esplicita dell'utente): stesso
+    conteggio, solo etichetta rivista perché più leggibile per l'utente finale della terminologia
+    interna "composizione" (ComposizioneSquadra)."""
     numero = conta_composizioni_disponibili(giorno, session_factory)
-    etichetta = "composizione attiva" if numero == 1 else "composizioni attive"
+    etichetta = "squadra attiva" if numero == 1 else "squadre attive"
     return f"{numero} {etichetta} disponibili per il {giorno.strftime('%d/%m/%Y')}"
 
 
 def elenca_composizioni_disponibili(
     giorno: date, session_factory: sessionmaker = SessionLocal
 ) -> list[tuple[str, str]]:
-    """(composizione_id, "Composizione: #N") per il campo di selezione dell'Avvio Card."""
+    """(composizione_id, "Squadra: #N") per il campo di selezione dell'Avvio Card."""
     with session_factory() as session:
         return [
-            (c.id_composizione, f"Composizione: #{c.squadra_id}")
+            (c.id_composizione, f"Squadra: #{c.squadra_id}")
             for c in _composizioni_disponibili(session, giorno)
         ]
 

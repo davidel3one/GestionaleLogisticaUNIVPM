@@ -193,3 +193,17 @@ def test_multi_select_deselezionare_checkbox_rimuove_il_valore(app):
     menu = campo._build_menu()
     menu.actions()[0].defaultWidget().setChecked(False)
     assert campo.value() == ["Mar"]
+
+
+def test_multi_select_compact_mostra_label_dentro_il_box(app):
+    # compact=True (righe Filtri, 2026-07-16): stesso comportamento di Select(compact=True) -
+    # niente label sopra, "Label: valore" dentro il box chiuso.
+    campo = MultiSelect("Stato", options=["Attivo", "Cessato"], placeholder="Tutti", compact=True)
+    assert campo.value() == []
+    assert campo._box.text_label.text() == "Stato: Tutti"
+
+    campo.set_value(["Attivo"])
+    assert campo._box.text_label.text() == "Stato: Attivo"
+
+    campo.set_value(["Attivo", "Cessato"])
+    assert campo._box.text_label.text() == "Stato: 2 selezionati"

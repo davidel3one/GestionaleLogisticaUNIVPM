@@ -67,6 +67,50 @@ def test_squadre_page_popola_tabella(app, session_factory):
     assert "Attiva" in testi
 
 
+def test_squadre_page_colonne_cert_gas_e_sponda_idraulica(app, session_factory):
+    with session_factory() as session:
+        crea_flotta(session, "1")
+        # Squadra "2": camion con sponda idraulica + un dipendente certificato gas, per
+        # verificare che entrambi i badge "Sì" compaiano quando i flag sono True (crea_flotta
+        # di default li lascia entrambi False, coperto gia' da test_squadre_page_popola_tabella).
+        session.add(Squadra(id="2", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(Dipendente(
+            id="D2-1", nome="Anna", cognome="Verdi", codice_fiscale="CF-2-1",
+            data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
+            flg_attivo=True, flg_certificazione_gas=True,
+        ))
+        session.add(Dipendente(
+            id="D2-2", nome="Paolo", cognome="Neri", codice_fiscale="CF-2-2",
+            data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
+            flg_attivo=True, flg_certificazione_gas=False,
+        ))
+        session.add(Camion(
+            id="CAM-2", targa="EF456GH", tipo_mezzo="Furgone", peso_massimo=1000.0,
+            volume_massimo=10.0, flg_sponda_idraulica=True, data_acquisizione=datetime(2020, 1, 1),
+            data_dismissione=None, flg_attivo=True,
+        ))
+        session.add(ComposizioneSquadra(
+            id_composizione="2", squadra_id="2", camion_id="CAM-2",
+            dipendente_1_id="D2-1", dipendente_2_id="D2-2",
+            data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+        ))
+        session.commit()
+
+    pagina = SquadrePage(GestoreSquadre(session_factory))
+
+    righe = pagina._gestore.visualizza_squadre().squadre
+    vista_1 = next(r for r in righe if r.id == "1")
+    vista_2 = next(r for r in righe if r.id == "2")
+    assert vista_1.flg_certificazione_gas is False
+    assert vista_1.flg_sponda_idraulica is False
+    assert vista_2.flg_certificazione_gas is True
+    assert vista_2.flg_sponda_idraulica is True
+
+    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
+    assert "Sì" in testi
+    assert "No" in testi
+
+
 def test_squadre_page_apri_modale_aggiungi_non_crasha(app, session_factory):
     with session_factory() as session:
         crea_flotta(session, "1")
@@ -185,7 +229,7 @@ def test_squadre_page_elimina_riga_soft_delete(app, session_factory):
 
     # Soft-delete: la riga sparisce dalla vista di default ma resta filtrabile.
     assert pagina._etichetta_conteggio.text() == "0 squadre"
-    pagina._select_stato.set_value(STATO_NON_ATTIVA)
+    pagina._select_stato.set_value([STATO_NON_ATTIVA])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
 
@@ -195,7 +239,7 @@ def test_squadre_page_modifica_riga_rifiutata_mostra_avviso(app, session_factory
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_squadre.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_squadre.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -219,7 +263,7 @@ def test_squadre_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory,
 
     chiamate = []
     monkeypatch.setattr(
-        modulo_squadre.QMessageBox, "warning", lambda *args: chiamate.append(args) or None
+        modulo_squadre.ToastManager, "show_error", lambda *args: chiamate.append(args) or None
     )
 
     with session_factory() as session:
@@ -292,15 +336,105 @@ def test_squadre_page_filtro_stato_si_puo_azzerare(app, session_factory):
     gestore.elimina_squadra("2")
     pagina = SquadrePage(gestore)
 
-    pagina._select_stato.set_value(STATO_ATTIVA)
+    pagina._select_stato.set_value([STATO_ATTIVA])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
 
     # Azzerare il filtro torna a "Tutte", che pero' esclude comunque le Non attiva (squadra "2"):
     # resta visibile solo la squadra "1".
-    pagina._select_stato.set_value(None)
+    pagina._select_stato.set_value([])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
+
+
+def test_squadre_page_filtro_certificazione_gas_e_sponda_idraulica(app, session_factory):
+    from gestionale_logistica.gui.pages.squadre import CERT_GAS_NO, CERT_GAS_SI, SPONDA_NO, SPONDA_SI
+
+    with session_factory() as session:
+        session.add(Squadra(id="1", flg_attiva=True, data_creazione=datetime(2020, 1, 1)))
+        session.add(Dipendente(
+            id="D1-1", nome="Mario", cognome="Rossi", codice_fiscale="CF-1-1",
+            data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
+            flg_attivo=True, flg_certificazione_gas=True,
+        ))
+        session.add(Dipendente(
+            id="D1-2", nome="Luca", cognome="Bianchi", codice_fiscale="CF-1-2",
+            data_assunzione=datetime(2020, 1, 1), data_licenziamento=None,
+            flg_attivo=True, flg_certificazione_gas=False,
+        ))
+        session.add(Camion(
+            id="CAM-1", targa="AB123CD", tipo_mezzo="Furgone", peso_massimo=1000.0,
+            volume_massimo=10.0, flg_sponda_idraulica=True, data_acquisizione=datetime(2020, 1, 1),
+            data_dismissione=None, flg_attivo=True,
+        ))
+        session.add(ComposizioneSquadra(
+            id_composizione="1", squadra_id="1", camion_id="CAM-1",
+            dipendente_1_id="D1-1", dipendente_2_id="D1-2",
+            data_inizio_validita=datetime(2020, 1, 1), data_fine_validita=None, flg_attiva=True,
+        ))
+        crea_flotta(session, "2")  # cert. gas False, sponda idraulica False
+        session.commit()
+
+    pagina = SquadrePage(GestoreSquadre(session_factory))
+
+    pagina._select_cert_gas.set_value([CERT_GAS_SI])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "1 squadre"
+
+    pagina._select_cert_gas.set_value([CERT_GAS_NO])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "1 squadre"
+
+    pagina._select_cert_gas.set_value([])
+    pagina._select_sponda.set_value([SPONDA_SI])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "1 squadre"
+
+    pagina._select_sponda.set_value([SPONDA_NO])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "1 squadre"
+
+    pagina._select_sponda.set_value([])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "2 squadre"
+
+
+def test_squadre_page_ripristina_filtri_azzera_cert_gas_e_sponda(app, session_factory):
+    from gestionale_logistica.gui.pages.squadre import CERT_GAS_SI, SPONDA_SI
+
+    with session_factory() as session:
+        crea_flotta(session, "1")
+        session.commit()
+
+    pagina = SquadrePage(GestoreSquadre(session_factory))
+    pagina._select_cert_gas.set_value([CERT_GAS_SI])
+    pagina._select_sponda.set_value([SPONDA_SI])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "0 squadre"
+
+    pagina._ripristina_filtri()
+    assert pagina._select_cert_gas.value() == []
+    assert pagina._select_sponda.value() == []
+    assert pagina._etichetta_conteggio.text() == "1 squadre"
+
+
+def test_squadre_page_filtro_stato_multiplo(app, session_factory):
+    from gestionale_logistica.risorse.gestore_squadre import STATO_ATTIVA, STATO_NON_ATTIVA
+
+    with session_factory() as session:
+        crea_flotta(session, "1")
+        crea_flotta(session, "2")
+        session.commit()
+
+    gestore = GestoreSquadre(session_factory)
+    gestore.elimina_squadra("2")
+    pagina = SquadrePage(gestore)
+
+    # Selezionando Attiva + Non attiva insieme (MultiSelect) tornano visibili entrambe le squadre,
+    # a differenza del filtro vuoto che nasconde le Non attiva di default.
+    pagina._select_stato.set_value([STATO_ATTIVA, STATO_NON_ATTIVA])
+    pagina._on_filtro_cambiato()
+    assert pagina._etichetta_conteggio.text() == "2 squadre"
 
 
 def test_squadre_page_ripristina_filtri_azzera_tutto_insieme(app, session_factory):
@@ -316,13 +450,13 @@ def test_squadre_page_ripristina_filtri_azzera_tutto_insieme(app, session_factor
     pagina = SquadrePage(gestore)
 
     pagina._campo_ricerca.set_value("ab123")
-    pagina._select_stato.set_value(STATO_ATTIVA)
+    pagina._select_stato.set_value([STATO_ATTIVA])
     pagina._on_filtro_cambiato()
     assert pagina._etichetta_conteggio.text() == "1 squadre"
 
     pagina._ripristina_filtri()
 
     assert pagina._campo_ricerca.value() == ""
-    assert pagina._select_stato.value() is None
+    assert pagina._select_stato.value() == []
     # "Tutte" dopo il reset esclude comunque la squadra "2" (Non attiva): resta solo la "1".
     assert pagina._etichetta_conteggio.text() == "1 squadre"

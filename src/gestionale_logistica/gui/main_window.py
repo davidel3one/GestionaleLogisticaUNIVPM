@@ -2,17 +2,44 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QMainWindow,
+    QScrollArea,
     QStackedWidget,
     QWidget,
 )
 
+from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 from gestionale_logistica.gui.components.sidebar import Sidebar, SidebarItem
 
 CONTENT_BG = "#EAEAEA"
+
+
+def _wrap_in_scroll_area(widget: QWidget) -> QScrollArea:
+    """Avvolge `widget` in una QScrollArea (stesso pattern gia' usato dall'area "Attivita'
+    recente" della Dashboard e dai modali di dettaglio/modifica di Viaggi/ImportCsvModal):
+    se il contenuto di una pagina e' piu' alto della finestra (schermi piccoli, scaling
+    Windows), scorre invece di forzare la finestra oltre il bordo dello schermo. Fatto qui,
+    in un solo punto, cosi' ogni pagina registrata con `add_page` lo eredita gratis invece di
+    doverlo reimplementare pagina per pagina."""
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    scroll.setStyleSheet(
+        f"QScrollArea {{ background: transparent; border: none; }} {MINIMAL_SCROLLBAR_QSS}"
+    )
+    # Il viewport interno di QScrollArea si auto-riempie di bianco per conto suo (ruolo
+    # QPalette::Base) - lo stylesheet sopra colpisce solo il bordo esterno della QScrollArea,
+    # non il viewport - senza questo si vedrebbe un rettangolo bianco al posto dello sfondo
+    # grigio (#EAEAEA) dello QStackedWidget dietro ogni pagina.
+    scroll.viewport().setStyleSheet("background: transparent;")
+    scroll.setWidget(widget)
+    return scroll
 
 
 class AppShell(QMainWindow):
@@ -56,8 +83,11 @@ class AppShell(QMainWindow):
 
     def add_page(self, item_id: str, widget: QWidget) -> None:
         """Registra la pagina `widget` per la voce `item_id`. La prima pagina aggiunta
-        diventa quella mostrata all'avvio (con la relativa voce evidenziata)."""
-        index = self._stack.addWidget(widget)
+        diventa quella mostrata all'avvio (con la relativa voce evidenziata).
+
+        `widget` viene avvolto in una QScrollArea (vedi `_wrap_in_scroll_area`) prima di
+        entrare nello stack - la pagina stessa resta invariata, invisibile alla differenza."""
+        index = self._stack.addWidget(_wrap_in_scroll_area(widget))
         self._pages[item_id] = index
         if len(self._pages) == 1:
             self._current_id = item_id

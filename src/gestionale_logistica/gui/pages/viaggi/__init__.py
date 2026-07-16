@@ -10,30 +10,40 @@ dettaglio invece. Puramente di sola lettura: nessun bottone "Modifica" al suo in
 richiesta esplicita dell'utente - un'unica azione, non due entry point equivalenti).
 
 **Modifica (partenza/arrivo/squadra/ordini)**: su richiesta esplicita dell'utente, l'UNICO
-entry point e' la matita in Azioni (`_modifica_riga`) - solo per viaggi In
-composizione/Pianificato (STATI_MODIFICABILI) apre direttamente `_apri_modale_modifica` invece di
-limitarsi a cambiare stato; per gli altri stati resta il comportamento del redesign precedente
-(annulla/ripristina, vedi componenti-gui.md) - `Table`/`ColumnDef` restano invariati, e' solo la
-callback della RowAction a diramarsi in base allo stato della riga.
+entry point e' la matita in Azioni (`_modifica_riga`), che apre direttamente
+`_apri_modale_modifica` - la matita stessa e' visibile solo per viaggi In
+composizione/Pianificato (STATI_MODIFICABILI, predicate della RowAction "pencil"): un viaggio non
+modificabile (In corso/Completato/Annullato) non mostra piu' l'icona (2026-07-16, su richiesta
+esplicita dell'utente - non solo disabilitata, proprio assente).
+
+**Annullato**: uno stato terminale non ammette piu' cambi di stato (niente ripristina dalla GUI,
+su richiesta esplicita dell'utente) - l'unica azione residua e' il cestino, che per una riga gia'
+Annullato esegue l'hard-delete (`elimina_viaggio_definitivamente`, dietro ConfirmModal per via
+dell'irreversibilita') invece del solito soft-cancel (`annulla_viaggio`) usato per le altre righe.
+
+**In corso**: nessuna azione in tabella, ne' matita ne' cestino (2026-07-17, su richiesta esplicita
+dell'utente - camion gia' partito, nessuna modifica/cancellazione deve restare a portata di click),
+anche se il backend (`annulla_viaggio`) accetta ancora la transizione da IN_CORSO ad ANNULLATO:
+quel path resta raggiungibile solo da codice, non piu' dalla GUI.
 
 Il modale di modifica ha le due date, la squadra (GestoreLogistica.modifica_squadra_viaggio,
-nuovo: prima la composizione era scrivibile solo alla creazione) e gli ordini gia' caricati.
-L'aggiunta di ordini (bottone "+", icona `circle-plus` come le altre azioni, che diventa
-`circle-check-big` verde non appena l'ordine e' stato agganciato) resta disponibile solo per
-viaggi In composizione, stesso vincolo hard gia' presente in
-GestoreLogistica.aggiungi_ordine_a_viaggio - qui la sezione viene semplicemente nascosta per
-Pianificato, senza aggirare quel vincolo."""
+nuovo: prima la composizione era scrivibile solo alla creazione) affiancata al cambio stato
+(Select "Stato", stessa riga di Squadra - solo le transizioni ammesse dal backend per lo stato
+corrente: In composizione/Pianificato) e gli ordini gia' caricati. L'aggiunta di ordini
+(bottone "+", icona `circle-plus` come le altre azioni, che diventa `circle-check-big` verde
+non appena l'ordine e' stato agganciato) resta disponibile solo per viaggi In composizione,
+stesso vincolo hard gia' presente in GestoreLogistica.aggiungi_ordine_a_viaggio - qui la sezione
+viene semplicemente nascosta per Pianificato, senza aggirare quel vincolo."""
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import QDate, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -49,31 +59,40 @@ from gestionale_logistica.gui.components import (
     Card,
     ColumnDef,
     ColumnType,
+    ConfirmModal,
     DateFilterField,
     DatePicker,
     EmptyState,
     LinkButton,
     Modal,
+    MultiSelect,
     PageHeader,
     RowAction,
     SearchField,
     Select,
     Table,
     TextEmphasis,
+    ToastManager,
     load_lucide_icon,
 )
 from gestionale_logistica.gui.pages._form_layout import riga_2_colonne
 from gestionale_logistica.logistica.gestore_logistica import (
-    FILTRO_TUTTI,
     STATO_ORDINE_LABELS,
     STATO_VIAGGIO_LABELS,
     GestoreLogistica,
 )
 
-PAGE_SIZE = 12
+PAGE_SIZE = 20
+# La lista "Aggiungi ordini" nel modale di modifica includeva TUTTI gli ordini Ricevuti in una
+# sola Table non paginata (dimensione_pagina=0): con un database reale da ~1000 ordini Ricevuti
+# questo significava costruire ~1000 righe (ognuna con due action-icon) a ogni apertura del
+# modale e a ogni ricerca/aggiunta/rimozione - la vera causa della lentezza percepita, non
+# risolta dal solo debounce sulla ricerca. Paginata come le altre Table dell'app.
+CANDIDATI_PAGE_SIZE = 10
 
-# Stati per cui il bottone "Modifica" compare nel modale Dettaglio (decisione esplicita
-# dell'utente): un viaggio In corso/Completato/Annullato resta visualizzabile ma non piu' modificabile.
+# Stati per cui la matita "Modifica" compare in Azioni (decisione esplicita dell'utente): un
+# viaggio In corso/Completato/Annullato resta visualizzabile ma non piu' modificabile, quindi
+# l'icona stessa non compare piu' per quelle righe (predicate della RowAction "pencil").
 STATI_MODIFICABILI = {
     STATO_VIAGGIO_LABELS[StatoViaggio.IN_COMPOSIZIONE],
     STATO_VIAGGIO_LABELS[StatoViaggio.PIANIFICATO],
@@ -102,6 +121,11 @@ def _datetime_a_qdate(valore: datetime) -> QDate:
 
 
 class ViaggiPage(QWidget):
+    # Stesso segnale/pattern del bottone "Nuova pianificazione" della Dashboard
+    # (DashboardPage.nuovaPianificazioneRequested): il composition root (src/__init__.py) lo
+    # collega a PianificazionePage.mostra_tab_automatica + AppShell.navigate_to("pianificazione").
+    nuovaPianificazioneRequested = Signal()
+
     def __init__(self, gestore: GestoreLogistica, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._gestore = gestore
@@ -118,20 +142,23 @@ class ViaggiPage(QWidget):
         self._costruisci_filtri(layout)
         self._costruisci_tabella(layout)
 
+        self._toasts = ToastManager(self)
+
         self._reload()
 
     # --- costruzione UI -------------------------------------------------------------
 
     def _costruisci_header(self, layout: QVBoxLayout) -> None:
-        # "Nuova pianificazione" lancia il wizard di pianificazione, non ancora costruito (per
-        # decisione esplicita: prima la lista Viaggi, poi il wizard a parte). Visibile ma
-        # disabilitato per ora, stesso trattamento gia' deciso per la tab "Esiti" in Ordini.
+        # "Nuova pianificazione" apre la pagina Pianificazione sulla tab Automatica - stesso
+        # comportamento e stesso segnale del bottone equivalente in Dashboard (2026-07-16, su
+        # richiesta esplicita dell'utente di riprendere quel pattern qui invece di lasciarlo
+        # disabilitato in attesa di un wizard dedicato).
         bottone_pianificazione = Button(
             ButtonVariant.SECONDARY_HEADER_ADD,
             "Nuova pianificazione",
             load_lucide_icon("calendar-plus", "#2E2E2E", 13),
         )
-        bottone_pianificazione.setEnabled(False)
+        bottone_pianificazione.clicked.connect(self.nuovaPianificazioneRequested)
         layout.addWidget(PageHeader("Viaggi", [bottone_pianificazione]))
 
     def _costruisci_filtri(self, layout: QVBoxLayout) -> None:
@@ -145,7 +172,9 @@ class ViaggiPage(QWidget):
         riga.setSpacing(16)
 
         self._campo_ricerca = SearchField(placeholder="Cerca ID viaggio, squadra...")
-        self._select_stato = Select(
+        # Filtro a scelta multipla (2026-07-16, su richiesta esplicita dell'utente): vedi la stessa
+        # nota in gui/pages/dipendenti/__init__.py.
+        self._select_stato = MultiSelect(
             "Stato", options=list(STATO_VIAGGIO_LABELS.values()), placeholder="Tutti", compact=True
         )
         self._campo_data = DateFilterField()
@@ -176,7 +205,11 @@ class ViaggiPage(QWidget):
                     key="id", label="ID", column_type=ColumnType.LINK, stretch=1,
                     on_click=self._apri_modale_dettaglio,
                 ),
-                ColumnDef(key="squadra", label="Squadra", column_type=ColumnType.LINK, stretch=1),
+                # Testo semplice, non LINK (su richiesta esplicita dell'utente, 2026-07-16): stesso
+                # trattamento gia' usato per "Squadra" in Dipendenti (squadra_corrente), che non e'
+                # mai stata blu/cliccabile - qui coincideva solo perche' LINK senza on_click resta
+                # comunque blu per stile visivo, senza alcuna interazione reale.
+                ColumnDef(key="squadra", label="Squadra", stretch=1),
                 ColumnDef(
                     key="n_ordini", label="N. ordini", emphasis=TextEmphasis.SECONDARY, stretch=1
                 ),
@@ -198,22 +231,36 @@ class ViaggiPage(QWidget):
                     column_type=ColumnType.ACTIONS,
                     width=76,
                     actions=[
-                        RowAction("pencil", self._modifica_riga, tooltip="Modifica"),
-                        RowAction("trash-2", self._elimina_riga),
+                        RowAction(
+                            "pencil",
+                            self._modifica_riga,
+                            tooltip="Modifica",
+                            predicate=lambda r: r["stato"] in STATI_MODIFICABILI,
+                        ),
+                        RowAction(
+                            "trash-2",
+                            self._elimina_riga,
+                            # Assente (non solo disabilitata) per un viaggio In corso: su
+                            # richiesta esplicita dell'utente (2026-07-17) - camion gia' partito,
+                            # nessuna azione di cancellazione/annullamento deve restare a portata
+                            # di click. Stesso principio gia' applicato alla matita (predicate
+                            # sopra), diverso insieme di stati.
+                            predicate=lambda r: r["stato"] != STATO_VIAGGIO_LABELS[StatoViaggio.IN_CORSO],
+                        ),
                     ],
                 ),
             ]
         )
         self._tabella.sortRequested.connect(self._on_sort_richiesto)
         self._tabella.pageChanged.connect(self._on_pagina_richiesta)
-        layout.addWidget(self._tabella)
+        layout.addWidget(self._tabella, 1)
 
     # --- dati -------------------------------------------------------------
 
     def _reload(self) -> None:
         pagina = self._gestore.visualizza_viaggi(
             ricerca=self._campo_ricerca.value() or None,
-            filtro_stato=self._select_stato.value() or FILTRO_TUTTI,
+            filtro_stato=self._select_stato.value(),
             filtro_data=self._filtro_data,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
@@ -257,37 +304,67 @@ class ViaggiPage(QWidget):
 
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
-        self._select_stato.set_value(None)
+        self._select_stato.set_value([])
         self._campo_data.set_value(QDate.currentDate())
         self._filtro_data = None
         self._pagina_corrente = 1
         self._reload()
 
     def _modifica_riga(self, riga: dict) -> None:
-        # Su richiesta esplicita dell'utente, la matita per un viaggio In composizione/Pianificato
-        # apre direttamente il modale di modifica (ordini/partenza/squadra) invece di limitarsi a
-        # cambiare stato - stesso modale gia' raggiungibile anche da ID -> Dettaglio -> "Modifica".
-        # Per gli altri stati resta il comportamento di prima: da Annullato ripristina, altrimenti
-        # annulla (annulla_viaggio rifiuta comunque da solo se gia' Completato).
-        if riga["stato"] in STATI_MODIFICABILI:
-            self._apri_modale_modifica(riga)
-            return
-        if riga["stato"] == STATO_VIAGGIO_LABELS[StatoViaggio.ANNULLATO]:
-            risultato = self._gestore.ripristina_viaggio(riga["id"])
-            titolo_errore = "Impossibile ripristinare"
-        else:
-            risultato = self._gestore.annulla_viaggio(riga["id"])
-            titolo_errore = "Impossibile annullare"
-        if not risultato.ok:
-            QMessageBox.warning(self, titolo_errore, risultato.motivo or "Operazione rifiutata.")
-        self._reload()
+        # La RowAction "pencil" e' visibile solo per righe In composizione/Pianificato
+        # (STATI_MODIFICABILI, vedi predicate in _costruisci_tabella) - qui non serve piu'
+        # ramificare per stato, apre sempre il modale di modifica (ordini/partenza/squadra),
+        # stesso modale gia' raggiungibile anche da ID -> Dettaglio -> "Modifica".
+        self._apri_modale_modifica(riga)
 
     def _elimina_riga(self, riga: dict) -> None:
-        # Soft-delete (stesso comportamento di annulla_viaggio sul pulsante modifica quando la
-        # riga non e' gia' terminale) - non elimina i dati, preserva lo storico (RF8).
+        # Un viaggio gia' Annullato e' uno stato terminale che non ammette piu' cambi di stato
+        # (su richiesta esplicita dell'utente): il cestino qui non fa piu' un soft-cancel
+        # (annulla_viaggio fallirebbe comunque, gia' annullato) ma elimina definitivamente la riga
+        # - dietro conferma esplicita, stesso pattern gia' usato per Dipendenti/Camion, data
+        # l'irreversibilita' dell'operazione.
+        if riga["stato"] == STATO_VIAGGIO_LABELS[StatoViaggio.ANNULLATO]:
+            modale = ConfirmModal(
+                "Elimina viaggio",
+                f"Sei sicuro di voler eliminare definitivamente il viaggio {riga['id']}? "
+                "L'eliminazione è definitiva e non è reversibile.",
+            )
+            modale.confirmed.connect(lambda: self._conferma_elimina_definitivamente(riga))
+            modale.show_over(self)
+            return
+
+        # Pianificato/In composizione: il cestino resta un soft-cancel (non elimina i dati,
+        # preserva lo storico, RF8) - ma passa prima da una conferma esplicita (2026-07-16, su
+        # richiesta esplicita dell'utente: il click eseguiva annulla_viaggio subito, senza alcun
+        # passaggio intermedio visibile - stesso principio del cestino su riga gia' Annullata
+        # sopra, solo con l'azione "Annulla viaggio" al posto di "Elimina"). In corso/Completato
+        # non rientrano in questa richiesta (fuori scope, comportamento invariato sotto).
+        if riga["stato"] in STATI_MODIFICABILI:
+            modale = ConfirmModal(
+                "Annulla viaggio",
+                f"Sei sicuro di voler annullare il viaggio {riga['id']}? "
+                "Lo stato passerà ad Annullato e gli ordini agganciati torneranno disponibili.",
+                confirm_label="Annulla viaggio",
+            )
+            modale.confirmed.connect(lambda: self._conferma_annulla(riga))
+            modale.show_over(self)
+            return
+
         risultato = self._gestore.annulla_viaggio(riga["id"])
         if not risultato.ok:
-            QMessageBox.warning(self, "Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+        self._reload()
+
+    def _conferma_annulla(self, riga: dict) -> None:
+        risultato = self._gestore.annulla_viaggio(riga["id"])
+        if not risultato.ok:
+            self._toasts.show_error("Impossibile annullare", risultato.motivo or "Operazione rifiutata.")
+        self._reload()
+
+    def _conferma_elimina_definitivamente(self, riga: dict) -> None:
+        risultato = self._gestore.elimina_viaggio_definitivamente(riga["id"])
+        if not risultato.ok:
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
 
     # --- modali -------------------------------------------------------------
@@ -295,7 +372,7 @@ class ViaggiPage(QWidget):
     def _apri_modale_dettaglio(self, riga: dict) -> None:
         dettaglio = self._gestore.dettaglio_viaggio(riga["id"])
         if dettaglio is None:
-            QMessageBox.warning(self, "Viaggio non trovato", "Il viaggio non esiste più.")
+            self._toasts.show_error("Viaggio non trovato", "Il viaggio non esiste più.")
             self._reload()
             return
 
@@ -350,7 +427,7 @@ class ViaggiPage(QWidget):
         with self._gestore.session_factory() as session:
             viaggio_obj = session.get(Viaggio, riga["id"])
         if viaggio_obj is None:
-            QMessageBox.warning(self, "Viaggio non trovato", "Il viaggio non esiste più.")
+            self._toasts.show_error("Viaggio non trovato", "Il viaggio non esiste più.")
             self._reload()
             return
 
@@ -379,13 +456,29 @@ class ViaggiPage(QWidget):
         if etichetta_squadra_corrente is not None:
             campo_squadra.set_value(etichetta_squadra_corrente)
 
+        # Cambio stato (non nel mockup, su richiesta esplicita dell'utente, 2026-07-16): prima
+        # una sezione "Stato" separata sotto Squadra con un bottone "Conferma pianificazione" +
+        # un link "Annulla viaggio" - ora un unico Select "Stato" affiancato a Squadra nella
+        # stessa riga (stesso pattern di riga_2_colonne gia' usato per Partenza/Arrivo), con le
+        # sole transizioni ammesse dal backend come opzioni: In composizione puo' chiudere la
+        # composizione (-> Pianificato, chiudi_composizione_viaggio) o annullare; Pianificato
+        # puo' solo annullare (nessuna operazione di ripristino verso In composizione - vedi nota
+        # in cima al file). Stessa riga per entrambi gli stati modificabili.
+        etichetta_stato_corrente = STATO_VIAGGIO_LABELS[viaggio_obj.stato_viaggio]
+        opzioni_stato = [etichetta_stato_corrente]
+        if viaggio_obj.stato_viaggio == StatoViaggio.IN_COMPOSIZIONE:
+            opzioni_stato.append(STATO_VIAGGIO_LABELS[StatoViaggio.PIANIFICATO])
+        opzioni_stato.append(STATO_VIAGGIO_LABELS[StatoViaggio.ANNULLATO])
+        campo_stato = Select("Stato", options=opzioni_stato)
+        campo_stato.set_value(etichetta_stato_corrente)
+
         bottone_annulla = Button(ButtonVariant.SECONDARY, "Annulla")
         bottone_conferma = Button(ButtonVariant.PRIMARY, "Salva")
         modale = Modal(
             f"Modifica viaggio {viaggio_id}", width=640, footer_buttons=[bottone_annulla, bottone_conferma]
         )
         modale.content_layout.addLayout(riga_2_colonne(campo_partenza, campo_arrivo))
-        modale.add_widget(campo_squadra)
+        modale.content_layout.addLayout(riga_2_colonne(campo_squadra, campo_stato))
 
         etichetta_ordini = QLabel("Ordini nel viaggio")
         etichetta_ordini.setStyleSheet("color: #8A93A0; margin-top: 8px;")
@@ -402,6 +495,11 @@ class ViaggiPage(QWidget):
                 item = ordini_viaggio_layout.takeAt(0)
                 widget = item.widget()
                 if widget is not None:
+                    # hide() subito: deleteLater() e' differita al prossimo giro di event loop e
+                    # takeAt() scollega il widget dal layout ma non lo nasconde - senza hide() la
+                    # vecchia tabella ordini resta a schermo sovrapposta a quella ricostruita nello
+                    # stesso layout a ogni aggiungi/rimuovi ordine (stesso fix di table._clear_layout).
+                    widget.hide()
                     widget.deleteLater()
             dettaglio = self._gestore.dettaglio_viaggio(viaggio_id)
             ordini_correnti = dettaglio.ordini if dettaglio is not None else []
@@ -436,23 +534,26 @@ class ViaggiPage(QWidget):
             modale.add_widget(campo_ricerca_ordini)
 
             candidati_attuali: list[dict] = []
+            pagina_candidati_corrente = 1
 
-            def _righe_candidati(testo: str) -> list[dict]:
-                pagina = self._gestore.visualizza_ordini(
+            def _righe_candidati(testo: str, pagina: int) -> tuple[list[dict], int]:
+                risultato = self._gestore.visualizza_ordini(
                     ricerca=testo or None,
                     filtro_stato=STATO_ORDINE_LABELS[StatoOrdine.RICEVUTO],
-                    dimensione_pagina=0,
+                    pagina=pagina,
+                    dimensione_pagina=CANDIDATI_PAGE_SIZE,
                 )
-                return [
+                righe = [
                     {"id": o.id, "cliente": o.cliente, "indirizzo": o.indirizzo, "aggiunto": False}
-                    for o in pagina.ordini
+                    for o in risultato.ordini
                 ]
+                return righe, risultato.totale
 
             def _aggiungi_ordine(riga_candidato: dict) -> None:
                 esito = self._gestore.aggiungi_ordine_a_viaggio(viaggio_id, riga_candidato["id"])
                 if not esito.ammesso:
-                    QMessageBox.warning(
-                        self, "Impossibile aggiungere", esito.motivo or "Operazione rifiutata."
+                    self._toasts.show_error(
+                        "Impossibile aggiungere", esito.motivo or "Operazione rifiutata."
                     )
                     return
                 # Aggiorna solo il flag della riga gia' visualizzata (niente nuova query): appena
@@ -465,10 +566,36 @@ class ViaggiPage(QWidget):
                 tabella_candidati.set_rows(candidati_attuali)
                 _aggiorna_ordini_nel_viaggio()
 
-            def _ricarica_candidati(testo: str = "") -> None:
-                nonlocal candidati_attuali
-                candidati_attuali = _righe_candidati(testo)
+            def _rimuovi_ordine_aggiunto(riga_candidato: dict) -> None:
+                """Annulla l'aggiunta appena fatta nella stessa sessione del modale (icona
+                "circle-check-big", cliccabile solo finche' la spunta e' verde) - non tocca gli
+                ordini gia' presenti nel viaggio prima dell'apertura del modale, quelli non hanno
+                questa azione."""
+                esito = self._gestore.rimuovi_ordine_da_viaggio(viaggio_id, riga_candidato["id"])
+                if not esito.ok:
+                    self._toasts.show_error(
+                        "Impossibile rimuovere", esito.motivo or "Operazione rifiutata."
+                    )
+                    return
+                for riga_visualizzata in candidati_attuali:
+                    if riga_visualizzata["id"] == riga_candidato["id"]:
+                        riga_visualizzata["aggiunto"] = False
                 tabella_candidati.set_rows(candidati_attuali)
+                _aggiorna_ordini_nel_viaggio()
+
+            def _ricarica_candidati(testo: str = "") -> None:
+                nonlocal candidati_attuali, pagina_candidati_corrente
+                pagina_candidati_corrente = 1
+                candidati_attuali, totale = _righe_candidati(testo, pagina_candidati_corrente)
+                tabella_candidati.set_rows(candidati_attuali)
+                tabella_candidati.set_pagination(pagina_candidati_corrente, totale, CANDIDATI_PAGE_SIZE)
+
+            def _cambia_pagina_candidati(pagina: int) -> None:
+                nonlocal candidati_attuali, pagina_candidati_corrente
+                pagina_candidati_corrente = pagina
+                candidati_attuali, totale = _righe_candidati(campo_ricerca_ordini.value(), pagina)
+                tabella_candidati.set_rows(candidati_attuali)
+                tabella_candidati.set_pagination(pagina_candidati_corrente, totale, CANDIDATI_PAGE_SIZE)
 
             tabella_candidati = Table(
                 [
@@ -491,18 +618,30 @@ class ViaggiPage(QWidget):
                             ),
                             RowAction(
                                 "circle-check-big",
-                                lambda r: None,
+                                _rimuovi_ordine_aggiunto,
                                 color="#1E8E3E",
-                                tooltip="Aggiunto",
+                                tooltip="Aggiunto - clicca per togliere",
                                 predicate=lambda r: r["aggiunto"],
                             ),
                         ],
                     ),
                 ],
-                show_footer=False,
+                show_footer=True,
             )
+            tabella_candidati.pageChanged.connect(_cambia_pagina_candidati)
 
-            campo_ricerca_ordini.searchChanged.connect(_ricarica_candidati)
+            # Debounce (non su SearchField in generale, che altre pagine usano su dataset piccoli
+            # e con emissione immediata attesa da un test): visualizza_ordini carica QUI l'intera
+            # tabella Ordine + l'intera EsitoConsegna e filtra in Python (nessun WHERE lato SQL),
+            # senza paginazione (dimensione_pagina=0) - a ogni carattere digitato rifaceva quella
+            # scansione e ricostruiva l'intera tabella candidati, percepito come lag mentre si scrive.
+            _debounce_ricerca_ordini = QTimer(modale)
+            _debounce_ricerca_ordini.setSingleShot(True)
+            _debounce_ricerca_ordini.setInterval(250)
+            _debounce_ricerca_ordini.timeout.connect(
+                lambda: _ricarica_candidati(campo_ricerca_ordini.value())
+            )
+            campo_ricerca_ordini.searchChanged.connect(lambda _: _debounce_ricerca_ordini.start())
             _ricarica_candidati()
 
             scroll = QScrollArea()
@@ -519,27 +658,71 @@ class ViaggiPage(QWidget):
 
         bottone_annulla.clicked.connect(modale.close)
 
-        def _conferma() -> None:
+        # Cambio stato deferito a "Salva" (2026-07-16, su richiesta esplicita dell'utente): la
+        # Select "Stato" e' un campo come Squadra/Date, nessuna azione al momento della semplice
+        # selezione - applicato solo qui in _applica_salvataggio, insieme al resto. Per Annullato
+        # (irreversibile, stato terminale) la conferma esplicita precede il salvataggio: se
+        # l'utente la nega, il modale di modifica resta aperto e invariato (nessuna modifica gia'
+        # fatta viene applicata finche' non si preme di nuovo Salva).
+        def _applica_salvataggio() -> None:
+            nuova_etichetta_stato = campo_stato.value()
+            # Annullamento: cortocircuita direttamente su annulla_viaggio, senza passare prima da
+            # modifica_date/squadra_viaggio (bug corretto in bug-bounty: un fallimento di
+            # modifica_squadra_viaggio non correlato - es. squadra scelta non piu' capiente -
+            # bloccava silenziosamente l'annullamento che l'utente aveva gia' confermato nel
+            # ConfirmModal sopra). Data/squadra sono comunque moot su un viaggio annullato.
+            if nuova_etichetta_stato == STATO_VIAGGIO_LABELS[StatoViaggio.ANNULLATO]:
+                risultato_stato = self._gestore.annulla_viaggio(viaggio_id)
+                if not risultato_stato.ok:
+                    self._toasts.show_error(
+                        "Impossibile annullare", risultato_stato.motivo or "Operazione rifiutata."
+                    )
+                    return
+                modale.close()
+                self._reload()
+                return
+
             risultato = self._gestore.modifica_date_viaggio(
                 viaggio_id,
                 data_partenza_prevista=_qdate_a_datetime(campo_partenza.value()),
                 data_arrivo_prevista=_qdate_a_datetime(campo_arrivo.value()),
             )
             if not risultato.ok:
-                QMessageBox.warning(self, "Impossibile salvare", risultato.motivo or "Operazione rifiutata.")
+                self._toasts.show_error("Impossibile salvare", risultato.motivo or "Operazione rifiutata.")
                 return
 
             nuova_composizione_id = opzioni_squadre.get(campo_squadra.value())
             if nuova_composizione_id is not None and nuova_composizione_id != viaggio_obj.composizione_id:
                 risultato_squadra = self._gestore.modifica_squadra_viaggio(viaggio_id, nuova_composizione_id)
                 if not risultato_squadra.ok:
-                    QMessageBox.warning(
-                        self, "Impossibile salvare", risultato_squadra.motivo or "Operazione rifiutata."
+                    self._toasts.show_error(
+                        "Impossibile salvare", risultato_squadra.motivo or "Operazione rifiutata."
+                    )
+                    return
+
+            if nuova_etichetta_stato != etichetta_stato_corrente:
+                risultato_stato = self._gestore.chiudi_composizione_viaggio(viaggio_id)
+                if not risultato_stato.ok:
+                    self._toasts.show_error(
+                        "Impossibile salvare", risultato_stato.motivo or "Operazione rifiutata."
                     )
                     return
 
             modale.close()
             self._reload()
+
+        def _conferma() -> None:
+            if campo_stato.value() == STATO_VIAGGIO_LABELS[StatoViaggio.ANNULLATO]:
+                conferma = ConfirmModal(
+                    "Annulla viaggio",
+                    f"Sei sicuro di voler annullare il viaggio {viaggio_id}? "
+                    "Lo stato passerà ad Annullato e gli ordini agganciati torneranno disponibili.",
+                    confirm_label="Annulla viaggio",
+                )
+                conferma.confirmed.connect(_applica_salvataggio)
+                conferma.show_over(modale)
+                return
+            _applica_salvataggio()
 
         bottone_conferma.clicked.connect(_conferma)
         modale.show_over(self)

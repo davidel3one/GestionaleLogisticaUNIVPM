@@ -31,6 +31,9 @@ from gestionale_logistica.gui.pianificazione.components import (
     DettaglioViaggioPropostoModal,
     PlanKpiCard,
 )
+from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+    evidenzia_giorni_con_squadre_attive,
+)
 from gestionale_logistica.gui.pianificazione.pianificazione_data import (
     conta_composizioni_disponibili,
     costruisci_dettaglio_viaggio_proposto,
@@ -136,6 +139,7 @@ class AutomaticaTab(QWidget):
 
         self._date_field = DateFilterField()
         self._date_field.valueChanged.connect(lambda _: self._refresh_hint())
+        evidenzia_giorni_con_squadre_attive(self._date_field.input.calendarWidget(), self._session_factory)
         filter_row.addWidget(self._date_field)
 
         self._calcola_button = Button(ButtonVariant.PRIMARY, "Calcola piano")
@@ -153,7 +157,10 @@ class AutomaticaTab(QWidget):
     def _refresh_hint(self) -> None:
         giorno = self._date_field.value().toPython()
         numero = conta_composizioni_disponibili(giorno, self._session_factory)
-        composizioni_label = "composizione attiva" if numero == 1 else "composizioni attive"
+        # "Squadre" invece di "composizioni" (2026-07-16, richiesta esplicita dell'utente): stessa
+        # etichetta di descrizione_composizioni_disponibili in pianificazione_data.py, per coerenza
+        # fra le 3 tab.
+        composizioni_label = "squadra attiva" if numero == 1 else "squadre attive"
         self._hint.setText(f"{numero} {composizioni_label} disponibili per il {giorno.strftime('%d/%m/%Y')}")
 
     # -- Summary Row -----------------------------------------------------------------------
@@ -231,6 +238,11 @@ class AutomaticaTab(QWidget):
     def _show_table(self, righe) -> None:
         self._clear_results()
         table = Table(self._table_columns(), show_footer=False)
+        # La table va agganciata al layout PRIMA di popolarla con set_rows(): altrimenti, quando
+        # set_rows() costruisce le righe, la table non ha ancora una larghezza reale (e' ancora
+        # "orfana") e le colonne a `stretch` restano prive di quel fix (vedi il commento in
+        # Table.set_rows) - il bug delle colonne stretchate tornerebbe a manifestarsi qui.
+        self._results_container.addWidget(table)
         table.set_rows(
             [
                 {
@@ -247,7 +259,6 @@ class AutomaticaTab(QWidget):
                 for riga in righe
             ]
         )
-        self._results_container.addWidget(table)
 
     def _apri_dettaglio_viaggio(self, row: dict) -> None:
         if self._piano is None or self._ora_partenza is None or self._durata_viaggio is None:
