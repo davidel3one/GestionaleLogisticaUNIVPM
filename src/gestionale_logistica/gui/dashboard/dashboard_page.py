@@ -87,12 +87,12 @@ class DashboardPage(QWidget):
         outer.setSpacing(CONTENT_GAP)
 
         importa_button = Button(
-            ButtonVariant.SECONDARY, "Importa CSV", load_lucide_icon("upload", "#2E2E2E", 12)
+            ButtonVariant.SECONDARY_HEADER_ADD, "Importa CSV", load_lucide_icon("upload", "#2E2E2E", 15)
         )
         nuova_button = Button(
-            ButtonVariant.PRIMARY,
+            ButtonVariant.PRIMARY_HEADER_ADD,
             "Nuova pianificazione",
-            load_lucide_icon("calendar-plus", "#FFFFFF", 12),
+            load_lucide_icon("calendar-plus", "#FFFFFF", 15),
         )
         importa_button.clicked.connect(self.importaCsvRequested)
         importa_button.clicked.connect(self._apri_import_csv)

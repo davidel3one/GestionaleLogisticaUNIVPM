@@ -25,6 +25,7 @@ DISABLED_OPACITY = 0.45
 class ButtonVariant(str, Enum):
     PRIMARY = "primary"
     PRIMARY_LARGE = "primary-large"
+    PRIMARY_HEADER_ADD = "primary-header-add"
     SECONDARY = "secondary"
     SECONDARY_HEADER_ADD = "secondary-header-add"
     ICON_ONLY = "icon-only"
@@ -86,6 +87,12 @@ class Button(QPushButton):
             text_color, radius = "#FFFFFF", 7
             background, border = "#2563C9", None
             icon_size, weight, size = 12, 600, 12
+        elif variant == ButtonVariant.PRIMARY_HEADER_ADD:
+            layout.setContentsMargins(14, 8, 14, 8)
+            layout.setSpacing(8)
+            text_color, radius = "#FFFFFF", 7
+            background, border = "#2563C9", None
+            icon_size, weight, size = 15, 600, 13
         elif variant == ButtonVariant.SECONDARY:
             layout.setContentsMargins(10, 6, 10, 6)
             layout.setSpacing(5)
