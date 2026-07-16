@@ -22,6 +22,7 @@ from gestionale_logistica.autenticazione.validazione import ValidazioneError
 from gestionale_logistica.gui.autenticazione.conferma_otp_view import ConfermaOtpView
 from gestionale_logistica.gui.autenticazione.login_view import LoginView
 from gestionale_logistica.gui.autenticazione.registrazione_view import RegistrazioneView
+from gestionale_logistica.gui.components.toast import ToastManager
 
 _LOGIN, _REGISTRAZIONE, _CONFERMA_OTP = range(3)
 
@@ -48,6 +49,8 @@ class AutenticazionePage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._stack)
 
+        self._toasts = ToastManager(self)
+
         self._login.submitted.connect(self._on_login)
         self._registrazione.submitted.connect(self._on_registrazione)
         self._otp.submitted.connect(self._on_conferma)
@@ -63,6 +66,7 @@ class AutenticazionePage(QWidget):
             sessione = self._gestore.login(email, password)
         except CredenzialiNonValideError as errore:
             self._login.show_error(str(errore))
+            self._toasts.show_error("Accesso non riuscito", str(errore))
             return
         self.authenticated.emit(sessione.token)
 
@@ -89,6 +93,7 @@ class AutenticazionePage(QWidget):
         self._otp.clear_code()
         self._otp.clear_error()
         self._stack.setCurrentIndex(_CONFERMA_OTP)
+        self._toasts.show_info("Codice di verifica inviato")
 
     def _on_conferma(self, codice: str) -> None:
         self._otp.clear_error()

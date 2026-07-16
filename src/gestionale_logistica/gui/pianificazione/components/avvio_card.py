@@ -1,6 +1,8 @@
 """AvvioCard: card "Avvia composizione viaggio", condivisa da Pianificazione — Manuale (RF10) e
 Assistita (RF12) — stesso layout misurato su entrambi i mockup Sketch: selezione composizione
-squadra disponibile, data, bottone "Avvia composizione"."""
+squadra disponibile, data, bottone "Avvia composizione". L'hint finale ("N composizioni attive
+disponibili per il ...") non è nel mockup: deviazione richiesta dall'utente 2026-07-16 per
+allineare Manuale/Assistita alla stessa label già presente nel Config Card di Automatica."""
 
 from __future__ import annotations
 
@@ -15,6 +17,7 @@ from gestionale_logistica.gui.pianificazione.components.date_filter_field import
 
 TITLE_COLOR = "#2E2E2E"
 ALERT_COLOR = "#C0392B"
+HINT_COLOR = "#9AA1AA"
 
 
 def _card_title(text: str) -> QLabel:
@@ -24,6 +27,16 @@ def _card_title(text: str) -> QLabel:
     font.setPixelSize(15)
     label.setFont(font)
     label.setStyleSheet(f"color: {TITLE_COLOR}; background: transparent;")
+    return label
+
+
+def _hint_label() -> QLabel:
+    label = QLabel()
+    font = QFont("Inter")
+    font.setWeight(QFont.Weight(500))
+    font.setPixelSize(12)
+    label.setFont(font)
+    label.setStyleSheet(f"color: {HINT_COLOR}; background: transparent;")
     return label
 
 
@@ -54,6 +67,10 @@ class AvvioCard(Card):
         filter_row.addWidget(self._avvia_button)
 
         filter_row.addStretch(1)
+
+        self._hint = _hint_label()
+        filter_row.addWidget(self._hint)
+
         self.content_layout.addLayout(filter_row)
 
         self._alert_label = QLabel()
@@ -85,3 +102,6 @@ class AvvioCard(Card):
 
     def hide_alert(self) -> None:
         self._alert_label.hide()
+
+    def set_hint(self, text: str) -> None:
+        self._hint.setText(text)

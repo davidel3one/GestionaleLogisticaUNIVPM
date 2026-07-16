@@ -84,6 +84,7 @@ class RegistrazioneView(QWidget):
         self._button.clicked.connect(self._on_submit)
 
     def _on_submit(self) -> None:
+        self._button.setEnabled(False)
         self.submitted.emit(
             self.nome.value(),
             self.cognome.value(),
@@ -96,6 +97,7 @@ class RegistrazioneView(QWidget):
     def show_error(self, message: str) -> None:
         self._error.setText(f"⚠ {message}")
         self._error.show()
+        self._button.setEnabled(True)
 
     def clear_error(self) -> None:
         self._error.hide()

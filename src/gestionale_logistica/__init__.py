@@ -73,12 +73,14 @@ def main() -> None:
         save_session_token(token)
 
         shell = AppShell(sidebar_items)
+        dashboard_page = DashboardPage()
+        pianificazione_page = PianificazionePage()
         for item in sidebar_items:
             if item.id == "dashboard":
-                shell.add_page(item.id, DashboardPage())
+                shell.add_page(item.id, dashboard_page)
                 continue
             if item.id == "pianificazione":
-                shell.add_page(item.id, PianificazionePage())
+                shell.add_page(item.id, pianificazione_page)
                 continue
             shell.add_page(
                 item.id,
@@ -88,6 +90,10 @@ def main() -> None:
                 ),
             )
         shell.logoutRequested.connect(_on_logout)
+
+        # "Nuova pianificazione" della Dashboard: apre la Pianificazione sulla tab Automatica.
+        dashboard_page.nuovaPianificazioneRequested.connect(pianificazione_page.mostra_tab_automatica)
+        dashboard_page.nuovaPianificazioneRequested.connect(lambda: shell.navigate_to("pianificazione"))
 
         shell_holder[:] = [shell]
         auth_page.close()

@@ -64,6 +64,11 @@ class AppShell(QMainWindow):
             self.sidebar.set_active(item_id)
             self._stack.setCurrentIndex(index)
 
+    def navigate_to(self, item_id: str) -> None:
+        """Cambia pagina programmaticamente (es. da un'azione di un'altra pagina), stessa
+        logica del click su una voce della Sidebar."""
+        self._on_navigated(item_id)
+
     def _on_navigated(self, item_id: str) -> None:
         if item_id in self._pages:
             self._stack.setCurrentIndex(self._pages[item_id])

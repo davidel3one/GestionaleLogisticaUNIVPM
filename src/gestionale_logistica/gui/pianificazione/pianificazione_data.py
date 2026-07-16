@@ -52,6 +52,17 @@ def conta_composizioni_disponibili(giorno: date, session_factory: sessionmaker =
         return len(_composizioni_disponibili(session, giorno))
 
 
+def descrizione_composizioni_disponibili(
+    giorno: date, session_factory: sessionmaker = SessionLocal
+) -> str:
+    """Stessa label di supporto del Filter Bar di Automatica ("N composizioni attive disponibili
+    per il ..."), riusata anche dall'Avvio Card di Assistita/Manuale (deviazione dal mockup,
+    che non la modella lì — richiesta esplicita dell'utente 2026-07-16 per coerenza fra le 3 tab)."""
+    numero = conta_composizioni_disponibili(giorno, session_factory)
+    etichetta = "composizione attiva" if numero == 1 else "composizioni attive"
+    return f"{numero} {etichetta} disponibili per il {giorno.strftime('%d/%m/%Y')}"
+
+
 def elenca_composizioni_disponibili(
     giorno: date, session_factory: sessionmaker = SessionLocal
 ) -> list[tuple[str, str]]:
@@ -63,15 +74,26 @@ def elenca_composizioni_disponibili(
         ]
 
 
-def elenca_ordini_candidati(session_factory: sessionmaker = SessionLocal) -> list[tuple[str, str]]:
-    """(ordine_id, cliente) per il campo "Aggiungi ordine" della Composizione Card: tutti gli
-    ordini RICEVUTO non ancora assegnati a un viaggio — l'idoneità/capacità è verificata al
-    momento dell'aggiunta (RF11, `GestoreLogistica.aggiungi_ordine_a_viaggio`), non qui."""
+def elenca_ordini_candidati(
+    session_factory: sessionmaker = SessionLocal,
+) -> list[RigaOrdineComposizione]:
+    """Righe per la tabella "Aggiungi ordine" della Composizione Card: tutti gli ordini RICEVUTO
+    non ancora assegnati a un viaggio — l'idoneità/capacità è verificata al momento dell'aggiunta
+    (RF11, `GestoreLogistica.aggiungi_ordine_a_viaggio`), non qui."""
     with session_factory() as session:
         ordini = session.scalars(
             select(Ordine).where(Ordine.stato_ordine == StatoOrdine.RICEVUTO, Ordine.viaggio_id.is_(None))
         )
-        return [(o.id, o.cliente) for o in ordini]
+        return [
+            RigaOrdineComposizione(
+                ordine_id=o.id,
+                cliente=o.cliente,
+                peso=o.peso,
+                volume=o.volume_cargo,
+                categoria_label=CATEGORIA_BADGE_LABELS.get(o.categoria_consegna.value, "Standard"),
+            )
+            for o in ordini
+        ]
 
 
 @dataclass
@@ -188,6 +210,54 @@ def costruisci_righe_piano(
                 )
             )
         return righe
+
+
+@dataclass
+class DettaglioViaggioProposto:
+    squadra_label: str
+    camion_label: str
+    partenza_label: str
+    arrivo_label: str
+    righe_ordini: list[RigaOrdineComposizione]
+
+
+def costruisci_dettaglio_viaggio_proposto(
+    piano: PianoGiornaliero,
+    composizione_id: str,
+    ora_partenza: datetime,
+    durata_viaggio: timedelta,
+    session_factory: sessionmaker = SessionLocal,
+) -> DettaglioViaggioProposto | None:
+    """Proietta una singola assegnazione di un `PianoGiornaliero` (calcolato ma non ancora
+    applicato, quindi non ancora un `Viaggio` in database) nel dettaglio ordini mostrato dal
+    modale "espandi riga" della Proposed Trips Table (chevron, RF13)."""
+    assegnazione = next(
+        (a for a in piano.assegnazioni if a.composizione_id == composizione_id), None
+    )
+    if assegnazione is None:
+        return None
+    with session_factory() as session:
+        composizione = session.get(ComposizioneSquadra, composizione_id)
+        if composizione is None:
+            return None
+        camion = composizione.camion
+        ordini = session.scalars(select(Ordine).where(Ordine.id.in_(assegnazione.ordini_ids)))
+        return DettaglioViaggioProposto(
+            squadra_label=f"#{composizione.squadra_id}",
+            camion_label=f"Camion {camion.targa} ({camion.tipo_mezzo})",
+            partenza_label=ora_partenza.strftime("%d/%m %H:%M"),
+            arrivo_label=(ora_partenza + durata_viaggio).strftime("%d/%m %H:%M"),
+            righe_ordini=[
+                RigaOrdineComposizione(
+                    ordine_id=o.id,
+                    cliente=o.cliente,
+                    peso=o.peso,
+                    volume=o.volume_cargo,
+                    categoria_label=CATEGORIA_BADGE_LABELS.get(o.categoria_consegna.value, "Standard"),
+                )
+                for o in ordini
+            ],
+        )
 
 
 def costruisci_righe_suggerimento(
