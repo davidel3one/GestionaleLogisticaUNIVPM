@@ -148,20 +148,25 @@ def test_viaggi_page_ricerca_filtra_e_ricarica(app, session_factory):
     assert "V-BBB" not in testi
 
 
-def test_viaggi_page_modifica_riga_annulla_ricarica(app, session_factory):
-    # In corso non e' in STATI_MODIFICABILI: la matita deve ancora cambiare stato (annulla), non
-    # aprire il modale di modifica - vedi test_viaggi_page_modifica_riga_apre_modale_modifica per
-    # gli stati In composizione/Pianificato, dove il comportamento della matita e' cambiato.
+@pytest.mark.parametrize(
+    "stato", [StatoViaggio.IN_CORSO, StatoViaggio.COMPLETATO, StatoViaggio.ANNULLATO]
+)
+def test_viaggi_page_pencil_nascosta_per_stati_non_modificabili(app, session_factory, stato):
+    # La RowAction "pencil" ha un predicate che la nasconde del tutto (non solo disabilitata) per
+    # gli stati fuori da STATI_MODIFICABILI - su richiesta esplicita dell'utente un viaggio non
+    # modificabile non deve nemmeno mostrare l'icona.
+    from gestionale_logistica.logistica.gestore_logistica import STATO_VIAGGIO_LABELS
+
     with session_factory() as session:
         crea_flotta(session)
-        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.IN_CORSO))
+        session.add(crea_viaggio("V1", "SQ1", stato=stato))
         session.commit()
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
-    pagina._modifica_riga({"id": "V1", "stato": "In corso"})
+    azioni_col = pagina._tabella._columns[-1]
+    pencil_action = next(a for a in azioni_col.actions if a.icon_name == "pencil")
 
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "Annullato" in testi
+    assert pencil_action.predicate({"stato": STATO_VIAGGIO_LABELS[stato]}) is False
 
 
 @pytest.mark.parametrize("stato", [StatoViaggio.IN_COMPOSIZIONE, StatoViaggio.PIANIFICATO])
@@ -188,7 +193,35 @@ def test_viaggi_page_modifica_riga_apre_modale_modifica(app, session_factory, st
         assert viaggio.stato_viaggio == stato
 
 
-def test_viaggi_page_modifica_riga_annulla_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
+def test_viaggi_page_elimina_riga_annullato_apre_conferma_senza_eliminare_subito(app, session_factory):
+    # Un viaggio gia' Annullato non ammette piu' cambi di stato (niente ripristina): il cestino e'
+    # l'unica azione residua e per questo stato deve eliminare in modo definitivo, dietro conferma
+    # esplicita data l'irreversibilita' - stesso pattern di Dipendenti/Camion.
+    from gestionale_logistica.gui.components import ConfirmModal
+
+    with session_factory() as session:
+        crea_flotta(session)
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.ANNULLATO))
+        session.commit()
+
+    pagina = ViaggiPage(GestoreLogistica(session_factory))
+    pagina._elimina_riga({"id": "V1", "stato": "Annullato"})
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1") is not None  # non ancora eliminato
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+
+    modali[0].confirmed.emit()
+
+    with session_factory() as session:
+        assert session.get(Viaggio, "V1") is None
+
+
+def test_viaggi_page_elimina_riga_annullato_rifiutata_mostra_avviso(app, session_factory, monkeypatch):
+    # elimina_viaggio_definitivamente rifiuta se il viaggio ha ordini agganciati: verifichiamo che
+    # il rifiuto produca un Toast invece di fallire silenziosamente.
+    from gestionale_logistica.gui.components import ConfirmModal
     from gestionale_logistica.gui.pages import viaggi as modulo_viaggi
 
     chiamate = []
@@ -198,26 +231,25 @@ def test_viaggi_page_modifica_riga_annulla_rifiutata_mostra_avviso(app, session_
 
     with session_factory() as session:
         crea_flotta(session)
-        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.COMPLETATO))
+        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.ANNULLATO))
+        session.add(Ordine(
+            id="ORD-1", indirizzo="Via Roma 12", comune="Ancona", provincia="AN", lat=None, lon=None,
+            cliente="Mario Bianchi", peso=10.0, volume_cargo=0.1,
+            categoria_consegna=CategoriaConsegna.BORDO_STRADA, stato_ordine=StatoOrdine.COMPLETATO,
+            data_importazione=datetime.now(), data_consegna=datetime.now(), viaggio_id="V1",
+        ))
         session.commit()
 
     pagina = ViaggiPage(GestoreLogistica(session_factory))
-    pagina._modifica_riga({"id": "V1", "stato": "Completato"})
+    pagina._elimina_riga({"id": "V1", "stato": "Annullato"})
+
+    modali = pagina.findChildren(ConfirmModal)
+    assert len(modali) == 1
+    modali[0].confirmed.emit()
 
     assert len(chiamate) == 1
-
-
-def test_viaggi_page_modifica_riga_ripristina_ricarica(app, session_factory):
     with session_factory() as session:
-        crea_flotta(session)
-        session.add(crea_viaggio("V1", "SQ1", stato=StatoViaggio.ANNULLATO))
-        session.commit()
-
-    pagina = ViaggiPage(GestoreLogistica(session_factory))
-    pagina._modifica_riga({"id": "V1", "stato": "Annullato"})
-
-    testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    assert "In composizione" in testi
+        assert session.get(Viaggio, "V1") is not None
 
 
 def test_viaggi_page_elimina_riga_soft_delete(app, session_factory):

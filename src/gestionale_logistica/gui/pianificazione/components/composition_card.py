@@ -161,7 +161,7 @@ class CompositionCard(Card):
         add_row = QHBoxLayout()
         add_row.setContentsMargins(0, 0, 0, 0)
         add_row.setSpacing(12)
-        self._select_ordine = Select(placeholder="Seleziona ordine ricevuto")
+        self._select_ordine = Select(placeholder="Seleziona ordine ricevuto", searchable=True)
         self._select_ordine.setFixedWidth(300)
         add_row.addWidget(self._select_ordine)
         self._aggiungi_button = Button(ButtonVariant.PRIMARY, "Aggiungi")

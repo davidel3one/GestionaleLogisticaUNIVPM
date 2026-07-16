@@ -11,9 +11,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QEventLoop, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QFont, QIcon, QMouseEvent
 from PySide6.QtWidgets import (
+    QApplication,
     QFrame,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -536,6 +537,24 @@ class Table(QFrame):
             outer_layout.addWidget(self._build_footer())
 
     def set_rows(self, rows: list[dict]) -> None:
+        # Fix (2026-07-16): le celle senza `width` fisso (colonne a `stretch`) prendono la loro
+        # larghezza reale solo quando Qt elabora l'evento di layout accodato alla reparent/resize -
+        # se la Table e' gia' visibile (es. ricreata da zero e appena inserita nel layout della
+        # pagina) quell'evento resta in coda per un giro di event loop: nel frattempo quelle celle
+        # vengono dipinte alla larghezza di default di un widget appena creato (~640px in questo
+        # ambiente), poi "saltano" alla larghezza corretta - il bug delle colonne stretchate che
+        # si normalizzano dopo la comparsa. setUpdatesEnabled(False) sopprime il repaint di quel
+        # frame intermedio sbagliato, e un giro esplicito di processEvents() forza subito il
+        # ricalcolo del layout prima di riabilitare il repaint - verificato: senza, le larghezze
+        # restano sbagliate anche dopo layout().activate()/invalidate() espliciti, si sistemano
+        # solo al giro di event loop successivo. Nota: subito dopo un `addWidget` in un layout
+        # gia' visibile, `isVisible()` e' ancora False (Qt non propaga il flag "visibile"
+        # sincronamente) anche se la table e' gia' agganciata a una finestra a schermo - il
+        # controllo giusto e' "ha un genitore reale in una finestra mostrata", non `isVisible()`.
+        needs_fix = self.parentWidget() is not None and self.window().isVisible()
+        if needs_fix:
+            self.setUpdatesEnabled(False)
+
         _clear_layout(self._rows_layout)
         for index, row in enumerate(rows):
             if index > 0:
@@ -546,6 +565,10 @@ class Table(QFrame):
         # spazio in eccesso tra le righe (a dimensione fissa) invece di lasciarlo sotto l'ultima -
         # risultato: righe con un vuoto enorme tra loro invece che compatte in cima alla tabella.
         self._rows_layout.addStretch(1)
+
+        if needs_fix:
+            QApplication.processEvents(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
+            self.setUpdatesEnabled(True)
 
     def set_pagination(self, current_page: int, total_items: int, page_size: int) -> None:
         self._current_page = current_page

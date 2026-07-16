@@ -520,6 +520,30 @@ class GestoreLogistica:
             session.commit()
             return esito
 
+    def rimuovi_ordine_da_viaggio(self, viaggio_id: str, ordine_id: str) -> RisultatoOperazioneOrdine:
+        """Inverso di `aggiungi_ordine_a_viaggio`: sgancia l'ordine dal viaggio in composizione
+        e lo riporta a Ricevuto, cosi' torna candidato per un altro viaggio. Stesso vincolo
+        IN_COMPOSIZIONE dell'aggiunta - un viaggio Pianificato/InCorso non e' piu' modificabile."""
+        with self.session_factory() as session:
+            viaggio = session.get(Viaggio, viaggio_id)
+            if viaggio is None:
+                return RisultatoOperazioneOrdine(ok=False, motivo=f"Viaggio '{viaggio_id}' non trovato")
+            if viaggio.stato_viaggio != StatoViaggio.IN_COMPOSIZIONE:
+                return RisultatoOperazioneOrdine(
+                    ok=False, motivo="Il viaggio non e' in fase di composizione"
+                )
+
+            ordine = session.get(Ordine, ordine_id)
+            if ordine is None:
+                return RisultatoOperazioneOrdine(ok=False, motivo=f"Ordine '{ordine_id}' non trovato")
+            if ordine.viaggio_id != viaggio_id:
+                return RisultatoOperazioneOrdine(ok=False, motivo="L'ordine non e' agganciato a questo viaggio")
+
+            ordine.viaggio_id = None
+            ordine.stato_ordine = StatoOrdine.RICEVUTO
+            session.commit()
+            return RisultatoOperazioneOrdine(ok=True, ordine_id=ordine_id)
+
     def chiudi_composizione_viaggio(self, viaggio_id: str) -> RisultatoOperazioneViaggio:
         """RF10 (chiusura): porta il viaggio da IN_COMPOSIZIONE a PIANIFICATO definitivo.
         Richiede almeno un ordine agganciato: un viaggio vuoto non viene salvato come pianificato.

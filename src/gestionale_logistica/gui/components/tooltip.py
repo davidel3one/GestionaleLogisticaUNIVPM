@@ -10,7 +10,7 @@ autosufficienti (`Button`, `Card`, ecc.).
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QPoint, QSize, Qt
-from PySide6.QtGui import QColor, QFont, QPaintEvent, QPainter
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPaintEvent, QPainter
 from PySide6.QtWidgets import QGraphicsDropShadowEffect, QLabel, QWidget
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
@@ -58,14 +58,28 @@ class Popover(QLabel):
         self.setWindowFlags(Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setWordWrap(True)
-        self.setMaximumWidth(POPOVER_MAX_WIDTH)
         self.setMinimumHeight(POPOVER_MIN_HEIGHT)
 
         font = QFont(FONT_FAMILY)
         font.setWeight(QFont.Weight(500))
         font.setPixelSize(12)
         self.setFont(font)
+
+        # Word wrap attivato SOLO se il testo non ci sta su una riga sola entro
+        # POPOVER_MAX_WIDTH. Con wordWrap sempre attivo, il sizeHint di una QLabel
+        # word-wrap usa un'euristica interna di Qt che sceglie una wrap-width "stretta"
+        # per avvicinare l'aspect ratio al golden ratio, e quella scelta resta impressa
+        # nel layout del testo indipendentemente da un resize/setFixedWidth successivo:
+        # per questo un ID corto come "V-STORICO-20260715-03" veniva comunque spezzato
+        # dopo il primo "-" anche forzando la larghezza del widget. Disabilitare il
+        # word wrap quando non serve evita del tutto quel percorso euristico.
+        content_width = QFontMetrics(font).horizontalAdvance(text) + 2 * POPOVER_PADDING_H
+        if content_width <= POPOVER_MAX_WIDTH:
+            self.setWordWrap(False)
+            self.setFixedWidth(content_width)
+        else:
+            self.setWordWrap(True)
+            self.setFixedWidth(POPOVER_MAX_WIDTH)
 
         self.setStyleSheet(
             f"""

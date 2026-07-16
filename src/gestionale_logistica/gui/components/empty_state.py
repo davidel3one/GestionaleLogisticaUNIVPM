@@ -29,6 +29,19 @@ ICON_TITLE_GAP = 16
 TITLE_SUBTITLE_GAP = 8
 
 
+def build_centered_label(text: str, color: str, size: int, weight: int, parent: QWidget) -> QLabel:
+    """Label centrata usata sia da `EmptyState` sia da `LoadingState` (stessa struttura, spinner
+    al posto dell'icona statica) - fattorizzata qui per non duplicare i token di stile."""
+    label = QLabel(text, parent)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    font = QFont(FONT_FAMILY)
+    font.setWeight(QFont.Weight(weight))
+    font.setPixelSize(size)
+    label.setFont(font)
+    label.setStyleSheet(f"color: {color};")
+    return label
+
+
 class EmptyState(QWidget):
     """Icona 40×40 + titolo (+ sottotitolo opzionale), centrati H e V."""
 
@@ -54,25 +67,15 @@ class EmptyState(QWidget):
 
         layout.addSpacing(ICON_TITLE_GAP)
         layout.addWidget(
-            self._make_label(title, TITLE_COLOR, TITLE_SIZE, TITLE_WEIGHT),
+            build_centered_label(title, TITLE_COLOR, TITLE_SIZE, TITLE_WEIGHT, self),
             alignment=Qt.AlignmentFlag.AlignHCenter,
         )
 
         if subtitle:
             layout.addSpacing(TITLE_SUBTITLE_GAP)
             layout.addWidget(
-                self._make_label(subtitle, SUBTITLE_COLOR, SUBTITLE_SIZE, SUBTITLE_WEIGHT),
+                build_centered_label(subtitle, SUBTITLE_COLOR, SUBTITLE_SIZE, SUBTITLE_WEIGHT, self),
                 alignment=Qt.AlignmentFlag.AlignHCenter,
             )
 
         layout.addStretch(1)
-
-    def _make_label(self, text: str, color: str, size: int, weight: int) -> QLabel:
-        label = QLabel(text, self)
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font = QFont(FONT_FAMILY)
-        font.setWeight(QFont.Weight(weight))
-        font.setPixelSize(size)
-        label.setFont(font)
-        label.setStyleSheet(f"color: {color};")
-        return label

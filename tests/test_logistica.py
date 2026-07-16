@@ -147,6 +147,65 @@ def test_ciclo_completo_avvio_aggiunte_e_chiusura(session_factory):
     with session_factory() as session:
         viaggio = session.get(Viaggio, viaggio_id)
         assert viaggio.stato_viaggio == StatoViaggio.PIANIFICATO
+
+
+def test_rimuovi_ordine_da_viaggio_lo_riporta_ricevuto(session_factory):
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        session.add(crea_ordine("ORD-1", peso=10.0, volume=0.5))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    avvio = gestore.avvia_composizione_viaggio("C1", datetime(2026, 7, 20, 8, 0))
+    viaggio_id = avvio.viaggio_id
+
+    assert gestore.aggiungi_ordine_a_viaggio(viaggio_id, "ORD-1").ammesso
+
+    esito = gestore.rimuovi_ordine_da_viaggio(viaggio_id, "ORD-1")
+    assert esito.ok
+    assert esito.ordine_id == "ORD-1"
+
+    with session_factory() as session:
+        ordine = session.get(Ordine, "ORD-1")
+        assert ordine.viaggio_id is None
+        assert ordine.stato_ordine == StatoOrdine.RICEVUTO
+
+    # Rimosso, torna candidato: puo' essere aggiunto di nuovo (stesso o altro viaggio)
+    assert gestore.aggiungi_ordine_a_viaggio(viaggio_id, "ORD-1").ammesso
+
+
+def test_rimuovi_ordine_da_viaggio_rifiuta_se_non_in_composizione(session_factory):
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        session.add(crea_ordine("ORD-1", peso=10.0, volume=0.5))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    avvio = gestore.avvia_composizione_viaggio("C1", datetime(2026, 7, 20, 8, 0))
+    viaggio_id = avvio.viaggio_id
+    assert gestore.aggiungi_ordine_a_viaggio(viaggio_id, "ORD-1").ammesso
+    assert gestore.chiudi_composizione_viaggio(viaggio_id).ok
+
+    esito = gestore.rimuovi_ordine_da_viaggio(viaggio_id, "ORD-1")
+    assert not esito.ok
+
+    with session_factory() as session:
+        ordine = session.get(Ordine, "ORD-1")
+        assert ordine.viaggio_id == viaggio_id
+
+
+def test_rimuovi_ordine_da_viaggio_rifiuta_ordine_non_agganciato(session_factory):
+    with session_factory() as session:
+        crea_flotta_semplice(session, "C1")
+        session.add(crea_ordine("ORD-1", peso=10.0, volume=0.5))
+        session.commit()
+
+    gestore = GestoreLogistica(session_factory)
+    avvio = gestore.avvia_composizione_viaggio("C1", datetime(2026, 7, 20, 8, 0))
+    viaggio_id = avvio.viaggio_id
+
+    esito = gestore.rimuovi_ordine_da_viaggio(viaggio_id, "ORD-1")
+    assert not esito.ok
         assert viaggio.data_partenza_prevista == ora_partenza
         assert viaggio.composizione_id == "C1"
 

@@ -18,9 +18,11 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDateEdit,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
     QMenu,
     QPushButton,
     QVBoxLayout,
@@ -29,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from gestionale_logistica.gui.components.icons import load_lucide_icon
+from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 
 FONT_FAMILY = "Inter"
 
@@ -111,6 +114,99 @@ def _build_popup_chrome(parent: QWidget) -> QMenu:
         """
     )
     return menu
+
+
+SEARCHABLE_POPUP_LIST_MAX_HEIGHT = 280
+SEARCHABLE_POPUP_GAP = 4
+
+
+class _SearchablePopup(QFrame):
+    """Popup di `Select(searchable=True)`: casella di ricerca + lista scrollabile a colonna
+    singola, al posto del `QMenu` nativo usato dal `Select` normale.
+
+    Non nel mockup (nessun frame disegna la lista aperta): introdotto perche' il `QMenu` nativo,
+    con molte opzioni (es. gli ordini candidati in "Aggiungi ordine" della Composizione Card,
+    potenzialmente decine/centinaia), su Windows va in overflow a PIU' COLONNE invece che
+    scorrere - bug di impaginazione reale, non un'assunzione: riprodotto e verificato con uno
+    script di preview (60 opzioni finte -> il QMenu si affianca su 2+ colonne). Un `QFrame` con
+    `Qt.WindowType.Popup` (si chiude da solo al click fuori o Esc, stesso comportamento di QMenu)
+    invece del QMenu stesso, perche' QMenu non supporta un campo di testo per filtrare al volo.
+    """
+
+    optionChosen = Signal(str)
+
+    def __init__(self, options: list[str], width: int, parent: QWidget | None = None) -> None:
+        super().__init__(parent, Qt.WindowType.Popup)
+        self.setFixedWidth(width)
+        self.setStyleSheet(
+            f"""
+            QFrame {{
+                background-color: {FIELD_BG};
+                border: 1px solid {FIELD_BORDER};
+                border-radius: {FIELD_RADIUS}px;
+            }}
+            """
+        )
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(SEARCHABLE_POPUP_GAP)
+
+        self._search = QLineEdit(self)
+        self._search.setPlaceholderText("Cerca...")
+        self._search.setFixedHeight(FIELD_HEIGHT)
+        self._search.setFont(_field_font())
+        self._search.setStyleSheet(
+            f"""
+            QLineEdit {{
+                background-color: {FIELD_BG};
+                border: 1px solid {FIELD_BORDER};
+                border-radius: {FIELD_RADIUS}px;
+                padding: 0 {FIELD_PADDING_H}px;
+                color: {FIELD_TEXT_COLOR};
+            }}
+            """
+        )
+        layout.addWidget(self._search)
+
+        self._list = QListWidget(self)
+        self._list.setFont(_field_font())
+        self._list.setMaximumHeight(SEARCHABLE_POPUP_LIST_MAX_HEIGHT)
+        self._list.addItems(options)
+        self._list.setStyleSheet(
+            f"""
+            QListWidget {{
+                background-color: {FIELD_BG};
+                border: none;
+                color: {FIELD_TEXT_COLOR};
+                outline: none;
+            }}
+            QListWidget::item {{
+                padding: 8px 12px;
+                border-radius: 6px;
+            }}
+            QListWidget::item:hover, QListWidget::item:selected {{
+                background-color: {POPUP_HOVER_BG};
+                color: {FIELD_TEXT_COLOR};
+            }}
+            """
+            + MINIMAL_SCROLLBAR_QSS
+        )
+        layout.addWidget(self._list)
+
+        self._search.textChanged.connect(self._filter)
+        self._list.itemClicked.connect(lambda item: self._choose(item.text()))
+        self._search.setFocus()
+
+    def _filter(self, text: str) -> None:
+        needle = text.strip().lower()
+        for index in range(self._list.count()):
+            item = self._list.item(index)
+            item.setHidden(bool(needle) and needle not in item.text().lower())
+
+    def _choose(self, text: str) -> None:
+        self.optionChosen.emit(text)
+        self.close()
 
 
 class TextField(QWidget):
@@ -229,7 +325,14 @@ class Select(QWidget):
     Diverso da `label=""` (nessuna label da nessuna parte, es. "Aggiungi ordine" della
     Composizione Card): qui la label c'e' ancora, solo spostata dentro il box invece che sopra -
     bug di allineamento reale rispetto al mockup nella prima iterazione (i filtri riusavano lo
-    stesso Select dei form), non un'assunzione."""
+    stesso Select dei form), non un'assunzione.
+
+    `searchable=True`: apre `_SearchablePopup` (casella di ricerca + lista scrollabile) invece
+    del `QMenu` nativo. Da usare quando le opzioni possono essere molte (decine/centinaia, es.
+    gli ordini candidati di "Aggiungi ordine"): il `QMenu` nativo, oltre l'altezza schermo, va in
+    overflow a piu' colonne invece che scorrere - bug di impaginazione reale, riprodotto e
+    verificato (vedi `_SearchablePopup`). Con poche opzioni (i filtri Stato/Tipo/Squadra) il
+    `QMenu` normale resta invariato: `searchable` di default e' `False`."""
 
     valueChanged = Signal(str)
 
@@ -240,6 +343,7 @@ class Select(QWidget):
         placeholder: str = "",
         parent: QWidget | None = None,
         compact: bool = False,
+        searchable: bool = False,
     ) -> None:
         super().__init__(parent)
         self._options = list(options or [])
@@ -247,6 +351,8 @@ class Select(QWidget):
         self._value: str | None = None
         self._label = label
         self._compact = compact
+        self._searchable = searchable
+        self._popup: _SearchablePopup | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -270,6 +376,12 @@ class Select(QWidget):
         return menu
 
     def _open_popup(self) -> None:
+        if self._searchable:
+            self._popup = _SearchablePopup(self._options, self._box.width(), self)
+            self._popup.optionChosen.connect(self.set_value)
+            self._popup.move(self._box.mapToGlobal(QPoint(0, self._box.height())))
+            self._popup.show()
+            return
         menu = self._build_menu()
         menu.exec(self._box.mapToGlobal(QPoint(0, self._box.height())))
 

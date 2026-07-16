@@ -10,11 +10,16 @@ dettaglio invece. Puramente di sola lettura: nessun bottone "Modifica" al suo in
 richiesta esplicita dell'utente - un'unica azione, non due entry point equivalenti).
 
 **Modifica (partenza/arrivo/squadra/ordini)**: su richiesta esplicita dell'utente, l'UNICO
-entry point e' la matita in Azioni (`_modifica_riga`) - solo per viaggi In
-composizione/Pianificato (STATI_MODIFICABILI) apre direttamente `_apri_modale_modifica` invece di
-limitarsi a cambiare stato; per gli altri stati resta il comportamento del redesign precedente
-(annulla/ripristina, vedi componenti-gui.md) - `Table`/`ColumnDef` restano invariati, e' solo la
-callback della RowAction a diramarsi in base allo stato della riga.
+entry point e' la matita in Azioni (`_modifica_riga`), che apre direttamente
+`_apri_modale_modifica` - la matita stessa e' visibile solo per viaggi In
+composizione/Pianificato (STATI_MODIFICABILI, predicate della RowAction "pencil"): un viaggio non
+modificabile (In corso/Completato/Annullato) non mostra piu' l'icona (2026-07-16, su richiesta
+esplicita dell'utente - non solo disabilitata, proprio assente).
+
+**Annullato**: uno stato terminale non ammette piu' cambi di stato (niente ripristina dalla GUI,
+su richiesta esplicita dell'utente) - l'unica azione residua e' il cestino, che per una riga gia'
+Annullato esegue l'hard-delete (`elimina_viaggio_definitivamente`, dietro ConfirmModal per via
+dell'irreversibilita') invece del solito soft-cancel (`annulla_viaggio`) usato per le altre righe.
 
 Il modale di modifica ha le due date, la squadra (GestoreLogistica.modifica_squadra_viaggio,
 nuovo: prima la composizione era scrivibile solo alla creazione) e gli ordini gia' caricati.
@@ -48,6 +53,7 @@ from gestionale_logistica.gui.components import (
     Card,
     ColumnDef,
     ColumnType,
+    ConfirmModal,
     DateFilterField,
     DatePicker,
     EmptyState,
@@ -72,8 +78,9 @@ from gestionale_logistica.logistica.gestore_logistica import (
 
 PAGE_SIZE = 12
 
-# Stati per cui il bottone "Modifica" compare nel modale Dettaglio (decisione esplicita
-# dell'utente): un viaggio In corso/Completato/Annullato resta visualizzabile ma non piu' modificabile.
+# Stati per cui la matita "Modifica" compare in Azioni (decisione esplicita dell'utente): un
+# viaggio In corso/Completato/Annullato resta visualizzabile ma non piu' modificabile, quindi
+# l'icona stessa non compare piu' per quelle righe (predicate della RowAction "pencil").
 STATI_MODIFICABILI = {
     STATO_VIAGGIO_LABELS[StatoViaggio.IN_COMPOSIZIONE],
     STATO_VIAGGIO_LABELS[StatoViaggio.PIANIFICATO],
@@ -206,7 +213,12 @@ class ViaggiPage(QWidget):
                     column_type=ColumnType.ACTIONS,
                     width=76,
                     actions=[
-                        RowAction("pencil", self._modifica_riga, tooltip="Modifica"),
+                        RowAction(
+                            "pencil",
+                            self._modifica_riga,
+                            tooltip="Modifica",
+                            predicate=lambda r: r["stato"] in STATI_MODIFICABILI,
+                        ),
                         RowAction("trash-2", self._elimina_riga),
                     ],
                 ),
@@ -272,28 +284,37 @@ class ViaggiPage(QWidget):
         self._reload()
 
     def _modifica_riga(self, riga: dict) -> None:
-        # Su richiesta esplicita dell'utente, la matita per un viaggio In composizione/Pianificato
-        # apre direttamente il modale di modifica (ordini/partenza/squadra) invece di limitarsi a
-        # cambiare stato - stesso modale gia' raggiungibile anche da ID -> Dettaglio -> "Modifica".
-        # Per gli altri stati resta il comportamento di prima: da Annullato ripristina, altrimenti
-        # annulla (annulla_viaggio rifiuta comunque da solo se gia' Completato).
-        if riga["stato"] in STATI_MODIFICABILI:
-            self._apri_modale_modifica(riga)
-            return
-        if riga["stato"] == STATO_VIAGGIO_LABELS[StatoViaggio.ANNULLATO]:
-            risultato = self._gestore.ripristina_viaggio(riga["id"])
-            titolo_errore = "Impossibile ripristinare"
-        else:
-            risultato = self._gestore.annulla_viaggio(riga["id"])
-            titolo_errore = "Impossibile annullare"
-        if not risultato.ok:
-            self._toasts.show_error(titolo_errore, risultato.motivo or "Operazione rifiutata.")
-        self._reload()
+        # La RowAction "pencil" e' visibile solo per righe In composizione/Pianificato
+        # (STATI_MODIFICABILI, vedi predicate in _costruisci_tabella) - qui non serve piu'
+        # ramificare per stato, apre sempre il modale di modifica (ordini/partenza/squadra),
+        # stesso modale gia' raggiungibile anche da ID -> Dettaglio -> "Modifica".
+        self._apri_modale_modifica(riga)
 
     def _elimina_riga(self, riga: dict) -> None:
-        # Soft-delete (stesso comportamento di annulla_viaggio sul pulsante modifica quando la
-        # riga non e' gia' terminale) - non elimina i dati, preserva lo storico (RF8).
+        # Un viaggio gia' Annullato e' uno stato terminale che non ammette piu' cambi di stato
+        # (su richiesta esplicita dell'utente): il cestino qui non fa piu' un soft-cancel
+        # (annulla_viaggio fallirebbe comunque, gia' annullato) ma elimina definitivamente la riga
+        # - dietro conferma esplicita, stesso pattern gia' usato per Dipendenti/Camion, data
+        # l'irreversibilita' dell'operazione.
+        if riga["stato"] == STATO_VIAGGIO_LABELS[StatoViaggio.ANNULLATO]:
+            modale = ConfirmModal(
+                "Elimina viaggio",
+                f"Sei sicuro di voler eliminare definitivamente il viaggio {riga['id']}? "
+                "L'eliminazione è definitiva e non è reversibile.",
+            )
+            modale.confirmed.connect(lambda: self._conferma_elimina_definitivamente(riga))
+            modale.show_over(self)
+            return
+
+        # Per le altre righe resta il comportamento precedente: soft-cancel (non elimina i dati,
+        # preserva lo storico, RF8) - annulla_viaggio rifiuta da solo se gia' Completato.
         risultato = self._gestore.annulla_viaggio(riga["id"])
+        if not risultato.ok:
+            self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
+        self._reload()
+
+    def _conferma_elimina_definitivamente(self, riga: dict) -> None:
+        risultato = self._gestore.elimina_viaggio_definitivamente(riga["id"])
         if not risultato.ok:
             self._toasts.show_error("Impossibile eliminare", risultato.motivo or "Operazione rifiutata.")
         self._reload()
@@ -473,6 +494,23 @@ class ViaggiPage(QWidget):
                 tabella_candidati.set_rows(candidati_attuali)
                 _aggiorna_ordini_nel_viaggio()
 
+            def _rimuovi_ordine_aggiunto(riga_candidato: dict) -> None:
+                """Annulla l'aggiunta appena fatta nella stessa sessione del modale (icona
+                "circle-check-big", cliccabile solo finche' la spunta e' verde) - non tocca gli
+                ordini gia' presenti nel viaggio prima dell'apertura del modale, quelli non hanno
+                questa azione."""
+                esito = self._gestore.rimuovi_ordine_da_viaggio(viaggio_id, riga_candidato["id"])
+                if not esito.ok:
+                    self._toasts.show_error(
+                        "Impossibile rimuovere", esito.motivo or "Operazione rifiutata."
+                    )
+                    return
+                for riga_visualizzata in candidati_attuali:
+                    if riga_visualizzata["id"] == riga_candidato["id"]:
+                        riga_visualizzata["aggiunto"] = False
+                tabella_candidati.set_rows(candidati_attuali)
+                _aggiorna_ordini_nel_viaggio()
+
             def _ricarica_candidati(testo: str = "") -> None:
                 nonlocal candidati_attuali
                 candidati_attuali = _righe_candidati(testo)
@@ -499,9 +537,9 @@ class ViaggiPage(QWidget):
                             ),
                             RowAction(
                                 "circle-check-big",
-                                lambda r: None,
+                                _rimuovi_ordine_aggiunto,
                                 color="#1E8E3E",
-                                tooltip="Aggiunto",
+                                tooltip="Aggiunto - clicca per togliere",
                                 predicate=lambda r: r["aggiunto"],
                             ),
                         ],

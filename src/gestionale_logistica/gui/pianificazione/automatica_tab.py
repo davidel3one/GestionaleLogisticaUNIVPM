@@ -20,6 +20,7 @@ from gestionale_logistica.gui.components import (
     ColumnType,
     EmptyState,
     IconChipVariant,
+    LoadingState,
     RowAction,
     Table,
     Tooltip,
@@ -192,9 +193,20 @@ class AutomaticaTab(QWidget):
             )
         )
 
+    def _show_loading_state(self) -> None:
+        self._clear_results()
+        self._results_container.addWidget(
+            LoadingState("Calcolo in corso…", "Stiamo valutando ordini e composizioni disponibili")
+        )
+
     def _show_table(self, righe) -> None:
         self._clear_results()
         table = Table(TABLE_COLUMNS, show_footer=False)
+        # La table va agganciata al layout PRIMA di popolarla con set_rows(): altrimenti, quando
+        # set_rows() costruisce le righe, la table non ha ancora una larghezza reale (e' ancora
+        # "orfana") e le colonne a `stretch` restano prive di quel fix (vedi il commento in
+        # Table.set_rows) - il bug delle colonne stretchate tornerebbe a manifestarsi qui.
+        self._results_container.addWidget(table)
         table.set_rows(
             [
                 {
@@ -208,7 +220,6 @@ class AutomaticaTab(QWidget):
                 for riga in righe
             ]
         )
-        self._results_container.addWidget(table)
 
     # -- Footer Actions ----------------------------------------------------------------------
 
@@ -239,6 +250,7 @@ class AutomaticaTab(QWidget):
 
         self._calcola_button.setEnabled(False)
         self._calcola_button.setText("Calcolo in corso…")
+        self._show_loading_state()
 
         future = self._motore.calcola_piano_async(
             ora_partenza,
