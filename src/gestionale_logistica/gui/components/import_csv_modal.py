@@ -9,10 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -22,17 +21,13 @@ from PySide6.QtWidgets import (
 )
 
 from gestionale_logistica.gui.components.button import Button, ButtonVariant
+from gestionale_logistica.gui.components.dropzone import Dropzone
 from gestionale_logistica.gui.components.form_field import EditableSelect
-from gestionale_logistica.gui.components.icons import load_lucide_icon
 from gestionale_logistica.gui.components.modal import Modal
 from gestionale_logistica.gui.components.scroll_style import MINIMAL_SCROLLBAR_QSS
 from gestionale_logistica.gui.components.table import ColumnDef, ColumnType, Table
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
 
-_DROPZONE_BG = "#FAFBFD"
-_DROPZONE_BORDER = "#D6DEE8"
-_DROPZONE_TEXT_COLOR = "#2E2E2E"
-_DROPZONE_ICON_COLOR = "#3D9BE9"
 _HINT_COLOR = "#9AA1AA"
 _HINT_TEXT = 'Formato richiesto: ID_Ordine;Cliente;Indirizzo;Categoria;Peso;Volume;Provincia (separatore ";")'
 
@@ -73,71 +68,6 @@ def _summary_badge(text: str, colors: tuple[str, str]) -> QLabel:
     return label
 
 
-class _Dropzone(QFrame):
-    """Dropzone (RF9): click apre un file picker, drag&drop accetta un file rilasciato —
-    il mockup promette entrambi ("Trascina qui il file CSV o clicca per selezionarlo")."""
-
-    fileSelected = Signal(Path)
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setAcceptDrops(True)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedHeight(150)
-        self.setStyleSheet(
-            f"""
-            _Dropzone {{
-                background-color: {_DROPZONE_BG};
-                border: 1.5px solid {_DROPZONE_BORDER};
-                border-radius: 8px;
-            }}
-            """
-        )
-
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.setSpacing(12)
-
-        icon_label = QLabel(self)
-        icon_label.setPixmap(load_lucide_icon("upload", _DROPZONE_ICON_COLOR, 36).pixmap(QSize(36, 36)))
-        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_label.setStyleSheet("background: transparent;")
-        layout.addWidget(icon_label)
-
-        self._heading = QLabel("Trascina qui il file CSV o clicca per selezionarlo", self)
-        self._heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font = QFont("Inter")
-        font.setWeight(QFont.Weight(500))
-        font.setPixelSize(13)
-        self._heading.setFont(font)
-        self._heading.setStyleSheet(f"color: {_DROPZONE_TEXT_COLOR}; background: transparent;")
-        layout.addWidget(self._heading)
-
-    def mousePressEvent(self, event) -> None:  # noqa: ARG002 (firma richiesta da Qt)
-        percorso = self._sfoglia()
-        if percorso is not None:
-            self._imposta_selezionato(percorso)
-
-    def dragEnterEvent(self, event) -> None:
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
-    def dropEvent(self, event) -> None:
-        urls = event.mimeData().urls()
-        if urls:
-            self._imposta_selezionato(Path(urls[0].toLocalFile()))
-
-    def _sfoglia(self) -> Path | None:
-        percorso, _ = QFileDialog.getOpenFileName(
-            self, "Seleziona file ordini", "", "File ordini (*.csv *.xlsx)"
-        )
-        return Path(percorso) if percorso else None
-
-    def _imposta_selezionato(self, percorso: Path) -> None:
-        self._heading.setText(percorso.name)
-        self.fileSelected.emit(percorso)
-
-
 class ImportCsvModal(QObject):
     """Orchestratore del flusso a 2 passi. Non e' un widget: costruisce Modal distinti per
     ciascun passo (il footer di `Modal` e' fisso alla costruzione, nessuna API per sostituirlo
@@ -171,7 +101,11 @@ class ImportCsvModal(QObject):
 
         modal = Modal(_modal_title(), width=900, footer_buttons=[annulla, carica])
 
-        dropzone = _Dropzone()
+        dropzone = Dropzone(
+            heading="Trascina qui il file CSV o clicca per selezionarlo",
+            file_filter="File ordini (*.csv *.xlsx)",
+            dialog_title="Seleziona file ordini",
+        )
         modal.add_widget(dropzone)
 
         negozio_field = EditableSelect(

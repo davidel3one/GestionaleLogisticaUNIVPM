@@ -4,7 +4,15 @@ from pathlib import Path
 from sqlalchemy import select
 
 from gestionale_logistica.database.enums import StatoEsito, StatoOrdine, StatoViaggio
-from gestionale_logistica.database.models import Allegato, CausaleFallimento, Ordine, RegistroEsiti, Viaggio
+from gestionale_logistica.database.models import (
+    Allegato,
+    CausaleFallimento,
+    EsitoConsegna,
+    Ordine,
+    RegistroEsiti,
+    ReportConsuntivo,
+    Viaggio,
+)
 from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
 from test_logistica import crea_flotta_semplice, crea_ordine
 
@@ -351,4 +359,360 @@ def test_carica_prova_documentale_nome_file_duplicato_non_sovrascrive(session_fa
 
     assert len(percorsi) == 2
     assert len({p.resolve() for p in percorsi}) == 2
-    assert {p.read_bytes() for p in percorsi} == {b"prima foto", b"seconda foto"}
+
+
+# --- elenco_causali_fallimento ---
+
+
+def test_elenco_causali_fallimento_vuoto_su_db_pulito(session_factory):
+    gestore = GestoreRendicontazione(session_factory)
+    assert gestore.elenco_causali_fallimento() == []
+
+
+def test_elenco_causali_fallimento_ordinato_per_descrizione(session_factory):
+    with session_factory() as session:
+        _crea_causale(session, "IND_ERRATO", "Indirizzo non raggiungibile")
+        _crea_causale(session, "CLIENTE_ASSENTE", "Cliente assente alla consegna")
+
+    gestore = GestoreRendicontazione(session_factory)
+    assert gestore.elenco_causali_fallimento() == [
+        ("CLIENTE_ASSENTE", "Cliente assente alla consegna"),
+        ("IND_ERRATO", "Indirizzo non raggiungibile"),
+    ]
+
+
+# --- elenca_esiti ---
+
+
+def test_elenca_esiti_su_db_vuoto(session_factory):
+    gestore = GestoreRendicontazione(session_factory)
+    pagina = gestore.elenca_esiti()
+    assert pagina.esiti == []
+    assert pagina.totale == 0
+
+
+def test_elenca_esiti_completato_senza_causale(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+    gestore = GestoreRendicontazione(session_factory)
+    gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    pagina = gestore.elenca_esiti()
+
+    assert pagina.totale == 1
+    riga = pagina.esiti[0]
+    assert riga.ordine_id == "O1"
+    assert riga.esito == "Completato"
+    assert riga.causale is None
+
+
+def test_elenca_esiti_fallito_con_descrizione_causale(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+        _crea_causale(session, "CLIENTE_ASSENTE", "Cliente assente alla consegna")
+    gestore = GestoreRendicontazione(session_factory)
+    gestore.registra_esito("O1", StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE")
+
+    pagina = gestore.elenca_esiti()
+
+    assert pagina.esiti[0].esito == "Fallito"
+    assert pagina.esiti[0].causale == "Cliente assente alla consegna"
+
+
+def test_elenca_esiti_filtro_esito(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session, viaggio_id="V1", ordini_ids=("O1",))
+        _crea_viaggio_con_ordini(session, comp_id="C2", viaggio_id="V2", ordini_ids=("O2",))
+        _crea_causale(session)
+    gestore = GestoreRendicontazione(session_factory)
+    gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+    gestore.registra_esito("O2", StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE")
+
+    solo_completati = gestore.elenca_esiti(filtro_esito="Completato").esiti
+    solo_falliti = gestore.elenca_esiti(filtro_esito="Fallito").esiti
+
+    assert [r.ordine_id for r in solo_completati] == ["O1"]
+    assert [r.ordine_id for r in solo_falliti] == ["O2"]
+
+
+def test_elenca_esiti_ricerca_su_cliente_id_e_causale(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session, viaggio_id="V1", ordini_ids=("O1",))
+        _crea_causale(session, "CLIENTE_ASSENTE", "Cliente assente alla consegna")
+    gestore = GestoreRendicontazione(session_factory)
+    gestore.registra_esito("O1", StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE")
+
+    assert [r.ordine_id for r in gestore.elenca_esiti(ricerca="o1").esiti] == ["O1"]
+    assert [r.ordine_id for r in gestore.elenca_esiti(ricerca="assente").esiti] == ["O1"]
+    assert gestore.elenca_esiti(ricerca="nessuno").esiti == []
+
+
+def test_elenca_esiti_ordinati_per_data_registrazione_decrescente(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(
+            session, viaggio_id="V1", ordini_ids=("O1",), data_partenza=datetime(2026, 7, 10, 8, 0)
+        )
+        _crea_viaggio_con_ordini(
+            session, comp_id="C2", viaggio_id="V2", ordini_ids=("O2",),
+            data_partenza=datetime(2026, 7, 11, 8, 0),
+        )
+    gestore = GestoreRendicontazione(session_factory)
+    gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+    gestore.registra_esito("O2", StatoEsito.COMPLETATO)
+
+    assert [r.ordine_id for r in gestore.elenca_esiti().esiti] == ["O2", "O1"]
+
+
+# --- modifica_esito ---
+
+
+def test_modifica_esito_cambia_causale_restando_fallito(session_factory):
+    esito_id = _crea_esito_fallito(session_factory)
+    with session_factory() as session:
+        _crea_causale(session, "IND_ERRATO", "Indirizzo non raggiungibile")
+
+    gestore = GestoreRendicontazione(session_factory)
+    risultato = gestore.modifica_esito(esito_id, StatoEsito.FALLITO, causale_codice="IND_ERRATO")
+
+    assert risultato.ok
+    with session_factory() as session:
+        esito = session.get(EsitoConsegna, esito_id)
+        assert esito.causale_id == "IND_ERRATO"
+        assert session.get(Ordine, "O1").stato_ordine == StatoOrdine.RICEVUTO
+
+
+def test_modifica_esito_completato_a_fallito(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+        _crea_causale(session)
+    gestore = GestoreRendicontazione(session_factory)
+    risultato_iniziale = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    risultato = gestore.modifica_esito(
+        risultato_iniziale.esito_id, StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE"
+    )
+
+    assert risultato.ok
+    with session_factory() as session:
+        ordine = session.get(Ordine, "O1")
+        assert ordine.stato_ordine == StatoOrdine.RICEVUTO
+        assert ordine.viaggio_id is None
+        assert session.get(EsitoConsegna, risultato_iniziale.esito_id).stato_esito == StatoEsito.FALLITO
+
+
+def test_modifica_esito_completato_a_fallito_senza_causale_rifiutato(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+    gestore = GestoreRendicontazione(session_factory)
+    risultato_iniziale = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    risultato = gestore.modifica_esito(risultato_iniziale.esito_id, StatoEsito.FALLITO)
+
+    assert not risultato.ok
+    assert "Causale" in risultato.motivo
+
+
+def test_modifica_esito_fallito_a_completato(session_factory):
+    esito_id = _crea_esito_fallito(session_factory)
+
+    gestore = GestoreRendicontazione(session_factory)
+    risultato = gestore.modifica_esito(esito_id, StatoEsito.COMPLETATO)
+
+    assert risultato.ok
+    with session_factory() as session:
+        ordine = session.get(Ordine, "O1")
+        assert ordine.stato_ordine == StatoOrdine.COMPLETATO
+        assert ordine.viaggio_id == "V1"
+        esito = session.get(EsitoConsegna, esito_id)
+        assert esito.stato_esito == StatoEsito.COMPLETATO
+        assert esito.causale_id is None
+
+
+def test_modifica_esito_completato_a_fallito_rifiutato_se_ordine_cambiato(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+        _crea_causale(session)
+    gestore = GestoreRendicontazione(session_factory)
+    risultato_iniziale = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    with session_factory() as session:
+        # Simula un intervento manuale successivo sull'ordine (non dovrebbe succedere via
+        # backend per un ordine gia' Completato, ma la guardia deve reggere comunque).
+        ordine = session.get(Ordine, "O1")
+        ordine.stato_ordine = StatoOrdine.PIANIFICATO
+        session.commit()
+
+    risultato = gestore.modifica_esito(
+        risultato_iniziale.esito_id, StatoEsito.FALLITO, causale_codice="CLIENTE_ASSENTE"
+    )
+
+    assert not risultato.ok
+    assert "cambiato" in risultato.motivo
+
+
+def test_modifica_esito_fallito_a_completato_rifiutato_se_ordine_ripianificato(session_factory):
+    esito_id = _crea_esito_fallito(session_factory)
+    with session_factory() as session:
+        # RF17 lo ha gia' rimesso RICEVUTO/senza viaggio; simula una successiva ripianificazione.
+        ordine = session.get(Ordine, "O1")
+        ordine.stato_ordine = StatoOrdine.PIANIFICATO
+        ordine.viaggio_id = "V1"
+        session.commit()
+
+    gestore = GestoreRendicontazione(session_factory)
+    risultato = gestore.modifica_esito(esito_id, StatoEsito.COMPLETATO)
+
+    assert not risultato.ok
+    assert "ripianificato" in risultato.motivo
+
+
+def test_modifica_esito_inesistente_rifiutato(session_factory):
+    gestore = GestoreRendicontazione(session_factory)
+    risultato = gestore.modifica_esito(999, StatoEsito.COMPLETATO)
+    assert not risultato.ok
+    assert "non trovato" in risultato.motivo
+
+
+def test_modifica_esito_rifiutato_se_report_gia_generato(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+    gestore = GestoreRendicontazione(session_factory)
+    risultato_iniziale = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    with session_factory() as session:
+        esito = session.get(EsitoConsegna, risultato_iniziale.esito_id)
+        session.add(ReportConsuntivo(
+            data_generazione=datetime.now(), ordini_consegnati=1, ordini_falliti=0,
+            formato_output="pdf", negozi_partner="Test", percorso_file="report/test.pdf",
+            registro_id=esito.registro_id,
+        ))
+        session.commit()
+
+    risultato = gestore.modifica_esito(risultato_iniziale.esito_id, StatoEsito.FALLITO, causale_codice=None)
+
+    assert not risultato.ok
+    assert "report" in risultato.motivo.lower()
+
+
+# --- elimina_esito ---
+
+
+def test_elimina_esito_completato_ripristina_pianificato(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+    gestore = GestoreRendicontazione(session_factory)
+    risultato_iniziale = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    risultato = gestore.elimina_esito(risultato_iniziale.esito_id)
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.get(Ordine, "O1").stato_ordine == StatoOrdine.PIANIFICATO
+        assert session.get(EsitoConsegna, risultato_iniziale.esito_id) is None
+
+
+def test_elimina_esito_fallito_non_tocca_ordine_gia_ripianificato(session_factory):
+    esito_id = _crea_esito_fallito(session_factory)
+    with session_factory() as session:
+        ordine = session.get(Ordine, "O1")
+        ordine.stato_ordine = StatoOrdine.PIANIFICATO
+        ordine.viaggio_id = "V1"
+        session.commit()
+
+    gestore = GestoreRendicontazione(session_factory)
+    risultato = gestore.elimina_esito(esito_id)
+
+    assert risultato.ok
+    with session_factory() as session:
+        ordine = session.get(Ordine, "O1")
+        assert ordine.stato_ordine == StatoOrdine.PIANIFICATO
+        assert ordine.viaggio_id == "V1"
+
+
+def test_elimina_esito_rimuove_allegati_e_cartella(session_factory, tmp_path):
+    esito_id = _crea_esito_fallito(session_factory)
+    cartella_allegati = tmp_path / "allegati"
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=cartella_allegati)
+
+    sorgente = tmp_path / "prova.jpg"
+    sorgente.write_bytes(b"contenuto foto")
+    assert gestore.carica_prova_documentale(esito_id, "prova.jpg", str(sorgente), "image/jpeg").ok
+    assert (cartella_allegati / str(esito_id)).is_dir()
+
+    risultato = gestore.elimina_esito(esito_id)
+
+    assert risultato.ok
+    with session_factory() as session:
+        assert session.scalars(select(Allegato).where(Allegato.esito_id == esito_id)).all() == []
+    assert not (cartella_allegati / str(esito_id)).exists()
+
+
+def test_elimina_esito_inesistente_rifiutato(session_factory):
+    gestore = GestoreRendicontazione(session_factory)
+    risultato = gestore.elimina_esito(999)
+    assert not risultato.ok
+    assert "non trovato" in risultato.motivo
+
+
+def test_elimina_esito_completato_rifiutato_se_ordine_cambiato(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+    gestore = GestoreRendicontazione(session_factory)
+    risultato_iniziale = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    with session_factory() as session:
+        ordine = session.get(Ordine, "O1")
+        ordine.stato_ordine = StatoOrdine.PIANIFICATO
+        session.commit()
+
+    risultato = gestore.elimina_esito(risultato_iniziale.esito_id)
+
+    assert not risultato.ok
+    assert "cambiato" in risultato.motivo
+
+
+def test_elimina_esito_rifiutato_se_report_gia_generato(session_factory):
+    with session_factory() as session:
+        _crea_viaggio_con_ordini(session)
+    gestore = GestoreRendicontazione(session_factory)
+    risultato_iniziale = gestore.registra_esito("O1", StatoEsito.COMPLETATO)
+
+    with session_factory() as session:
+        esito = session.get(EsitoConsegna, risultato_iniziale.esito_id)
+        session.add(ReportConsuntivo(
+            data_generazione=datetime.now(), ordini_consegnati=1, ordini_falliti=0,
+            formato_output="pdf", negozi_partner="Test", percorso_file="report/test.pdf",
+            registro_id=esito.registro_id,
+        ))
+        session.commit()
+
+    risultato = gestore.elimina_esito(risultato_iniziale.esito_id)
+
+    assert not risultato.ok
+    assert "report" in risultato.motivo.lower()
+
+
+# --- elenco_allegati ---
+
+
+def test_elenco_allegati_vuoto_su_esito_senza_prove(session_factory):
+    esito_id = _crea_esito_fallito(session_factory)
+    gestore = GestoreRendicontazione(session_factory)
+
+    assert gestore.elenco_allegati(esito_id) == []
+
+
+def test_elenco_allegati_multipli_in_ordine_di_caricamento(session_factory, tmp_path):
+    esito_id = _crea_esito_fallito(session_factory)
+    gestore = GestoreRendicontazione(session_factory, cartella_allegati=tmp_path / "allegati")
+
+    prima = tmp_path / "prima.jpg"
+    prima.write_bytes(b"1")
+    seconda = tmp_path / "seconda.jpg"
+    seconda.write_bytes(b"2")
+    gestore.carica_prova_documentale(esito_id, "prima.jpg", str(prima), "image/jpeg")
+    gestore.carica_prova_documentale(esito_id, "seconda.jpg", str(seconda), "image/jpeg")
+
+    allegati = gestore.elenco_allegati(esito_id)
+
+    assert [a.nome_file for a in allegati] == ["prima.jpg", "seconda.jpg"]

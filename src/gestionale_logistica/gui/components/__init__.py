@@ -1,6 +1,9 @@
 from gestionale_logistica.gui.components.auth_logo import AuthLogo
 from gestionale_logistica.gui.components.button import Button, ButtonVariant
 from gestionale_logistica.gui.components.card import Card
+from gestionale_logistica.gui.components.confirm_modal import ConfirmModal
+from gestionale_logistica.gui.components.date_filter_field import DateFilterField
+from gestionale_logistica.gui.components.dropzone import Dropzone
 from gestionale_logistica.gui.components.empty_state import EmptyState
 from gestionale_logistica.gui.components.form_field import (
     BooleanToggle,
@@ -40,7 +43,10 @@ __all__ = [
     "Card",
     "ColumnDef",
     "ColumnType",
+    "ConfirmModal",
+    "DateFilterField",
     "DatePicker",
+    "Dropzone",
     "EditableSelect",
     "EmptyState",
     "IconChip",

@@ -18,7 +18,19 @@ from gestionale_logistica.gui.autenticazione import AutenticazionePage
 from gestionale_logistica.gui.components import EmptyState, SidebarItem
 from gestionale_logistica.gui.dashboard import DashboardPage
 from gestionale_logistica.gui.main_window import AppShell
+from gestionale_logistica.gui.pages import (
+    CamionPage,
+    DipendentiPage,
+    OrdiniPage,
+    SquadrePage,
+    ViaggiPage,
+)
 from gestionale_logistica.gui.pianificazione import PianificazionePage
+from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
+from gestionale_logistica.risorse.gestore_camion import GestoreCamion
+from gestionale_logistica.risorse.gestore_dipendenti import GestoreDipendenti
+from gestionale_logistica.risorse.gestore_squadre import GestoreSquadre
 from gestionale_logistica.scheduler import avvia_scheduler
 
 from gestionale_logistica.database.base import Base, SessionLocal, engine
@@ -53,8 +65,7 @@ def main() -> None:
     auth_page.resize(1280, 800)
 
     # Voci di navigazione, ordine e icone verificati nel mockup Sketch (Sidebar, artboard
-    # Dashboard). Solo "dashboard" ha una pagina vera integrata finora; le altre mostrano
-    # un EmptyState placeholder, da sostituire quando verranno collegate.
+    # Dashboard). Tutte e 7 le pagine sono integrate.
     sidebar_items = [
         SidebarItem("dashboard", "Dashboard", "layout-dashboard"),
         SidebarItem("ordini", "Ordini", "package"),
@@ -64,6 +75,14 @@ def main() -> None:
         SidebarItem("squadre", "Squadre", "users"),
         SidebarItem("viaggi", "Viaggi", "route"),
     ]
+
+    _crea_pagina = {
+        "ordini": lambda: OrdiniPage(GestoreLogistica(), GestoreRendicontazione()),
+        "dipendenti": lambda: DipendentiPage(GestoreDipendenti()),
+        "camion": lambda: CamionPage(GestoreCamion()),
+        "squadre": lambda: SquadrePage(GestoreSquadre()),
+        "viaggi": lambda: ViaggiPage(GestoreLogistica()),
+    }
 
     shell_holder: list[AppShell] = []
     token_corrente: list[str] = []
@@ -81,6 +100,9 @@ def main() -> None:
                 continue
             if item.id == "pianificazione":
                 shell.add_page(item.id, pianificazione_page)
+                continue
+            if item.id in _crea_pagina:
+                shell.add_page(item.id, _crea_pagina[item.id]())
                 continue
             shell.add_page(
                 item.id,

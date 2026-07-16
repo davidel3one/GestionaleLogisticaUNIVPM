@@ -19,6 +19,7 @@ FONT_FAMILY = "Inter"
 TEXT_COLOR_ACTIVE = "#163A6B"
 TEXT_COLOR_INACTIVE = "#2E2E2E"
 TEXT_COLOR_HOVER = "#22344D"  # via di mezzo tra inattivo e attivo: stato hover non nel mockup
+TEXT_COLOR_DISABLED = "#B0B6BF"  # non nel mockup: nessun frame mostra una tab disabilitata
 UNDERLINE_COLOR = "#2563C9"
 BASELINE_COLOR = "#EAEAEA"
 
@@ -47,10 +48,18 @@ class _TabLabel(QLabel):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._active = False
         self._hovered = False
+        self._disabled = False
         self._update_color()
 
     def set_active(self, active: bool) -> None:
         self._active = active
+        self._update_color()
+
+    def set_disabled_tab(self, disabled: bool) -> None:
+        """Non e' `QWidget.setDisabled` - qui la tab resta visibile/leggibile (solo colore
+        attenuato) e semplicemente ignora i click, invece di sparire dal flusso del layout."""
+        self._disabled = disabled
+        self.setCursor(Qt.CursorShape.ArrowCursor if disabled else Qt.CursorShape.PointingHandCursor)
         self._update_color()
 
     def enterEvent(self, event: QEvent) -> None:
@@ -64,12 +73,16 @@ class _TabLabel(QLabel):
         super().leaveEvent(event)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._disabled:
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
         super().mousePressEvent(event)
 
     def _update_color(self) -> None:
-        if self._active:
+        if self._disabled:
+            color = TEXT_COLOR_DISABLED
+        elif self._active:
             color = TEXT_COLOR_ACTIVE
         elif self._hovered:
             color = TEXT_COLOR_HOVER
@@ -87,7 +100,12 @@ class TabBar(QWidget):
 
     currentChanged = Signal(int)
 
-    def __init__(self, labels: list[str], parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        labels: list[str],
+        disabled: set[int] | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         if not labels:
             raise ValueError("TabBar richiede almeno un'etichetta.")
@@ -99,10 +117,13 @@ class TabBar(QWidget):
         layout.setSpacing(TAB_GAP)
         layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
+        disabled = disabled or set()
         self._current_index = 0
         self._tabs: list[_TabLabel] = []
         for index, text in enumerate(labels):
             tab = _TabLabel(text, self)
+            if index in disabled:
+                tab.set_disabled_tab(True)
             tab.clicked.connect(lambda index=index: self.set_current_index(index))
             layout.addWidget(tab)
             self._tabs.append(tab)

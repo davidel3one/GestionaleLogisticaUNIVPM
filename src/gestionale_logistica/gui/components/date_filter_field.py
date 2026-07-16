@@ -1,10 +1,12 @@
-"""DateFilterField: campo data compatto senza label sopra, per il Filter Bar di Pianificazione
-— Automatica ("Data: 19/07/2026" + chevron). Diverso da `DatePicker` (che ha sempre una label
-sopra): riusa la stessa chrome flat (`_DateEditBox`) di `form_field.py`, non la ridefinisce.
+"""DateFilterField: campo data compatto senza label sopra, per righe Filtri ("Data: 19/07/2026" +
+chevron). Diverso da `DatePicker` (che ha sempre una label sopra): riusa la stessa chrome flat
+(`_DateEditBox`) di `form_field.py`, non la ridefinisce.
 
-Pagina-specifico per ora (nessun'altra pagina con Filter Bar è ancora costruita per provarne il
-riuso) — se una seconda pagina avrà bisogno dello stesso campo filtro senza label, va promosso a
-`gui/components/`, seguendo lo stesso percorso già fatto per `KpiCard`→condivisione quando serve.
+Nato pagina-specifico dentro `gui/pianificazione/components/` per il Filter Bar di Pianificazione —
+Automatica; promosso qui (2026-07-16) non appena una seconda occasione di riuso identica si è
+presentata (righe Filtri di Ordini/Dipendenti/Camion/Squadre/Viaggi, stesso bug di allineamento
+verificato dal pdf di riferimento: il campo Data lì aveva sempre una label sopra, disallineato
+rispetto a Cerca/Stato/Tipo che non ne hanno una), stesso percorso già fatto per `ProgressBar`.
 """
 
 from __future__ import annotations

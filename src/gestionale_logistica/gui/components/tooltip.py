@@ -41,7 +41,7 @@ POPOVER_SHADOW_BLUR = 24
 POPOVER_GAP = 10
 
 
-class _Popover(QLabel):
+class Popover(QLabel):
     """Popover flottante, fuori dal layout dell'applicazione (finestra top-level frameless).
 
     Struttura a singolo widget (non un contenitore con figlio): lo sfondo arrotondato è
@@ -108,7 +108,7 @@ class Tooltip(QLabel):
         icon = load_lucide_icon("info", ICON_COLOR, ICON_SIZE)
         self.setPixmap(icon.pixmap(QSize(ICON_SIZE, ICON_SIZE)))
 
-        self._popover = _Popover(text)
+        self._popover = Popover(text)
 
     def show_popover(self) -> None:
         """Posiziona e mostra il popover a destra dell'icona, centrato verticalmente."""
