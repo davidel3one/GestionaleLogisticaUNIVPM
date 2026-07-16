@@ -57,21 +57,24 @@ card.content_layout.addWidget(una_riga_orizzontale)
 
 ## TabBar
 
-`TabBar(labels: list[str], parent=None)` — selettore di tab orizzontale con indicatore ad underline animato. Componente puramente visivo: **non** gestisce il contenuto delle pagine (niente `QStackedWidget` integrato) — chi lo usa si iscrive al segnale per cambiare il contenuto altrove.
+`TabBar(labels: list[str], disabled: set[int] | None = None, parent=None)` — selettore di tab orizzontale con indicatore ad underline animato. Componente puramente visivo: **non** gestisce il contenuto delle pagine (niente `QStackedWidget` integrato) — chi lo usa si iscrive al segnale per cambiare il contenuto altrove.
 
 ```python
-tabs = TabBar(["Ordini", "Esiti"])
+tabs = TabBar(["Ordini", "Esiti"], disabled={1})  # "Esiti" visibile ma non cliccabile
 tabs.currentChanged.connect(lambda i: stacked_widget.setCurrentIndex(i))
 ```
 
 - `labels`: qualunque numero di etichette (verificato nel mockup sia con 2 che con 3 tab, stesso stile).
+- `disabled`: set di indici (0-based) da rendere non interattivi fin dalla costruzione — la tab resta **visibile e leggibile** (solo colore attenuato `#B0B6BF`), non sparisce dal layout come farebbe `QWidget.setDisabled`. Introdotto per Ordini: tab "Esiti" presente nel mockup ma non ancora collegata al lavoro RF15-RF18.
 - `tabs.current_index` — property di sola lettura con l'indice della tab attiva.
 - `tabs.set_current_index(i)` — imposta la tab attiva programmaticamente (solleva `ValueError` se fuori range); non ri-emette il segnale se `i` è già quello corrente.
-- `tabs.currentChanged` — `Signal(int)`, emesso quando l'utente clicca una tab diversa (o quando cambia via `set_current_index`).
+- `tabs.currentChanged` — `Signal(int)`, emesso quando l'utente clicca una tab diversa (o quando cambia via `set_current_index`) — una tab disabilitata non emette mai questo segnale.
 
-**Personalizzazione**: nessun parametro di stile esposto (colori/font/gap sono fissi, replicano il mockup) — se serve un aspetto visivo diverso, non forzare i valori interni: è una variante nuova da valutare con l'utente.
+**Personalizzazione**: nessun parametro di stile esposto oltre a `disabled` (colori/font/gap sono fissi, replicano il mockup) — se serve un aspetto visivo diverso, non forzare i valori interni: è una variante nuova da valutare con l'utente.
 
 **Stato hover** (non nel mockup): colore testo intermedio tra attivo e inattivo (`#22344D`, media tra `#163A6B` e `#2E2E2E` — nessun colore estraneo alla palette) + cursore a mano, stesso principio già usato in `Button`.
+
+**Stato disabilitato** (non nel mockup, nessun frame lo disegna): colore `#B0B6BF` derivato come via di mezzo verso il grigio neutro della palette, cursore a freccia invece che a mano, click ignorati silenziosamente (non solleva eccezioni, semplicemente non emette `clicked`/`currentChanged`).
 
 **Animazione underline**: lo spostamento/ridimensionamento dell'underline tra una tab e l'altra è animato (200ms, `QEasingCurve.OutCubic`) via due Qt `Property` (`underlineX`/`underlineWidth`) pilotate da `QPropertyAnimation` — richiesta esplicita dell'utente, il mockup statico non lo specifica (è un dettaglio di comportamento, non di stile visivo). Il cambio colore del testo resta istantaneo, non animato. Al primissimo render l'underline è già posizionata correttamente, senza scorrere da zero.
 
@@ -108,11 +111,17 @@ tabella.pageChanged.connect(lambda pagina: ...)                # riquery server-
 | Tipo | Uso | Note |
 |---|---|---|
 | `TEXT` (default) | testo semplice | `emphasis=TextEmphasis.PRIMARY` (`#2E2E2E`, default) o `.SECONDARY` (`#5B6472`, attenuato) |
-| `LINK` | identificativi (`#1040`, `V-20260707-01`) | sempre blu `#2563C9`, SemiBold — solo visivo, nessun'interazione integrata |
+| `LINK` | identificativi (`#1040`, `V-20260707-01`) | sempre blu `#2563C9`, SemiBold — visivo, e cliccabile con `ColumnDef.on_click: Callable[[dict], None]` opzionale (cursore a mano, apre es. un modale di dettaglio); senza `on_click` resta solo visivo come prima |
 | `STATUS_BADGE` | stato con pillola colorata | mappatura valore→(bg,testo) tramite `ColumnDef.status_colors` (dict), unita a una palette di default già pronta per 7 valori comuni (`Consegnato`/`Attivo`→verde, `Fallito`→rosso, `In consegna`→ambra, `Da pianificare`→grigio, `Pianificato`/`Proposto`→blu) — valori non mappati cadono sul grigio neutro |
 | `BOOLEAN_BADGE` | flag sì/no (es. certificazione gas, sponda idraulica) | vero→pillola grigia con `true_label` (default "Sì"); falso→testo semplice con `false_label` (default "No", usa "—" se serve) |
-| `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale — non limitato a modifica/elimina |
+| `ACTIONS` | icone azione per riga | `ColumnDef.actions: list[RowAction]`, ciascuna con `icon_name` (nome icona Lucide, vedi sezione icone), `callback(row: dict)`, `color` opzionale, `tooltip` opzionale, `predicate: Callable[[dict], bool]` opzionale — non limitato a modifica/elimina |
 | `CAPACITY_BAR` | percentuale + barra di riempimento (colonna "CAPACITÀ") | valore = `float` 0-100; renderizza etichetta `N%` (Inter 11px SemiBold `#8A93A0`, misurata) sopra una `ProgressBar` 70×6px (vedi `## ProgressBar`); il colore del fill dipende dalla percentuale — 3 soglie misurate sul mockup: `<80%` blu `#3D9BE9`, `80-90%` ambra `#B45309`, `≥90%` rosso `#C0392B` (campioni reali 30/45/68%→blu, 82%→ambra, 91%→rosso; le soglie tonde 80/90 sono la lettura più plausibile tra i campioni, non pixel-misurate) |
+
+**Fix (2026-07-15) — azioni condizionali per riga**: aggiunto `RowAction.predicate` — se impostato, l'icona compare solo per le righe dove `predicate(row)` è `True` (le altre non la mostrano affatto, non solo disabilitata). Introdotto per Dipendenti: "elimina" (licenzia) visibile solo per righe non-Cessato, "ripristina" (`rotate-ccw`) visibile solo per righe Cessato — due `RowAction` sulla stessa colonna, mutuamente esclusive per stato riga, invece di un'unica icona che cambia comportamento. Stesso pattern riusato identico per Camion ("dismetti"/"ripristina" su Dismesso). **Superato in seguito** (vedi sotto, redesign azioni riga) — "modifica"/"elimina" sono diventati due azioni fisse (nessun `predicate`), la logica condizionale di stato è passata dentro il callback.
+
+**Redesign (2026-07-15) — matita = cambia stato, cestino = soft-delete**: su richiesta esplicita dell'utente, il significato delle due icone standard è stato ridefinito uniformemente su tutti i domini (Dipendenti/Camion/Viaggi/Squadre): la matita ("modifica") non apre più un form di editing campi, cambia lo stato attivo/non-attivo della riga in entrambe le direzioni (il callback decide la direzione guardando `row["stato"]`: da attivo disattiva, da non-attivo riattiva - un'unica `RowAction` senza `predicate`); il cestino ("elimina") fa lo stesso soft-delete di sempre (licenzia_dipendente/disattiva_camion/annulla_viaggio/elimina_squadra - imposta lo stato a non-attivo, preserva i dati per lo storico RF8), **stessa identica chiamata che la matita farebbe cliccata su una riga attiva** - le due icone si sovrappongono deliberatamente su quella direzione, la matita in più copre anche il percorso inverso (riassumi/riattiva/ripristina) che il cestino non fa. **Non** un hard-delete: un tentativo precedente in questa stessa sessione aveva reso il cestino un hard-delete irreversibile (nuovi metodi `elimina_*_definitivamente` nei gestori, con guardia contro violazioni di integrità referenziale) poi corretto su richiesta esplicita dell'utente - quei metodi `elimina_*_definitivamente` restano nei gestori (testati, potenzialmente utili altrove) ma **non sono più raggiungibili dalla UI** delle 4 pagine con stato a due valori. Su Ordini (nessun modello a due stati, nessun soft-delete possibile) il cestino resta l'unica eccezione a hard-delete (`elimina_ordine_definitivamente`), la matita resta assente (vedi "Lavoro deliberatamente rimandato" più sotto). L'editing dei campi anagrafici (nome/cognome, targa/tipo, ecc.) non è più raggiungibile dalla UI: rimosso, non semplicemente nascosto.
+
+**Redesign (2026-07-15) — `ColumnDef.on_click` sulla colonna LINK**: aggiunto per spostare un modale di dettaglio dall'icona matita (ora "cambia stato", vedi sopra) al click sull'identificativo della riga. Usato da Viaggi (il modale "Modifica date" si apre cliccando l'ID viaggio) e Squadre (il modale dettaglio si apre cliccando l'ID squadra).
 
 **Personalizzazione**: `ColumnDef.width` (larghezza fissa in px) oppure `ColumnDef.stretch` (fattore di stretch, colonne più larghe in proporzione) — non impostare entrambi sulla stessa colonna, `width` vince se presente. `status_colors` sulla singola colonna sovrascrive/estende la palette di default senza doverla ridefinire tutta.
 
@@ -150,6 +159,23 @@ modal.show_over(main_window)                    # mostra l'overlay sopra main_wi
 - Margine close-button: assunto a soglia (`>= 900` → 32px, altrimenti 24px) perché nel mockup sono verificate solo le due famiglie di larghezza; se in futuro si introduce una terza larghezza, va verificato nel mockup e non assunto per estrapolazione.
 
 **Personalizzazione**: nessuna, oltre a `title`/`subtitle`/`width`/`footer_buttons` — tutto il resto (colori, radius, spaziature dell'header/footer) è fisso perché replica il mockup, sullo stesso principio di `Button`.
+
+## ConfirmModal
+
+`ConfirmModal(title, message, confirm_label="Elimina", cancel_label="Annulla", parent=None)` — sottoclasse di `Modal`: modale di conferma generico (messaggio + Annulla/azione), per operazioni che meritano un passaggio esplicito prima di eseguirle. **Non nel mockup Sketch** (nessuna RF/artboard lo definisce, verificato anche sul pdf di riferimento — nessuna pagina delle 22 mostra un dialogo di conferma eliminazione): introdotto su richiesta esplicita dell'utente (2026-07-16) per "elimina camion/dipendente", che prima procedeva silenziosamente al click sul cestino.
+
+```python
+modale = ConfirmModal(
+    "Elimina camion",
+    f"Sei sicuro di voler eliminare il camion {riga['targa']}? Verrà segnato come dismesso...",
+)
+modale.confirmed.connect(lambda: esegui_eliminazione(riga))
+modale.show_over(self)
+```
+
+- `modale.confirmed` — `Signal()`, emesso **solo** se l'utente clicca il bottone di conferma (non su Annulla/X/backdrop/ESC, che chiudono senza emettere nulla, ereditato da `Modal`). Il modale si chiude da solo in entrambi i casi — il chiamante non deve chiamare `close()`.
+- Bottone di conferma in `ButtonVariant.PRIMARY` (blu), **non** una variante rossa/distruttiva: nessuna variante del genere esiste in `Button`, e introdurne una solo per questo caso sarebbe una deviazione dallo stile già stabilito (ogni altro modale di conferma del sito — Aggiungi/Modifica/Salva — usa lo stesso PRIMARY blu), non una scelta più coerente. Stessa larghezza 440px per ogni istanza (non misurata, scelta nel range delle altre due famiglie 560/900 già usate da `Modal`, più stretta perché il contenuto è solo una frase).
+- Uso attuale: cestino su Camion e Dipendenti (`_elimina_riga` apre il modale, `_conferma_elimina_riga` esegue lo stesso soft-delete di sempre — `disattiva_camion`/`licenzia_dipendente` — solo se `confirmed` viene emesso). Non ancora esteso a Squadre/Viaggi/Ordini (fuori scope della richiesta che l'ha introdotto, non testato lì).
 
 ## TextField
 
@@ -194,6 +220,10 @@ tipo.valueChanged.connect(...)
 
 **Nota storica**: nella prima iterazione Multiselect e Date Picker erano stati rimandati (nessun frame del mockup li mostra aperti). L'utente ha poi deciso esplicitamente come implementarli senza aggiornare il mockup — vedi `## DatePicker` e `## MultiSelect` più sotto: non sono assunzioni di questa libreria, sono scelte confermate dall'utente.
 
+**`compact` (aggiunta 2026-07-16, fix di allineamento segnalato dall'utente)**: `compact: bool = False`. Se `True`, la riga della label sopra non viene creata (come `label=""`) MA la label non sparisce — si sposta dentro il box, testo `"Label: valore"` su una sola riga, stessa altezza 34px di `TextField`/`SearchField`. Uso: i `Select` delle righe **Filtri** (Stato/Tipo/Squadra/Cert. gas/Sponda idraulica su Ordini/Dipendenti/Camion/Squadre/Viaggi) — verificato pixel per pixel su `gui-design.pdf` (pagine Ordini/Dipendenti/Camion/Squadre/Viaggi): li' il filtro non ha mai una label separata sopra, a differenza di ogni `Select` in un form/modale (es. "Camion" in "Aggiungi squadra", pagina 21), che restano invariati con `compact=False` (default). Prima di questa fix i filtri riusavano lo stesso `Select` dei form (label sopra) mentre `SearchField` accanto non ha mai avuto una label — risultato: righe Filtri con altezze disallineate tra il campo di ricerca e i Select, bug reale non un'assunzione. Vedi anche `DateFilterField` (`## DatePicker`) per lo stesso trattamento sul filtro Data.
+
+**Fix (2026-07-15) — testo invisibile/troncato nella casella chiusa**: `_SelectBox` (usata da `Select` e `MultiSelect`) non aveva l'override di `sizeHint()` — `QPushButton.sizeHint()` di default lo calcola da `text()`/`icon()` propri (entrambi vuoti: il contenuto vero vive nel layout interno con `text_label` + icona), risultando in un box molto più stretto (es. 50px) di quanto il contenuto richieda davvero (es. 137px per "In viaggio"), che tronca/nasconde il testo in qualunque layout che non forzi una larghezza esplicita. Aggiunto `sizeHint() -> self.layout().sizeHint()`, stesso pattern già usato da `Button` per lo stesso identico motivo (vedi sopra). Segnalato da un bug reale su `gui/pages/dipendenti.py` ("le squadre/gli stati non si vedono nel riquadro"), poi ritrovato identico anche su Camion, Viaggi e Squadre.
+
 ## BooleanToggle
 
 `BooleanToggle(label: str, parent=None)` — sottoclasse di `QWidget`: label sopra + due pillole affiancate "Sì"/"No" (etichette fisse, **non** un segmented control generico a N opzioni — nel mockup è specificamente un toggle booleano).
@@ -207,7 +237,9 @@ sponda.valueChanged.connect(...)
 - `toggle.set_value(True | False)` — seleziona programmaticamente la pillola corrispondente.
 - `toggle.valueChanged` — `Signal(bool)`, emesso al click su una pillola o a `set_value()` esplicito.
 
-**Valori esatti dal mockup**: due pillole 56×34px, gap 8px, border-radius 17px (capsula, = altezza/2); stato selezionato: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`; stato non selezionato: sfondo `#EAEAEA`, nessun bordo; testo in entrambi gli stati Inter 13px/Medium `#5B6472` (stesso colore, verificato — il mockup non differenzia il colore testo tra selezionato/non selezionato); label sopra Inter 11px/SemiBold `#8A93A0`, gap 4px.
+**Valori esatti dal mockup**: due pillole 56×34px, gap 8px, border-radius 17px (capsula, = altezza/2); testo in entrambi gli stati Inter 13px/Medium `#5B6472` (stesso colore, verificato — il mockup non differenzia il colore testo tra selezionato/non selezionato); label sopra Inter 11px/SemiBold `#8A93A0`, gap 4px.
+
+**Fix (2026-07-15)**: colori di selezione invertiti su richiesta esplicita dell'utente rispetto alla prima misurazione dal mockup — stato **selezionato**: sfondo `#EAEAEA` (grigio), bordo 1px `#E5EAF0`; stato **non selezionato**: sfondo `#FFFFFF`, nessun bordo. Vale per ogni uso del componente (es. "Certificazione gas" in Dipendenti, "Sponda idraulica" in Camion), non solo per quello segnalato.
 
 ## DatePicker
 
@@ -227,6 +259,8 @@ data.set_value(QDate(2026, 7, 11))
 **Decisione esplicita dell'utente (non un'assunzione)**: il calendario a comparsa è quello **nativo di Qt/OS**, non ridisegnato — nessuno stile del sistema di design applicato al popup del calendario in sé. Il chrome del campo chiuso è ristilizzato per combaciare con gli altri field: sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, testo Inter 13px/Medium `#5B6472` (stessi identici token/costanti di `TextField`/`Select`, nessun valore duplicato).
 
 **Fix 2026-07-16 (bug segnalato dall'utente)**: il pulsantino calendario nativo di `QDateEdit` (freccia a destra) veniva disegnato dallo stile Qt/OS di default — un quadratino "primitivo" incoerente con il resto della UI, mentre il mockup (frame "Data Filter"/"Stato Filter", identiche) mostra la stessa chrome piatta di `Select`: solo testo + chevron vettoriale, nessun bottone visibile. Risolto in `_DateEditBox` (`form_field.py`): `QDateEdit::drop-down` reso trasparente e largo quanto la zona riservata (bordo/sfondo `none`/`transparent`), `QDateEdit::down-arrow` azzerata (`width/height: 0`, `image: none`), e un `QLabel` con `load_lucide_icon("chevron-down", ...)` sovrapposto sopra via posizionamento esplicito in `resizeEvent` (non `QStackedLayout`: in `StackAll` i widget aggiunti dopo il primo non venivano renderizzati nel test manuale). Il `QLabel` ha `WA_TransparentForMouseEvents` così i click passano al drop-down nativo sottostante (verificato: il calendario si apre ancora normalmente). Chrome condivisa tra `DatePicker` e `DateFilterField` tramite la classe `_DateEditBox`.
+
+**`DateFilterField(parent=None)`** — sottoclasse di `_DateEditBox`, campo data compatto senza label sopra: testo `"Data: dd/MM/yyyy"` via `setDisplayFormat("'Data: 'dd/MM/yyyy")` sul suo `.input` (letterale tra apici singoli, feature nativa di `QDateEdit`, non un widget custom), larghezza fissa 200px. `field.value() -> QDate` / `field.set_value(QDate(...))` / `field.valueChanged: Signal(QDate)`. Nato dentro `gui/pianificazione/components/` per il filtro Data di Pianificazione — Automatica; **promosso a `gui/components/` (2026-07-16)** non appena si è presentata una seconda occasione di riuso identica: il filtro Data delle righe Filtri di Ordini/Dipendenti (dove presente)/Camion/Squadre/Viaggi aveva lo stesso identico bug di allineamento di `Select` senza `compact` (vedi sopra) — stesso percorso già fatto per `ProgressBar`. Import: `from gestionale_logistica.gui.components import DateFilterField` (anche `gui.pianificazione.components` continua a riesportarlo, per non rompere gli import esistenti li').
 
 ## MultiSelect
 
@@ -374,6 +408,21 @@ ricerca.searchChanged.connect(lambda testo: ...)  # riquery/filtro lato chiamant
 
 **Valori esatti dal mockup**: contenitore sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, padding orizzontale 12px; testo/placeholder Inter 13px/Medium `#5B6472` (stesso trattamento `QPalette::PlaceholderText` di `TextField`, così il placeholder non viene schiarito da Qt); icona `search` **`#8A93A0`** (= `LABEL_COLOR`), 16×16, a sinistra con gap 8px dal testo.
 
+## LinkButton
+
+`LinkButton(text: str, icon_name: str, parent=None)` — sottoclasse di `QPushButton` in `gui/components/link_button.py`: icona Lucide + testo in stile link (nessuno sfondo/bordo), usato per "Ripristina filtri" nelle Filter Card.
+
+```python
+link = LinkButton("Ripristina filtri", "rotate-ccw")
+link.clicked.connect(self._ripristina_filtri)  # segnale nativo QPushButton, nessun segnale custom
+```
+
+**Verificato nel mockup**: presente identico (stesso font/colore) in più artboard con Filter Card, incluse "Camion", "Ordini", "Viaggi" e "Squadre" — non un elemento specifico di una sola pagina, lo stesso elemento ricorre ovunque c'è una lista filtrata. Da usare fin dall'inizio in ogni nuova pagina lista (non un workaround ad-hoc tipo opzione "Tutti" dentro le tendine).
+
+**Valori esatti dal mockup**: icona 13×13, gap 6px dal testo, testo Inter-Medium 13px, colore `#2563C9` (stesso blu di `Button` PRIMARY) sia per icona che testo. Icona usata: `rotate-ccw`.
+
+**Assunzione segnalata**: stato hover non disegnato nel mockup (solo a riposo) — derivato scurendo il colore del testo (stesso principio di `Button._darken`), non misurato.
+
 ## EmptyState
 
 `EmptyState(title: str, subtitle: str = "", icon_name: str = "inbox", parent=None)` — sottoclasse di `QWidget`: placeholder mostrato al posto di una lista/tabella quando non ci sono dati. Contenuto centrato orizzontalmente e verticalmente.
@@ -493,7 +542,7 @@ load_lucide_icon("upload", "#2E2E2E", 12) -> QIcon
 - `color`: colore esadecimale con cui ricolorare l'icona (le icone Lucide usano `stroke="currentColor"`, sostituito a runtime).
 - `size`: dimensione di default suggerita — il rendering reale è vettoriale e ridisegnato da Qt a qualunque risoluzione/devicePixelRatio venga effettivamente richiesta (vedi nota sotto), quindi resta nitido anche su schermi Retina o se il chiamante chiede una `QIcon.pixmap()` a una dimensione diversa da `size`.
 
-**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info`, `package`, `package-search`, `users`, `truck`, `circle-check-big`, `triangle-alert`, `calendar`, `circle-x` (`gui/assets/icons/`). Le 7 tra `info` e `calendar` (2026-07-15, Dashboard) sono state identificate per struttura del path SVG (numero/ordine di `path`/`circle`/`polyline`/`rect`, non dal nome del bottone/etichetta) e verificate scaricando l'SVG reale da `lucide-static@1.24.0` (stessa versione già vendorizzata nel progetto) per confronto diretto degli elementi. `circle-x` (2026-07-16, `Toast`) non viene dal mockup — vedi `## Toast`.
+**Icone già vendorizzate**: `upload`, `calendar-plus`, `circle-plus`, `x`, `pencil`, `trash-2`, `chevrons-up-down`, `chevron-left`, `chevron-right`, `chevron-down`, `info`, `package`, `package-search`, `users`, `truck`, `circle-check-big`, `triangle-alert`, `calendar`, `eye`, `circle-x` (`gui/assets/icons/`). Le 7 tra `info` e `calendar` (2026-07-15, Dashboard) sono state identificate per struttura del path SVG (numero/ordine di `path`/`circle`/`polyline`/`rect`, non dal nome del bottone/etichetta) e verificate scaricando l'SVG reale da `lucide-static@1.24.0` (stessa versione già vendorizzata nel progetto) per confronto diretto degli elementi. `eye` (2026-07-16, tab Esiti — azione "modifica" su una riga Fallito, al posto di `pencil`) e `circle-x` (2026-07-16, `Toast`) non vengono da un artboard Sketch — scaricate direttamente dallo stesso `lucide-static@1.24.0` per coerenza di stile con le altre (vedi `## Toast` per `circle-x`).
 
 **Aggiungere una nuova icona**:
 1. Trova l'icona nel mockup Sketch, esportala come SVG (`sketch.export(layer, { formats: ['svg'], ... })` via MCP, o manualmente da Sketch).
@@ -547,6 +596,58 @@ otp.clear()  # svuota e rifocalizza la prima casella
 
 **Dimensioni della singola casella — assunzione dichiarata**: le 6 istanze nel mockup hanno larghezze leggermente incoerenti tra loro (37/37/30/30/30/30px, probabile artefatto di auto-layout in Sketch, non una misura intenzionale) — non pixel-perfect replicabile. Dimensione uniforme scelta in implementazione: 44×42px, gap 12px tra le caselle.
 
+## Lacune candidate nella libreria (non ancora verificate, da controllare quando servono davvero)
+
+Annotate durante la pianificazione delle pagine Dipendenti/Camion/Ordini/Viaggi (2026-07-15), non
+ancora affrontate — segnate qui perché non spariscano con la fine di quella sessione:
+
+- **Errore di validazione inline su un campo form** (es. "Peso massimo" del modale Camion — Aggiungi
+  digitato non numerico): nessun componente esistente mostra un messaggio di errore sotto/accanto
+  a un `TextField`. Prima di inventare una label rossa ad-hoc dentro una pagina, verificare contro
+  Sketch se esiste già una convenzione visiva per questo caso (in questo mockup o in altri form,
+  es. Autenticazione) — se sì, va costruito come componente riusabile seguendo il processo qui
+  sotto, non duplicato pagina per pagina.
+- **Messaggio di errore/conferma quando un'operazione viene rifiutata dal backend** (es.
+  `licenzia_dipendente`/`disattiva_camion`/`elimina_squadra` rifiutano con `ok=False, motivo=...`
+  se la risorsa è coinvolta in un viaggio non concluso): nessun componente di libreria per
+  mostrarlo. In `gui/pages/dipendenti.py` per ora si usa un `QMessageBox.warning()` nativo
+  (funzionale ma non uno stile Sketch) — trovato perché senza feedback il pulsante "elimina"
+  sembrava non fare nulla quando il backend rifiutava silenziosamente. Se lo stesso caso si
+  ripete per Camion/Squadre/Viaggi, vale la pena farne un componente riusabile invece di
+  ripetere `QMessageBox` pagina per pagina.
+
+## Lavoro deliberatamente rimandato — pagina Ordini
+
+Decisione esplicita dell'utente: la prima passata su `OrdiniPage` copre solo lista/filtri/tabella,
+senza le due feature più consistenti viste nel mockup:
+
+- **"Registra esito consegna"** (icona matita nel mockup, artboard "Ordini — Modifica (modale)"):
+  non è un editor di campi generico — è il front-end di `GestoreRendicontazione.registra_esito()`
+  (selettore Esito Completato/Fallito, dropdown causale condizionale, upload prova documentale via
+  `carica_prova_documentale()`). Richiede un componente Dropzone/file-attach non ancora costruito.
+  Applicabile solo a ordini "In consegna" (`registra_esito` rifiuta altrimenti). Da progettare come
+  feature a parte, componente per componente.
+- **"Importa CSV"** (bottone header, artboard "Ordini — Importa CSV — Seleziona file/Risultato"):
+  flusso a 2 passi (file-picker → riepilogo `ErroreImport(riga, messaggio)`), backend già pronto
+  (`GestoreLogistica.importa_ordini`/`importa_ordini_async`) ma nessun componente file-picker né
+  riepilogo-errori esiste ancora nella libreria.
+
+Entrambi visibili nel mockup ma **disabilitati** nell'implementazione attuale (tab "Esiti" e
+bottone "Importa CSV"), non rimossi — coerenza visiva con il mockup senza azioni finte.
+
+## Gap segnalato nel mockup Sketch (non una lacuna di libreria, un buco nel file .sketch)
+
+**Artboard "Viaggi"**: la tabella disegna un'icona matita ("Modifica") su ogni riga, ma **non
+esiste alcun artboard "Viaggi — Modifica (modale)"** nel file `.sketch` (verificato elencando
+tutte le pagine: solo "Viaggi" lista + "Nuova pianificazione"/wizard, nessun modale di modifica),
+e nessuna RF definisce un'operazione di modifica viaggio (date/composizione/ordini). Su decisione
+esplicita dell'utente, `ViaggiPage._apri_modale_modifica` apre un modale **minimale non presente
+nel mockup**: solo le due date previste (partenza/arrivo), l'unico dato semplice correggibile
+senza toccare composizione/ordini. Se in futuro si arriva a costruire la procedura di
+pianificazione e si scopre che serve modificare altro (es. riassegnare la composizione), va
+rivalutato — questo modale minimale non è una base da estendere silenziosamente, è un placeholder
+dichiarato per colmare un buco del mockup.
+
 ## Aggiungere un componente nuovo
 
 Processo seguito finora per `Button` e `Card`, da ripetere per i prossimi (sidebar, tabella, ecc.):
@@ -575,10 +676,9 @@ Componenti la cui forma è ritagliata esattamente sul layout di **una** pagina (
 
 I dati reali (KPI aggregati, conteggio viaggi per i prossimi 7 giorni, feed attività) sono letti da `gui/dashboard/dashboard_data.py` — nessun RF1-RF19 definisce una Dashboard, le query aggregano dai modelli esistenti (vedi docstring del file per le assunzioni dichiarate: definizione di "disponibile", formula dei trend, provenienza dei 4 tipi di evento nel feed attività).
 
-**Pianificazione** (`gui/pianificazione/components/`, import `from gestionale_logistica.gui.pianificazione.components import AvvioCard, CompositionCard, DateFilterField, PlanKpiCard, RigaOrdineComposizione, RigaOrdineSuggerito, SuggestionSection, CATEGORIA_BADGE_LABELS`):
+**Pianificazione** (`gui/pianificazione/components/`, import `from gestionale_logistica.gui.pianificazione.components import AvvioCard, CompositionCard, PlanKpiCard, RigaOrdineComposizione, RigaOrdineSuggerito, SuggestionSection, CATEGORIA_BADGE_LABELS` — `DateFilterField` promosso a `gui/components/`, vedi `## DatePicker`, ma resta riesportato anche da qui per compatibilità):
 
 - **`PlanKpiCard(value, label, icon_name, value_color, icon_color, parent=None)`** — card KPI "flat" della Summary Row (Automatica): icona colorata senza chip circolare (diverso da `KpiCard` Dashboard), colori valore/icona indipendenti e parametrici (vedi docstring del file per i colori misurati per card, incluso il caso ambra `#B45309` di "ORDINI NON ASSEGNATI"). `card.set_value(str)` aggiorna il valore a runtime.
-- **`DateFilterField(parent=None)`** — sottoclasse di `_DateEditBox` (`form_field.py`, stessa chrome flat con chevron di `DatePicker`, vedi `## DatePicker`): campo data compatto senza label sopra, testo `"Data: dd/MM/yyyy"` via `setDisplayFormat("'Data: 'dd/MM/yyyy")` sul suo `.input` (letterale tra apici singoli, feature nativa di `QDateEdit`, non un widget custom).
 - **`AvvioCard(parent=None)`** — card "Avvia composizione viaggio": `Select` senza label (composizione) + `DateFilterField` + bottone "Avvia composizione", messaggio di errore opzionale (`show_alert`/`hide_alert`, stesso stile di `CompositionCard`). API: `set_composizioni_disponibili(list[tuple[id, "Composizione: #N"]])`, `data_selezionata() -> date`. Segnali: `avviaRequested(str, date)`, `dataChanged(date)`.
 - **`CompositionCard(parent=None)`** — card "Viaggio in composizione": intestazione (squadra/camion/partenza), barre Peso/Volume (`ProgressBar` 350×7px), elenco ordini nel viaggio con badge categoria (`CATEGORIA_BADGE_LABELS`: `BordoStrada`/`InstallazioneSempliceAlPiano`/`Incasso`→"Standard" bg `#EAEAEA`/testo `#2E2E2E`, `Big`/`CertificazioneGas`→bg `#FEF3C7`/testo `#B45309` — solo "Standard"/"Big" verificati nel mockup, "Certificazione Gas" è la stessa logica applicata per coerenza), riga "Aggiungi ordine" (`Select` **senza label**, vedi `## Select`, + bottone "Aggiungi"), messaggio di rifiuto opzionale (`show_alert(motivo)`/`hide_alert()`, testo rosso `#C0392B` con prefisso `⚠`, **nessun box/bordo** — solo testo, nonostante il nome "Alert Box" nel mockup), footer Annulla + bottone primario con etichetta configurabile (`set_footer_primary_label`, default "Chiudi viaggio"). API: `set_intestazione(...)`, `set_ordini(list[RigaOrdineComposizione])`, `set_ordini_disponibili(list[tuple[id, cliente]])`, `add_extra_section(widget)` (slot per un blocco extra, inserito prima di "Aggiungi ordine"). Segnali: `aggiungiOrdineRequested(str)`, `annullaRequested()`, `chiudiViaggioRequested()`.
 - **`SuggestionSection(parent=None)`** — blocco "Suggerimento automatico": bottone "Suggerisci ordini", elenco righe suggerite (testo `✓  #id  ·  cliente  ·  peso kg · volume m³  ·  categoria`, Inter 12px/500 Blu Scuro `#163A6B`, misurato — diverso dal grigio hint standard), riga di riepilogo capacità (Inter 12px/500 `#9AA1AA`). API: `set_suggerimento(list[RigaOrdineSuggerito], peso_dopo, peso_massimo, volume_dopo, volume_massimo)`, `clear()`. Segnale: `suggerisciRequested()`. Pensato per essere passato a `CompositionCard.add_extra_section()`.

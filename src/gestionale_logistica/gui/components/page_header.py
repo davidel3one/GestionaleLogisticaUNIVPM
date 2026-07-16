@@ -8,7 +8,7 @@ lo sfondo `#EAEAEA` dell'AppShell. Le azioni sono widget arbitrari passati dal c
 from __future__ import annotations
 
 from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QSizePolicy, QWidget
 
 FONT_FAMILY = "Inter"
 
@@ -29,6 +29,11 @@ class PageHeader(QWidget):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        # Fix (2026-07-15): senza questo, in un QVBoxLayout con poco contenuto sotto (es. una
+        # tabella con poche righe) PageHeader si allarga verticalmente per riempire lo spazio
+        # residuo invece di restare alla sua altezza naturale, spingendo Filtri/Table in basso
+        # con un vuoto enorme sopra - bug reale trovato confrontando Ordini/Viaggi col mockup pdf.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
