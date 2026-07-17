@@ -164,7 +164,11 @@ class DipendentiPage(QWidget):
                     width=76,
                     actions=[
                         RowAction("pencil", self._apri_modale_modifica, tooltip="Modifica"),
-                        RowAction("trash-2", self._elimina_riga),
+                        RowAction(
+                            "trash-2",
+                            self._elimina_riga,
+                            predicate=lambda riga: riga["stato"] != STATO_IN_VIAGGIO,
+                        ),
                     ],
                 ),
             ]
