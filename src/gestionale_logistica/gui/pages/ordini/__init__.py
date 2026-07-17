@@ -43,6 +43,7 @@ from gestionale_logistica.gui.pages.ordini._registra_esito_modal import Registra
 from gestionale_logistica.logistica.gestore_logistica import (
     STATO_ORDINE_LABELS,
     GestoreLogistica,
+    StatoOrdine,
 )
 from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
 
@@ -199,7 +200,12 @@ class OrdiniPage(QWidget):
                             self._registra_esito,
                             predicate=lambda riga: riga["puo_registrare_esito"],
                         ),
-                        RowAction("trash-2", self._elimina_riga),
+                        RowAction(
+                            "trash-2",
+                            self._elimina_riga,
+                            predicate=lambda riga: riga["stato"]
+                            != STATO_ORDINE_LABELS[StatoOrdine.IN_CONSEGNA],
+                        ),
                     ],
                 ),
             ]

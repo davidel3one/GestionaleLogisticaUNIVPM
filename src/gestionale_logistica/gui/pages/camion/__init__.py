@@ -199,7 +199,11 @@ class CamionPage(QWidget):
                             tooltip="Dismesso — clicca per riattivare",
                             predicate=lambda riga: riga["stato"] == STATO_DISMESSO,
                         ),
-                        RowAction("trash-2", self._elimina_riga),
+                        RowAction(
+                            "trash-2",
+                            self._elimina_riga,
+                            predicate=lambda riga: riga["stato"] != STATO_IN_VIAGGIO,
+                        ),
                     ],
                 ),
             ]
