@@ -2,11 +2,11 @@ import sqlcipher3
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.pool import QueuePool
-from gestionale_logistica.config import load_config, get_db_encryption_key
+from gestionale_logistica.config import default_database_path, load_config, get_db_encryption_key
 
 def get_database_path() -> str:
     config = load_config()
-    return config.get("database", "path", fallback="gestionale.db")
+    return config.get("database", "path", fallback=default_database_path())
 
 def _create_encrypted_connection():
     # RNF5: apre il file SQLite via il driver SQLCipher e imposta la chiave prima di

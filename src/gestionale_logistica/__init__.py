@@ -1,5 +1,6 @@
 from gestionale_logistica.config import (
     clear_session_token,
+    default_log_path,
     load_config,
     load_session_token,
     save_session_token,
@@ -40,7 +41,7 @@ from gestionale_logistica.database import models
 def setup_logging(config: configparser.ConfigParser) -> None:
     logging.basicConfig(
         level=config.get("logging", "level", fallback="INFO"),
-        filename=config.get("logging", "file", fallback="app.log"),
+        filename=config.get("logging", "file", fallback=default_log_path()),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
