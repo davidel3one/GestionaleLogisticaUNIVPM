@@ -26,15 +26,15 @@ from gestionale_logistica.gui.components import (
     Tooltip,
 )
 from gestionale_logistica.gui.components.icon_chip import VARIANT_COLORS
-from gestionale_logistica.gui.pianificazione.components import (
+from gestionale_logistica.gui.pages.pianificazione.components import (
     DateFilterField,
     DettaglioViaggioPropostoModal,
     PlanKpiCard,
 )
-from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+from gestionale_logistica.gui.pages.pianificazione.components.calendario_squadre import (
     evidenzia_giorni_con_squadre_attive,
 )
-from gestionale_logistica.gui.pianificazione.pianificazione_data import (
+from gestionale_logistica.gui.pages.pianificazione.pianificazione_data import (
     conta_composizioni_disponibili,
     costruisci_dettaglio_viaggio_proposto,
     costruisci_righe_piano,
@@ -52,7 +52,7 @@ AZZURRO = VARIANT_COLORS[IconChipVariant.LIGHT_BLUE][0]
 # "dettaglio" ha una callback per-istanza (apre il modale con lo stato della tab), quindi la lista
 # completa è assemblata da AutomaticaTab._table_columns() invece di essere un costante di modulo.
 _BASE_TABLE_COLUMNS = [
-    ColumnDef(key="squadra", label="Squadra", column_type=ColumnType.LINK, width=100),
+    ColumnDef(key="squadra", label="Squadra", width=100),
     ColumnDef(key="numero_ordini", label="N. ordini", stretch=2),
     ColumnDef(key="partenza", label="Partenza", sortable=True, stretch=1),
     ColumnDef(key="arrivo", label="Arrivo", sortable=True, stretch=1),

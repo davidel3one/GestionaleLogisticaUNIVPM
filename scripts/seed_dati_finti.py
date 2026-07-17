@@ -306,7 +306,7 @@ def main() -> None:
 
     # 4. 1000 ordini RICEVUTO liberi (mai agganciati a un viaggio), mix di tutte le categorie
     with SessionLocal() as session:
-        for _ in range(1000):
+        for _ in range(352):
             crea_ordine(session, random.choice(CATEGORIE_TUTTE), ora - timedelta(hours=random.randint(1, 72)))
         session.commit()
 

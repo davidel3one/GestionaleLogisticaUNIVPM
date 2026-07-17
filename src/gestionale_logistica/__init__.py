@@ -14,18 +14,18 @@ from PySide6.QtWidgets import QApplication
 from gestionale_logistica.autenticazione.email_service import EmailService
 from gestionale_logistica.autenticazione.gestore_autenticazione import GestoreAutenticazione
 from gestionale_logistica.concorrenza import arresta_esecutore
-from gestionale_logistica.gui.autenticazione import AutenticazionePage
 from gestionale_logistica.gui.components import EmptyState, SidebarItem
-from gestionale_logistica.gui.dashboard import DashboardPage
 from gestionale_logistica.gui.main_window import AppShell
 from gestionale_logistica.gui.pages import (
+    AutenticazionePage,
     CamionPage,
+    DashboardPage,
     DipendentiPage,
     OrdiniPage,
+    PianificazionePage,
     SquadrePage,
     ViaggiPage,
 )
-from gestionale_logistica.gui.pianificazione import PianificazionePage
 from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
 from gestionale_logistica.rendicontazione.gestore_rendicontazione import GestoreRendicontazione
 from gestionale_logistica.risorse.gestore_camion import GestoreCamion

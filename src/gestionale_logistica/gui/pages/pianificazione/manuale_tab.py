@@ -11,11 +11,11 @@ from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.gui.components import EmptyState
-from gestionale_logistica.gui.pianificazione.components import AvvioCard, CompositionCard
-from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+from gestionale_logistica.gui.pages.pianificazione.components import AvvioCard, CompositionCard
+from gestionale_logistica.gui.pages.pianificazione.components.calendario_squadre import (
     evidenzia_giorni_con_squadre_attive,
 )
-from gestionale_logistica.gui.pianificazione.pianificazione_data import (
+from gestionale_logistica.gui.pages.pianificazione.pianificazione_data import (
     costruisci_stato_composizione,
     descrizione_composizioni_disponibili,
     elenca_composizioni_disponibili,

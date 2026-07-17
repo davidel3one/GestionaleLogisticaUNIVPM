@@ -132,9 +132,23 @@ class OrdiniPage(QWidget):
         self._select_stato = MultiSelect(
             "Stato", options=list(STATO_ORDINE_LABELS.values()), placeholder="Tutti", compact=True
         )
+        # Stesso pattern MultiSelect degli altri filtri: opzioni popolate dai valori distinti gia'
+        # visti su Ordine.negozio_partner (stesso elenco gia' usato dal selettore "select o crea
+        # nuovo" del modale Importa CSV, GestoreLogistica.elenco_negozi_partner()), piu' "Non
+        # specificato" - lo stesso valore con cui visualizza_ordini rende gli ordini con
+        # negozio_partner NULL (r.negozio_partner or "Non specificato"): senza questa opzione la
+        # colonna mostrerebbe righe "Non specificato" impossibili da isolare con questo filtro
+        # (elenco_negozi_partner esclude i NULL, essendo un DISTINCT sul campo reale).
+        self._select_negozio_partner = MultiSelect(
+            "Negozio partner",
+            options=[*self._gestore.elenco_negozi_partner(), "Non specificato"],
+            placeholder="Tutti",
+            compact=True,
+        )
         self._campo_data = DateFilterField()
         riga.addWidget(self._campo_ricerca, 1)
         riga.addWidget(self._select_stato)
+        riga.addWidget(self._select_negozio_partner)
         riga.addWidget(self._campo_data)
         riga.addStretch(1)
 
@@ -151,13 +165,20 @@ class OrdiniPage(QWidget):
 
         self._campo_ricerca.searchChanged.connect(self._on_filtro_cambiato)
         self._select_stato.valueChanged.connect(self._on_filtro_cambiato)
+        self._select_negozio_partner.valueChanged.connect(self._on_filtro_cambiato)
         self._campo_data.valueChanged.connect(self._on_data_filtro_cambiata)
 
         self._tabella = Table(
             [
-                ColumnDef(key="id", label="ID", column_type=ColumnType.LINK, stretch=1),
+                ColumnDef(key="id", label="ID", column_type=ColumnType.TEXT, stretch=1),
                 ColumnDef(key="cliente", label="Cliente", stretch=1),
                 ColumnDef(key="indirizzo", label="Indirizzo", emphasis=TextEmphasis.SECONDARY, stretch=2),
+                ColumnDef(
+                    key="negozio_partner",
+                    label="Negozio partner",
+                    emphasis=TextEmphasis.SECONDARY,
+                    stretch=1,
+                ),
                 # Etichetta "Arrivo viaggio" invece del semplice "DATA" del mockup: il valore
                 # viene da Viaggio.data_arrivo_prevista, non e' una data propria dell'ordine -
                 # va reso inequivocabile nell'interfaccia (decisione dell'utente), non solo un
@@ -231,7 +252,7 @@ class OrdiniPage(QWidget):
 
         self._esiti_tabella = Table(
             [
-                ColumnDef(key="id", label="ID", column_type=ColumnType.LINK, stretch=1),
+                ColumnDef(key="id", label="ID", column_type=ColumnType.TEXT, stretch=1),
                 ColumnDef(key="cliente", label="Cliente", stretch=1),
                 ColumnDef(
                     key="esito",
@@ -275,6 +296,7 @@ class OrdiniPage(QWidget):
         pagina = self._gestore.visualizza_ordini(
             ricerca=self._campo_ricerca.value() or None,
             filtro_stato=self._select_stato.value(),
+            filtro_negozio_partner=self._select_negozio_partner.value(),
             filtro_data=self._filtro_data,
             pagina=self._pagina_corrente,
             dimensione_pagina=PAGE_SIZE,
@@ -285,6 +307,7 @@ class OrdiniPage(QWidget):
                 "id": r.id,
                 "cliente": r.cliente,
                 "indirizzo": r.indirizzo,
+                "negozio_partner": r.negozio_partner,
                 "arrivo_viaggio": r.data_arrivo_viaggio.strftime("%d/%m/%Y") if r.data_arrivo_viaggio else "—",
                 "peso_volume": _formatta_peso_volume(r.peso, r.volume_cargo),
                 "stato": r.stato,
@@ -353,6 +376,7 @@ class OrdiniPage(QWidget):
     def _ripristina_filtri(self) -> None:
         self._campo_ricerca.set_value("")
         self._select_stato.set_value([])
+        self._select_negozio_partner.set_value([])
         self._campo_data.set_value(QDate.currentDate())
         self._filtro_data = None
         self._pagina_corrente = 1

@@ -284,7 +284,7 @@ def test_squadre_page_elimina_riga_rifiutata_mostra_avviso(app, session_factory,
         assert session.get(Squadra, "1").flg_attiva is True
 
 
-def test_squadre_page_numerazione_senza_buchi_dopo_eliminazione(app, session_factory):
+def test_squadre_page_colonna_squadra_mostra_id_reale_dopo_eliminazione(app, session_factory):
     with session_factory() as session:
         crea_flotta(session, "1")
         crea_flotta(session, "2")
@@ -296,11 +296,12 @@ def test_squadre_page_numerazione_senza_buchi_dopo_eliminazione(app, session_fac
     pagina = SquadrePage(gestore)
 
     testi = [label.text() for label in pagina._tabella.findChildren(QLabel)]
-    # Restano solo le squadre "1" e "3" (id reali), ma la colonna Squadra le mostra numerate
-    # in sequenza senza buchi: #1 e #2, non #1 e #3.
+    # La colonna Squadra mostra l'id reale a DB (non piu' un numero progressivo di posizione,
+    # vedi _reload in gui/pages/squadre/__init__.py): restano visibili "1" e "3" (id reali), "2"
+    # e' soft-eliminata e sparisce dalla vista di default.
     assert "#1" in testi
-    assert "#2" in testi
-    assert "#3" not in testi
+    assert "#3" in testi
+    assert "#2" not in testi
 
 
 def test_squadre_page_ricerca_filtra_e_ricarica(app, session_factory):

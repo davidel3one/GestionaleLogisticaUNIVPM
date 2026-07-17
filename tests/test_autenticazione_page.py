@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 from gestionale_logistica.autenticazione.gestore_autenticazione import GestoreAutenticazione
-from gestionale_logistica.gui.autenticazione.autenticazione_page import (
+from gestionale_logistica.gui.pages.autenticazione.autenticazione_page import (
     _CONFERMA_OTP,
     _LOGIN,
     _REGISTRAZIONE,

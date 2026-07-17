@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from gestionale_logistica.gui.pianificazione.pianificazione_data import (
+from gestionale_logistica.gui.pages.pianificazione.pianificazione_data import (
     giorni_con_composizioni_disponibili,
 )
 from test_logistica import crea_flotta_semplice, crea_ordine

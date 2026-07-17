@@ -210,7 +210,11 @@ def _build_divider() -> QFrame:
 
 
 def _build_text_label(text: str, emphasis: TextEmphasis) -> QLabel:
-    label = QLabel(text)
+    # _ElidingLabel (non una QLabel semplice): tronca con ellissi e mostra il testo completo in
+    # un Popover al passaggio del mouse, stesso trattamento gia' usato dalla colonna LINK (es.
+    # "ID" in Viaggi) - richiesto esplicitamente anche per colonne TEXT come "Indirizzo" in
+    # Ordini, che su schermi stretti sconfinavano invece di troncarsi.
+    label = _ElidingLabel(text)
     font = QFont(FONT_FAMILY)
     font.setWeight(QFont.Weight(500))
     font.setPixelSize(13)

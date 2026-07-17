@@ -218,7 +218,10 @@ class SquadrePage(QWidget):
                             tooltip="Non attiva — clicca per riattivare",
                             predicate=lambda riga: riga["stato"] == STATO_NON_ATTIVA,
                         ),
-                        RowAction("trash-2", self._elimina_riga),
+                        RowAction(
+                            "trash-2", self._elimina_riga,
+                            predicate=lambda riga: riga["stato"] != STATO_IN_VIAGGIO,
+                        ),
                     ],
                 ),
             ]
@@ -264,14 +267,10 @@ class SquadrePage(QWidget):
             dimensione_pagina=PAGE_SIZE,
             decrescente=self._decrescente,
         )
-        # "Squadra" mostra un numero progressivo di posizione, non l'id reale a DB: cosi' la lista
-        # resta senza buchi anche quando una squadra viene eliminata (l'id vero, usato per le azioni,
-        # resta comunque in "id" - vedi _elimina_riga/_apri_modale_dettaglio).
-        numero_base = max(self._pagina_corrente - 1, 0) * PAGE_SIZE
         righe = [
             {
                 "id": r.id,
-                "squadra": f"#{numero_base + indice + 1}",
+                "squadra": f"#{r.id}",
                 "membri": r.membri,
                 "camion": r.camion,
                 "creazione": r.data_creazione.strftime("%d/%m/%Y"),
@@ -279,7 +278,7 @@ class SquadrePage(QWidget):
                 "flg_sponda_idraulica": r.flg_sponda_idraulica,
                 "stato": r.stato,
             }
-            for indice, r in enumerate(pagina.squadre)
+            for r in pagina.squadre
         ]
         self._tabella.set_rows(righe)
         self._tabella.set_pagination(self._pagina_corrente, pagina.totale, PAGE_SIZE)
@@ -406,7 +405,7 @@ class SquadrePage(QWidget):
         else:
             tabella_viaggi = Table(
                 [
-                    ColumnDef(key="id_viaggio", label="ID viaggio", column_type=ColumnType.LINK, stretch=1),
+                    ColumnDef(key="id_viaggio", label="ID viaggio", column_type=ColumnType.TEXT, stretch=1),
                     ColumnDef(key="n_ordini", label="N. ordini", emphasis=TextEmphasis.SECONDARY, stretch=1),
                     ColumnDef(
                         key="stato",

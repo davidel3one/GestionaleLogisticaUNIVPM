@@ -3,15 +3,23 @@ artboard "Ordini — Registra esito consegna (modale)".
 
 Specifico alla pagina Ordini (non condiviso con Dashboard come `ImportCsvModal`), quindi vive qui
 invece che in `gui/components/`.
-"""
+
+**Anteprima prove allegate** (2026-07-17, su richiesta esplicita dell'utente): ogni chip prova
+(sia gia' persistita sia appena selezionata, non ancora salvata) mostra un'anteprima cliccabile
+(`_AnteprimaProva`) - thumbnail reale per le immagini (`tipo_file` che inizia per `image/`), icona
+generica `file-text` altrimenti (es. PDF, non c'e' un viewer integrato). Il click apre il file con
+l'applicazione predefinita del sistema operativo (`QDesktopServices.openUrl`), non nel modale
+stesso. Richiede `AllegatoVista.percorso_file` (aggiunto in gestore_rendicontazione.py -
+prima esposeva solo nome/tipo/data, non il percorso reale su disco necessario per aprire/renderizzare
+il file)."""
 
 from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QSize, QUrl, Qt, Signal
+from PySide6.QtGui import QDesktopServices, QFont, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from gestionale_logistica.database.enums import StatoEsito
@@ -131,6 +139,40 @@ class _EsitoToggle(QWidget):
 def _sottotitolo_riga(riga: dict) -> str:
     parti = [riga.get("indirizzo") or "", riga.get("peso_volume") or ""]
     return "  ·  ".join(p for p in parti if p)
+
+
+_THUMB_SIZE = 36
+
+
+class _AnteprimaProva(QLabel):
+    """Anteprima cliccabile di una prova caricata (esistente o non ancora salvata): thumbnail
+    per le immagini, icona generica altrimenti (es. PDF) - in entrambi i casi il click apre il
+    file con l'applicazione predefinita del sistema, non essendoci un viewer integrato."""
+
+    def __init__(self, percorso_file: str, tipo_file: str | None, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._percorso_file = percorso_file
+        self.setFixedSize(_THUMB_SIZE, _THUMB_SIZE)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet("background: transparent; border-radius: 4px;")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Clicca per aprire il file")
+
+        pixmap = QPixmap(percorso_file) if (tipo_file or "").startswith("image/") else QPixmap()
+        if not pixmap.isNull():
+            self.setPixmap(
+                pixmap.scaled(
+                    _THUMB_SIZE,
+                    _THUMB_SIZE,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        else:
+            self.setPixmap(load_lucide_icon("file-text", _SUBTITLE_COLOR, 20).pixmap(QSize(20, 20)))
+
+    def mousePressEvent(self, event) -> None:  # noqa: ARG002 (firma richiesta da Qt)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(self._percorso_file))
 
 
 class RegistraEsitoModal(Modal):
@@ -259,15 +301,23 @@ class RegistraEsitoModal(Modal):
         self._nota_ripianificazione.setVisible(False)
         self.add_widget(self._nota_ripianificazione)
 
-    def _crea_chip_prova(self, nome_file: str, rimuovibile: bool) -> QWidget:
+    def _crea_chip_prova(
+        self, nome_file: str, rimuovibile: bool, percorso_file: str, tipo_file: str | None
+    ) -> QWidget:
         """`rimuovibile=False` per una prova gia' persistita (mostrata solo per informazione,
         in modalita' modifica) - non esiste un'operazione per eliminare un singolo Allegato gia'
         salvato, solo per aggiungerne altri."""
         chip = QWidget()
         layout = QHBoxLayout(chip)
-        layout.setContentsMargins(12, 8, 12, 8)
+        # Margine verticale 12px (non 8 come quello orizzontale): con l'anteprima immagine a
+        # 36px (_THUMB_SIZE) un margine di 8px la faceva sembrare incollata al bordo del chip -
+        # il thumbnail e' l'elemento piu' alto della riga, quindi e' lui a fissare lo spazio
+        # percepito sopra/sotto, non l'icona generica (piu' piccola) o il testo.
+        layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         chip.setStyleSheet("background-color: #F7F9FC; border-radius: 8px;")
+
+        layout.addWidget(_AnteprimaProva(percorso_file, tipo_file))
 
         etichetta = QLabel(nome_file)
         etichetta.setStyleSheet("background: transparent; color: #2E2E2E;")
@@ -296,9 +346,23 @@ class RegistraEsitoModal(Modal):
                 item.widget().deleteLater()
 
         for allegato in self._allegati_esistenti:
-            self._lista_prove_layout.addWidget(self._crea_chip_prova(allegato.nome_file, rimuovibile=False))
+            self._lista_prove_layout.addWidget(
+                self._crea_chip_prova(
+                    allegato.nome_file,
+                    rimuovibile=False,
+                    percorso_file=allegato.percorso_file,
+                    tipo_file=allegato.tipo_file,
+                )
+            )
         for percorso in self._percorsi_prova_nuovi:
-            self._lista_prove_layout.addWidget(self._crea_chip_prova(percorso.name, rimuovibile=True))
+            self._lista_prove_layout.addWidget(
+                self._crea_chip_prova(
+                    percorso.name,
+                    rimuovibile=True,
+                    percorso_file=str(percorso),
+                    tipo_file=mimetypes.guess_type(percorso.name)[0],
+                )
+            )
 
         self._lista_prove_widget.setVisible(
             bool(self._allegati_esistenti) or bool(self._percorsi_prova_nuovi)

@@ -184,10 +184,15 @@ class CamionPage(QWidget):
                         # stessa icona per entrambi gli stati, solo il colore cambia - riusato
                         # dalla palette di stato Attivo/Dismesso
                         # (STATO_BADGE_COLORS/DEFAULT_STATUS_BADGE_COLORS), non ridefinito.
+                        # Solo per Attivo -> Dismesso: per In viaggio l'icona non compare (stesso
+                        # bug gia' corretto in Squadre - prima il predicate `!= STATO_DISMESSO` la
+                        # mostrava anche su righe In viaggio con tooltip "Attivo", e il click
+                        # chiamava comunque disattiva_camion, che rifiuta sempre un camion coinvolto
+                        # in un viaggio in corso, quindi l'azione offerta non poteva mai riuscire).
                         RowAction(
                             "arrow-left-right", self._modifica_riga, color="#1E8E3E",
                             tooltip="Attivo — clicca per dismettere",
-                            predicate=lambda riga: riga["stato"] != STATO_DISMESSO,
+                            predicate=lambda riga: riga["stato"] == STATO_ATTIVO,
                         ),
                         RowAction(
                             "arrow-left-right", self._modifica_riga, color="#BF392A",

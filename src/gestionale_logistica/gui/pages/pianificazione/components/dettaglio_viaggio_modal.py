@@ -11,15 +11,16 @@ from typing import TYPE_CHECKING
 from PySide6.QtWidgets import QWidget
 
 from gestionale_logistica.gui.components import ColumnDef, ColumnType, Modal, Table, TextEmphasis
-from gestionale_logistica.gui.pianificazione.components.composition_card import CATEGORIA_BADGE_COLORS
+from gestionale_logistica.gui.pages.pianificazione.components.composition_card import CATEGORIA_BADGE_COLORS
 
 if TYPE_CHECKING:
     # Import solo per type-checking: a runtime creerebbe un ciclo, dato che pianificazione_data
     # importa a sua volta il package `components` (di cui questo modulo fa parte).
-    from gestionale_logistica.gui.pianificazione.pianificazione_data import DettaglioViaggioProposto
+    from gestionale_logistica.gui.pages.pianificazione.pianificazione_data import DettaglioViaggioProposto
 
 _TABLE_COLUMNS = [
     ColumnDef(key="cliente", label="Cliente", stretch=2),
+    ColumnDef(key="negozio_partner", label="Negozio partner", stretch=1),
     ColumnDef(key="peso", label="Peso", emphasis=TextEmphasis.SECONDARY, stretch=1),
     ColumnDef(key="volume", label="Volume", emphasis=TextEmphasis.SECONDARY, stretch=1),
     ColumnDef(
@@ -45,6 +46,7 @@ class DettaglioViaggioPropostoModal(Modal):
             [
                 {
                     "cliente": riga.cliente,
+                    "negozio_partner": riga.negozio_partner,
                     "peso": f"{riga.peso:g} kg",
                     "volume": f"{riga.volume:g} m³",
                     "categoria": riga.categoria_label,
