@@ -19,9 +19,9 @@ from gestionale_logistica.autenticazione.gestore_autenticazione import (
     GestoreAutenticazione,
 )
 from gestionale_logistica.autenticazione.validazione import ValidazioneError
-from gestionale_logistica.gui.autenticazione.conferma_otp_view import ConfermaOtpView
-from gestionale_logistica.gui.autenticazione.login_view import LoginView
-from gestionale_logistica.gui.autenticazione.registrazione_view import RegistrazioneView
+from gestionale_logistica.gui.pages.autenticazione.conferma_otp_view import ConfermaOtpView
+from gestionale_logistica.gui.pages.autenticazione.login_view import LoginView
+from gestionale_logistica.gui.pages.autenticazione.registrazione_view import RegistrazioneView
 from gestionale_logistica.gui.components.toast import ToastManager
 
 _LOGIN, _REGISTRAZIONE, _CONFERMA_OTP = range(3)

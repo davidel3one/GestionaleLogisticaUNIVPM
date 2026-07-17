@@ -99,6 +99,7 @@ class PaginaEsiti:
 class AllegatoVista:
     id: int
     nome_file: str
+    percorso_file: str
     tipo_file: str
     data_caricamento: datetime
 
@@ -572,7 +573,11 @@ class GestoreRendicontazione:
             ).all()
             return [
                 AllegatoVista(
-                    id=a.id, nome_file=a.nome_file, tipo_file=a.tipo_file, data_caricamento=a.data_caricamento
+                    id=a.id,
+                    nome_file=a.nome_file,
+                    percorso_file=a.percorso_file,
+                    tipo_file=a.tipo_file,
+                    data_caricamento=a.data_caricamento,
                 )
                 for a in allegati
             ]

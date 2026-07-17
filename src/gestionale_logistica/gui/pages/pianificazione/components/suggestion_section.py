@@ -21,9 +21,11 @@ from gestionale_logistica.gui.components import (
     ColumnDef,
     ColumnType,
     RowAction,
+    SearchField,
     Table,
     Tooltip,
 )
+from gestionale_logistica.gui.components.table import FOOTER_HEIGHT, HEADER_HEIGHT, ROW_HEIGHT
 
 TITLE_COLOR = "#2E2E2E"
 HINT_COLOR = "#9AA1AA"
@@ -42,6 +44,7 @@ BADGE_COLORS = {
 TABLE_COLUMNS = [
     ColumnDef(key="ordine_id", label="Ordine", width=90),
     ColumnDef(key="cliente", label="Cliente", stretch=2),
+    ColumnDef(key="negozio_partner", label="Negozio partner", stretch=1),
     ColumnDef(key="peso", label="Peso", width=90),
     ColumnDef(key="volume", label="Volume", width=90),
     ColumnDef(
@@ -56,6 +59,12 @@ TABLE_COLUMNS = [
 # width=40, stessa geometria della colonna "dettaglio" della Proposed Trips Table
 # (automatica_tab.py) per coerenza fra le due Table di Pianificazione.
 _ACTION_COLUMN_WIDTH = 40
+
+# Senza un minimo esplicito la QScrollArea interna di Table collassa a un'altezza minima anche
+# con più righe (stessa causa già risolta in composition_card.py, vedi CANDIDATI_TABLE_MIN_HEIGHT
+# lì): altezza minima per ~4 righe visibili prima di dover scorrere.
+_TABLE_MIN_VISIBLE_ROWS = 4
+TABLE_MIN_HEIGHT = HEADER_HEIGHT + _TABLE_MIN_VISIBLE_ROWS * ROW_HEIGHT + FOOTER_HEIGHT
 
 
 def _heading(text: str) -> QLabel:
@@ -72,6 +81,7 @@ def _heading(text: str) -> QLabel:
 class RigaOrdineSuggerito:
     ordine_id: str
     cliente: str
+    negozio_partner: str
     peso: float
     volume: float
     categoria_label: str
@@ -111,6 +121,13 @@ class SuggestionSection(QWidget):
         self._righe: list[RigaOrdineSuggerito] = []
         self._current_page = 1
 
+        # Filtro lato client per id ordine, cliente o negozio partner — richiesta esplicita
+        # dell'utente, stesso pattern di CompositionCard._ricerca_disponibili. Sempre visibile
+        # (non nascosto in base al numero di righe), stessa scelta fatta lì.
+        self._ricerca = SearchField(placeholder="Cerca per ordine, cliente o negozio partner...")
+        self._ricerca.searchChanged.connect(self._on_ricerca_cambiata)
+        layout.addWidget(self._ricerca)
+
         colonne = [
             *TABLE_COLUMNS,
             ColumnDef(
@@ -122,6 +139,7 @@ class SuggestionSection(QWidget):
             ),
         ]
         self._table = Table(colonne)
+        self._table.setMinimumHeight(TABLE_MIN_HEIGHT)
         self._table.pageChanged.connect(self._on_page_changed)
         self._table.hide()
         layout.addWidget(self._table)
@@ -177,15 +195,33 @@ class SuggestionSection(QWidget):
         self._current_page = page
         self._render_page()
 
+    def _on_ricerca_cambiata(self, _testo: str) -> None:
+        self._current_page = 1
+        self._render_page()
+
+    def _righe_filtrate(self) -> list[RigaOrdineSuggerito]:
+        testo = self._ricerca.value().strip().lower()
+        if not testo:
+            return self._righe
+        return [
+            riga
+            for riga in self._righe
+            if testo in riga.ordine_id.lower()
+            or testo in riga.cliente.lower()
+            or testo in riga.negozio_partner.lower()
+        ]
+
     def _render_page(self) -> None:
-        self._table.setVisible(bool(self._righe))
+        filtrati = self._righe_filtrate()
+        self._table.setVisible(bool(filtrati))
         inizio = (self._current_page - 1) * PAGE_SIZE
-        pagina = self._righe[inizio : inizio + PAGE_SIZE]
+        pagina = filtrati[inizio : inizio + PAGE_SIZE]
         self._table.set_rows(
             [
                 {
                     "ordine_id": riga.ordine_id,
                     "cliente": riga.cliente,
+                    "negozio_partner": riga.negozio_partner,
                     "peso": f"{riga.peso:g} kg",
                     "volume": f"{riga.volume:g} m³",
                     "categoria_label": riga.categoria_label,
@@ -193,4 +229,4 @@ class SuggestionSection(QWidget):
                 for riga in pagina
             ]
         )
-        self._table.set_pagination(self._current_page, len(self._righe), PAGE_SIZE)
+        self._table.set_pagination(self._current_page, len(filtrati), PAGE_SIZE)

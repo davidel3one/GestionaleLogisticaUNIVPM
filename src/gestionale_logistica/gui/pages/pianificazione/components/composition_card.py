@@ -25,6 +25,7 @@ from gestionale_logistica.gui.components import (
     ColumnType,
     ProgressBar,
     RowAction,
+    SearchField,
     Table,
     Tooltip,
 )
@@ -82,6 +83,7 @@ CATEGORIA_BADGE_COLORS = {
 _ORDINE_TABLE_COLUMNS = [
     ColumnDef(key="ordine_id", label="Ordine", width=90),
     ColumnDef(key="cliente", label="Cliente", stretch=2),
+    ColumnDef(key="negozio_partner", label="Negozio partner", stretch=1),
     ColumnDef(key="peso", label="Peso", width=90),
     ColumnDef(key="volume", label="Volume", width=90),
     ColumnDef(
@@ -136,6 +138,7 @@ def _divider() -> QFrame:
 class RigaOrdineComposizione:
     ordine_id: str
     cliente: str
+    negozio_partner: str
     peso: float
     volume: float
     categoria_label: str  # vedi CATEGORIA_BADGE_LABELS
@@ -228,6 +231,10 @@ class CompositionCard(Card):
         self._ordini_disponibili: list[RigaOrdineComposizione] = []
         self._pagina_disponibili = 1
 
+        self._ricerca_disponibili = SearchField(placeholder="Cerca per ordine, cliente o negozio partner...")
+        self._ricerca_disponibili.searchChanged.connect(self._on_ricerca_disponibili_cambiata)
+        manual_add_layout.addWidget(self._ricerca_disponibili)
+
         colonne_disponibili = [
             *_ORDINE_TABLE_COLUMNS,
             ColumnDef(
@@ -304,16 +311,42 @@ class CompositionCard(Card):
         self._pagina_disponibili = page
         self._render_pagina_disponibili()
 
+    def _on_ricerca_disponibili_cambiata(self, _testo: str) -> None:
+        self._pagina_disponibili = 1
+        self._render_pagina_disponibili()
+
+    def _ordini_disponibili_filtrati(self) -> list[RigaOrdineComposizione]:
+        """Filtro lato client (la lista è già interamente in memoria, vedi
+        `elenca_ordini_candidati`) per id ordine, cliente o negozio partner — richiesta esplicita
+        dell'utente 2026-07-17, non nel mockup."""
+        testo = self._ricerca_disponibili.value().strip().lower()
+        if not testo:
+            return self._ordini_disponibili
+        return [
+            riga
+            for riga in self._ordini_disponibili
+            if testo in riga.ordine_id.lower()
+            or testo in riga.cliente.lower()
+            or testo in riga.negozio_partner.lower()
+        ]
+
     def _render_pagina_disponibili(self) -> None:
-        self._tabella_disponibili.setVisible(bool(self._ordini_disponibili))
-        self._disponibili_hint.setVisible(not self._ordini_disponibili)
+        filtrati = self._ordini_disponibili_filtrati()
+        self._tabella_disponibili.setVisible(bool(filtrati))
+        self._disponibili_hint.setVisible(not filtrati)
+        self._disponibili_hint.setText(
+            "Nessun ordine disponibile da aggiungere"
+            if not self._ordini_disponibili
+            else "Nessun ordine corrisponde alla ricerca"
+        )
         inizio = (self._pagina_disponibili - 1) * PAGE_SIZE
-        pagina = self._ordini_disponibili[inizio : inizio + PAGE_SIZE]
+        pagina = filtrati[inizio : inizio + PAGE_SIZE]
         self._tabella_disponibili.set_rows(
             [
                 {
                     "ordine_id": riga.ordine_id,
                     "cliente": riga.cliente,
+                    "negozio_partner": riga.negozio_partner,
                     "peso": f"{riga.peso:g} kg",
                     "volume": f"{riga.volume:g} m³",
                     "categoria_label": riga.categoria_label,
@@ -321,9 +354,7 @@ class CompositionCard(Card):
                 for riga in pagina
             ]
         )
-        self._tabella_disponibili.set_pagination(
-            self._pagina_disponibili, len(self._ordini_disponibili), PAGE_SIZE
-        )
+        self._tabella_disponibili.set_pagination(self._pagina_disponibili, len(filtrati), PAGE_SIZE)
 
     # -- API pubblica --------------------------------------------------------------------
 
@@ -355,6 +386,7 @@ class CompositionCard(Card):
                 {
                     "ordine_id": riga.ordine_id,
                     "cliente": riga.cliente,
+                    "negozio_partner": riga.negozio_partner,
                     "peso": f"{riga.peso:g} kg",
                     "volume": f"{riga.volume:g} m³",
                     "categoria_label": riga.categoria_label,

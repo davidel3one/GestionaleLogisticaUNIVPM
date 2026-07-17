@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.database.enums import StatoOrdine
 from gestionale_logistica.database.models import ComposizioneSquadra, Ordine, Viaggio
-from gestionale_logistica.gui.pianificazione.components import (
+from gestionale_logistica.gui.pages.pianificazione.components import (
     CATEGORIA_BADGE_LABELS,
     RigaOrdineComposizione,
     RigaOrdineSuggerito,
@@ -134,6 +134,7 @@ def elenca_ordini_candidati(
             RigaOrdineComposizione(
                 ordine_id=o.id,
                 cliente=o.cliente,
+                negozio_partner=o.negozio_partner or "Non specificato",
                 peso=o.peso,
                 volume=o.volume_cargo,
                 categoria_label=CATEGORIA_BADGE_LABELS.get(o.categoria_consegna.value, "Standard"),
@@ -178,6 +179,7 @@ def costruisci_stato_composizione(
                 RigaOrdineComposizione(
                     ordine_id=o.id,
                     cliente=o.cliente,
+                    negozio_partner=o.negozio_partner or "Non specificato",
                     peso=o.peso,
                     volume=o.volume_cargo,
                     categoria_label=CATEGORIA_BADGE_LABELS.get(o.categoria_consegna.value, "Standard"),
@@ -297,6 +299,7 @@ def costruisci_dettaglio_viaggio_proposto(
                 RigaOrdineComposizione(
                     ordine_id=o.id,
                     cliente=o.cliente,
+                    negozio_partner=o.negozio_partner or "Non specificato",
                     peso=o.peso,
                     volume=o.volume_cargo,
                     categoria_label=CATEGORIA_BADGE_LABELS.get(o.categoria_consegna.value, "Standard"),
@@ -321,6 +324,7 @@ def costruisci_righe_suggerimento(
             RigaOrdineSuggerito(
                 ordine_id=o.id,
                 cliente=o.cliente,
+                negozio_partner=o.negozio_partner or "Non specificato",
                 peso=o.peso,
                 volume=o.volume_cargo,
                 categoria_label=CATEGORIA_BADGE_LABELS.get(o.categoria_consegna.value, "Standard"),

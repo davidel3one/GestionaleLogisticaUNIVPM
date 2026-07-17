@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -217,7 +218,17 @@ class ToastManager(QWidget):
     Un'istanza per finestra/pagina che deve mostrare toast: `manager = ToastManager(parent)`,
     poi `manager.show_success(...)`/`show_error(...)`/`show_warning(...)`/`show_info(...)`
     da qualunque punto del codice che ha un riferimento al manager.
-    """
+
+    `AppShell` (main_window.py) avvolge OGNI pagina in una `QScrollArea` (`_wrap_in_scroll_area`)
+    prima di montarla - `parent` qui e' quindi quasi sempre il widget "contenuto" scrollato, non
+    il viewport visibile. Essendo un figlio Qt di `parent`, senza correzione il manager scorre
+    via insieme al contenuto (la sua posizione locale e' relativa a `parent`, che QScrollArea
+    sposta a coordinate negative quando si scorre in basso) - bug segnalato dall'utente
+    (2026-07-17): il toast doveva restare "in sovraimpressione" in alto a destra mentre il
+    contenuto scorre sotto. Fix: se un antenato QScrollArea esiste, la posizione compensa lo
+    scroll corrente (`-parent.pos()`) cosi' che il manager resti visivamente ancorato al
+    viewport invece che al contenuto; niente scroll area antenata (es. dialog/modali) -> stesso
+    comportamento di prima, ancorato all'angolo di `parent`."""
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -225,6 +236,8 @@ class ToastManager(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(STACK_GAP)
         self.setFixedWidth(WIDTH)
+
+        self._scroll_area: QScrollArea | None = None
 
         parent.installEventFilter(self)
         # Senza questa chiamata l'altezza resta quella di default di un QWidget vuoto
@@ -250,6 +263,11 @@ class ToastManager(QWidget):
         self._layout.addWidget(toast)
         toast.show()
         self.adjustSize()
+        # Al primo toast mostrato la pagina e' quasi certamente gia' montata dentro la
+        # QScrollArea di AppShell (a differenza del momento della costruzione in __init__,
+        # quando la pagina e' ancora "nuda") - occasione in piu' per agganciare lo scroll
+        # antenato se _reposition() non ci fosse ancora riuscita (es. mai arrivato un resize).
+        self._reposition()
         self.raise_()
         return toast
 
@@ -269,13 +287,49 @@ class ToastManager(QWidget):
         self._layout.removeWidget(toast)
         self.adjustSize()
 
+    def _trova_scroll_area_antenata(self) -> QScrollArea | None:
+        """Risale la catena dei parent Qt di `parent` (non `self`: `self` e' gia' figlio di
+        `parent`) cercando la QScrollArea che lo ospita (es. quella di AppShell._wrap_in_scroll_area
+        - montata DOPO la costruzione della pagina/di questo manager, quindi non trovabile in
+        __init__: da qui la ricerca e' ripetuta pigramente a ogni _reposition() finche' non
+        trova nulla di nuovo, non fatta una volta sola)."""
+        candidato = self.parentWidget()
+        while candidato is not None:
+            if isinstance(candidato, QScrollArea):
+                return candidato
+            candidato = candidato.parentWidget()
+        return None
+
+    def _aggancia_scroll_area(self, scroll_area: QScrollArea) -> None:
+        self._scroll_area = scroll_area
+        scroll_area.verticalScrollBar().valueChanged.connect(self._reposition)
+        scroll_area.horizontalScrollBar().valueChanged.connect(self._reposition)
+
     def _reposition(self) -> None:
         parent = self.parentWidget()
         if parent is None:
             return
-        self.move(parent.width() - WIDTH - MARGIN_RIGHT, MARGIN_TOP)
+
+        if self._scroll_area is None:
+            trovata = self._trova_scroll_area_antenata()
+            if trovata is not None:
+                self._aggancia_scroll_area(trovata)
+
+        if self._scroll_area is not None:
+            # `parent` e' il widget "contenuto" della QScrollArea (scroll.setWidget(parent)):
+            # scorrendo, QScrollArea sposta `parent` a coordinate locali negative rispetto al
+            # proprio viewport (stesso meccanismo con cui implementa lo scroll) - "-parent.pos()"
+            # e' esattamente lo scroll corrente, sommato qui per ancorare il manager al viewport
+            # (fisso) invece che a `parent` (che scorre sotto).
+            viewport = self._scroll_area.viewport()
+            self.move(
+                -parent.x() + viewport.width() - WIDTH - MARGIN_RIGHT,
+                -parent.y() + MARGIN_TOP,
+            )
+        else:
+            self.move(parent.width() - WIDTH - MARGIN_RIGHT, MARGIN_TOP)
 
     def eventFilter(self, watched: QWidget, event: QEvent) -> bool:
-        if watched is self.parentWidget() and event.type() == QEvent.Type.Resize:
+        if watched is self.parentWidget() and event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
             self._reposition()
         return super().eventFilter(watched, event)

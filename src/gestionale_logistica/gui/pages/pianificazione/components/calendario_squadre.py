@@ -19,7 +19,7 @@ from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.gui.components.icon_chip import IconChipVariant, VARIANT_COLORS
-from gestionale_logistica.gui.pianificazione.pianificazione_data import (
+from gestionale_logistica.gui.pages.pianificazione.pianificazione_data import (
     giorni_con_composizioni_disponibili,
 )
 

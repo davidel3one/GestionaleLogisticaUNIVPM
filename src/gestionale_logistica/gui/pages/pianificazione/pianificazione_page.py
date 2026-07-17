@@ -9,10 +9,10 @@ from sqlalchemy.orm import sessionmaker
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.gui.components import Button, ButtonVariant, PageHeader, TabBar, load_lucide_icon
 from gestionale_logistica.gui.components.toast import ToastManager
-from gestionale_logistica.gui.pianificazione.assistita_tab import AssistitaTab
-from gestionale_logistica.gui.pianificazione.automatica_tab import AutomaticaTab
-from gestionale_logistica.gui.pianificazione.components import ImpostazioniPianificazioneModal
-from gestionale_logistica.gui.pianificazione.manuale_tab import ManualeTab
+from gestionale_logistica.gui.pages.pianificazione.assistita_tab import AssistitaTab
+from gestionale_logistica.gui.pages.pianificazione.automatica_tab import AutomaticaTab
+from gestionale_logistica.gui.pages.pianificazione.components import ImpostazioniPianificazioneModal
+from gestionale_logistica.gui.pages.pianificazione.manuale_tab import ManualeTab
 from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
 
 CONTENT_PADDING = 32
@@ -49,6 +49,7 @@ class PianificazionePage(QWidget):
 
         assistita_tab = AssistitaTab(session_factory)
         assistita_tab.viaggioChiuso.connect(self._on_viaggio_chiuso)
+        assistita_tab.composizioneOccupata.connect(self._on_composizione_occupata)
         self._stack.addWidget(assistita_tab)
 
         manuale_tab = ManualeTab(session_factory)
@@ -77,3 +78,6 @@ class PianificazionePage(QWidget):
 
     def _on_ordine_non_idoneo(self, motivo: str) -> None:
         self._toasts.show_error("Ordine non ammesso", motivo)
+
+    def _on_composizione_occupata(self, motivo: str) -> None:
+        self._toasts.show_error("Composizione non disponibile", motivo)

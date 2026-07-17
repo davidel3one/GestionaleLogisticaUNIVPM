@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from gestionale_logistica.database.enums import StatoEsito, StatoOrdine, StatoViaggio
 from gestionale_logistica.database.models import CausaleFallimento, EsitoConsegna, RegistroEsiti, Squadra, Viaggio
 from gestionale_logistica.gui.components import IconChipVariant
-from gestionale_logistica.gui.dashboard.dashboard_data import (
+from gestionale_logistica.gui.pages.dashboard.dashboard_data import (
     carica_attivita_recente,
     carica_kpi_dashboard,
     carica_pianificazione_prossimi_giorni,

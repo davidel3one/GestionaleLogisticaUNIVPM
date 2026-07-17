@@ -41,6 +41,12 @@ WIDE_WIDTH_THRESHOLD = 900
 
 CONTENT_PADDING_TOP = 32
 CONTENT_PADDING_SIDE = 32
+# Non nel mockup (v. nota storica sotto in componenti-gui.md, "Padding inferiore del content:
+# 0px... deliberato"): su richiesta esplicita dell'utente (2026-07-17), il contenuto tocca la
+# linea divisoria sopra al footer senza alcun respiro - riprodotto visivamente nella dialog
+# "Modifica esito consegna" (ultima prova allegata incollata alla linea). Un valore piccolo
+# (non quanto CONTENT_PADDING_TOP=32), solo per staccare visivamente l'ultimo widget dalla linea.
+CONTENT_PADDING_BOTTOM = 8
 
 FOOTER_GAP_ABOVE_BUTTONS = 16
 FOOTER_BUTTON_SPACING = 8
@@ -164,7 +170,7 @@ class Modal(QWidget):
         container = QWidget()
         self.content_layout = QVBoxLayout(container)
         self.content_layout.setContentsMargins(
-            CONTENT_PADDING_SIDE, CONTENT_PADDING_TOP, CONTENT_PADDING_SIDE, 0
+            CONTENT_PADDING_SIDE, CONTENT_PADDING_TOP, CONTENT_PADDING_SIDE, CONTENT_PADDING_BOTTOM
         )
         return container
 

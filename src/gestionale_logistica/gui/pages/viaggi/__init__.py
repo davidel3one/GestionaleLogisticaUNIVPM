@@ -391,15 +391,22 @@ class ViaggiPage(QWidget):
         else:
             tabella_ordini = Table(
                 [
-                    ColumnDef(key="id", label="ID", column_type=ColumnType.LINK, stretch=1),
+                    ColumnDef(key="id", label="ID", column_type=ColumnType.TEXT, stretch=1),
                     ColumnDef(key="cliente", label="Cliente", stretch=1),
+                    ColumnDef(key="negozio_partner", label="Negozio partner", stretch=1),
                     ColumnDef(
                         key="indirizzo", label="Indirizzo", emphasis=TextEmphasis.SECONDARY, stretch=2
                     ),
                 ]
             )
             righe_ordini = [
-                {"id": o.id, "cliente": o.cliente, "indirizzo": o.indirizzo} for o in dettaglio.ordini
+                {
+                    "id": o.id,
+                    "cliente": o.cliente,
+                    "negozio_partner": o.negozio_partner,
+                    "indirizzo": o.indirizzo,
+                }
+                for o in dettaglio.ordini
             ]
             tabella_ordini.set_rows(righe_ordini)
             tabella_ordini.set_pagination(1, len(righe_ordini), max(len(righe_ordini), 1))
@@ -512,6 +519,7 @@ class ViaggiPage(QWidget):
                 [
                     ColumnDef(key="id", label="ID ordine", stretch=1),
                     ColumnDef(key="cliente", label="Cliente", stretch=1),
+                    ColumnDef(key="negozio_partner", label="Negozio partner", stretch=1),
                     ColumnDef(
                         key="indirizzo", label="Indirizzo", emphasis=TextEmphasis.SECONDARY, stretch=2
                     ),
@@ -519,8 +527,17 @@ class ViaggiPage(QWidget):
                 show_footer=False,
             )
             tabella.set_rows(
-                [{"id": o.id, "cliente": o.cliente, "indirizzo": o.indirizzo} for o in ordini_correnti]
+                [
+                    {
+                        "id": o.id,
+                        "cliente": o.cliente,
+                        "negozio_partner": o.negozio_partner,
+                        "indirizzo": o.indirizzo,
+                    }
+                    for o in ordini_correnti
+                ]
             )
+            tabella.setMaximumHeight(220)
             ordini_viaggio_layout.addWidget(tabella)
 
         _aggiorna_ordini_nel_viaggio()
@@ -544,7 +561,13 @@ class ViaggiPage(QWidget):
                     dimensione_pagina=CANDIDATI_PAGE_SIZE,
                 )
                 righe = [
-                    {"id": o.id, "cliente": o.cliente, "indirizzo": o.indirizzo, "aggiunto": False}
+                    {
+                        "id": o.id,
+                        "cliente": o.cliente,
+                        "negozio_partner": o.negozio_partner,
+                        "indirizzo": o.indirizzo,
+                        "aggiunto": False,
+                    }
                     for o in risultato.ordini
                 ]
                 return righe, risultato.totale
@@ -601,6 +624,12 @@ class ViaggiPage(QWidget):
                 [
                     ColumnDef(key="id", label="ID ordine", stretch=1),
                     ColumnDef(key="cliente", label="Cliente", emphasis=TextEmphasis.SECONDARY, stretch=1),
+                    ColumnDef(
+                        key="negozio_partner",
+                        label="Negozio partner",
+                        emphasis=TextEmphasis.SECONDARY,
+                        stretch=1,
+                    ),
                     ColumnDef(
                         key="indirizzo", label="Indirizzo", emphasis=TextEmphasis.SECONDARY, stretch=2
                     ),

@@ -12,22 +12,22 @@ from sqlalchemy.orm import sessionmaker
 
 from gestionale_logistica.database.base import SessionLocal
 from gestionale_logistica.gui.components import MINIMAL_SCROLLBAR_QSS, EmptyState
-from gestionale_logistica.gui.pianificazione.components import (
+from gestionale_logistica.gui.pages.pianificazione.components import (
     AvvioCard,
     CompositionCard,
     RigaOrdineSuggerito,
     SuggestionSection,
 )
-from gestionale_logistica.gui.pianificazione.components.calendario_squadre import (
+from gestionale_logistica.gui.pages.pianificazione.components.calendario_squadre import (
     evidenzia_giorni_con_squadre_attive,
 )
-from gestionale_logistica.gui.pianificazione.pianificazione_data import (
+from gestionale_logistica.gui.pages.pianificazione.pianificazione_data import (
     costruisci_righe_suggerimento,
     costruisci_stato_composizione,
     descrizione_composizioni_disponibili,
     elenca_composizioni_disponibili,
 )
-from gestionale_logistica.logistica.gestore_logistica import GestoreLogistica
+from gestionale_logistica.logistica.gestore_logistica import MOTIVO_COMPOSIZIONE_OCCUPATA, GestoreLogistica
 from gestionale_logistica.ottimizzazione.gestore_configurazione import GestoreConfigurazione
 from gestionale_logistica.ottimizzazione.motore_ottimizzazione import MotoreOttimizzazione, SuggerimentoOrdini
 
@@ -39,6 +39,7 @@ class AssistitaTab(QWidget):
     # AutomaticaTab._pianoCalcolato.
     _suggerimentoCalcolato = Signal(object, str)  # Future[SuggerimentoOrdini], viaggio_id
     viaggioChiuso = Signal()
+    composizioneOccupata = Signal(str)  # motivo, per un toast
 
     def __init__(self, session_factory: sessionmaker = SessionLocal, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -159,7 +160,11 @@ class AssistitaTab(QWidget):
         durata_viaggio = timedelta(hours=configurazione.ore_lavoro)
         esito = self._gestore.avvia_composizione_viaggio(composizione_id, ora_partenza, durata_viaggio)
         if not esito.ok:
-            self._avvio_card.show_alert(esito.motivo or "Impossibile avviare la composizione")
+            if esito.motivo == MOTIVO_COMPOSIZIONE_OCCUPATA:
+                self._avvio_card.hide_alert()
+                self.composizioneOccupata.emit(esito.motivo)
+            else:
+                self._avvio_card.show_alert(esito.motivo or "Impossibile avviare la composizione")
             return
 
         self._avvio_card.hide_alert()

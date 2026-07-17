@@ -6,7 +6,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QGridLayout, QVBoxLayout, QWidget
 
-from gestionale_logistica.gui.autenticazione._shared import (
+from gestionale_logistica.gui.pages.autenticazione._shared import (
     CONTENT_WIDTH,
     ERROR_COLOR,
     build_centered_layout,

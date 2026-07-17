@@ -36,6 +36,10 @@ FILTRO_TUTTI = "Tutti"
 # toast invece dell'alert sotto la tabella "Aggiungi ordine".
 MOTIVO_SPONDA_IDRAULICA_MANCANTE = "Il camion non ha la sponda idraulica necessaria per ordini di categoria Big"
 MOTIVO_CERTIFICAZIONE_GAS_MANCANTE = "Nessun membro della squadra ha la certificazione gas necessaria"
+# RF12: motivo di rifiuto in avvia_composizione_viaggio quando la composizione e' gia' occupata
+# da un altro viaggio nella stessa data — estratto come costante cosi' la GUI puo' distinguerlo
+# senza duplicare il testo, vedi AssistitaTab._avvia_composizione che lo mostra come toast.
+MOTIVO_COMPOSIZIONE_OCCUPATA = "Composizione gia' occupata in questa data"
 
 
 def _normalizza_filtro_multiplo(valore: str | list[str] | None, sentinella: str | None) -> set[str] | None:
@@ -143,6 +147,7 @@ class OrdineVista:
     id: str
     cliente: str
     indirizzo: str
+    negozio_partner: str
     peso: float
     volume_cargo: float
     stato: str
@@ -186,6 +191,7 @@ class OrdineDiViaggioVista:
     id: str
     cliente: str
     indirizzo: str
+    negozio_partner: str
 
 
 @dataclass
@@ -471,7 +477,7 @@ class GestoreLogistica:
             )
             if occupata is not None:
                 return RisultatoOperazioneViaggio(
-                    ok=False, motivo="Composizione gia' occupata in questa data"
+                    ok=False, motivo=MOTIVO_COMPOSIZIONE_OCCUPATA
                 )
 
             viaggio_id, _ = crea_viaggio_persistito(
@@ -592,6 +598,7 @@ class GestoreLogistica:
         self,
         ricerca: str | None = None,
         filtro_stato: str | list[str] = FILTRO_TUTTI,
+        filtro_negozio_partner: str | list[str] = FILTRO_TUTTI,
         filtro_data: date | None = None,
         pagina: int = 1,
         dimensione_pagina: int = 20,
@@ -599,13 +606,14 @@ class GestoreLogistica:
     ) -> PaginaOrdini:
         """Elenco filtrato/ordinato/paginato degli ordini. Filtri: ricerca testuale (cliente,
         indirizzo o id), filtro stato (Tutti/Da pianificare/Pianificato/In consegna/Consegnato/
-        Fallito), filtro su un giorno esatto della data di arrivo del viaggio agganciato.
-        Ordinamento per data di arrivo del viaggio (non esiste un campo "data ordine" nel modello -
-        nessuna RF lo richiede - quindi l'unico riferimento temporale disponibile e' quello del
-        viaggio, coerente con la colonna DATA mostrata in tabella). Ordini senza viaggio agganciato
-        (data_arrivo_viaggio=None) restano sempre in coda, in entrambe le direzioni di
-        ordinamento - un "non ancora pianificato" non ha una posizione temporale sensata rispetto
-        agli altri."""
+        Fallito), filtro negozio partner (Tutti/uno o piu' valori distinti gia' visti, stesso
+        elenco di elenco_negozi_partner()), filtro su un giorno esatto della data di arrivo del
+        viaggio agganciato. Ordinamento per data di arrivo del viaggio (non esiste un campo "data
+        ordine" nel modello - nessuna RF lo richiede - quindi l'unico riferimento temporale
+        disponibile e' quello del viaggio, coerente con la colonna DATA mostrata in tabella).
+        Ordini senza viaggio agganciato (data_arrivo_viaggio=None) restano sempre in coda, in
+        entrambe le direzioni di ordinamento - un "non ancora pianificato" non ha una posizione
+        temporale sensata rispetto agli altri."""
         with self.session_factory() as session:
             righe_grezze = session.execute(
                 select(
@@ -613,6 +621,7 @@ class GestoreLogistica:
                     Ordine.cliente,
                     Ordine.indirizzo,
                     Ordine.comune,
+                    Ordine.negozio_partner,
                     Ordine.peso,
                     Ordine.volume_cargo,
                     Ordine.stato_ordine,
@@ -636,14 +645,15 @@ class GestoreLogistica:
                     id=r[0],
                     cliente=r[1],
                     indirizzo=f"{r[2]}, {r[3]}",
-                    peso=r[4],
-                    volume_cargo=r[5],
-                    stato=STATO_ORDINE_LABELS[r[6]],
-                    data_arrivo_viaggio=r[7],
+                    negozio_partner=r[4] or "Non specificato",
+                    peso=r[5],
+                    volume_cargo=r[6],
+                    stato=STATO_ORDINE_LABELS[r[7]],
+                    data_arrivo_viaggio=r[8],
                     puo_registrare_esito=(
-                        r[8] is not None
-                        and r[9] == StatoViaggio.IN_CORSO
-                        and (r[0], r[8]) not in coppie_con_esito
+                        r[9] is not None
+                        and r[10] == StatoViaggio.IN_CORSO
+                        and (r[0], r[9]) not in coppie_con_esito
                     ),
                 )
                 for r in righe_grezze
@@ -660,6 +670,10 @@ class GestoreLogistica:
             valori_stato = _normalizza_filtro_multiplo(filtro_stato, FILTRO_TUTTI)
             if valori_stato:
                 righe = [r for r in righe if r.stato in valori_stato]
+
+            valori_negozio_partner = _normalizza_filtro_multiplo(filtro_negozio_partner, FILTRO_TUTTI)
+            if valori_negozio_partner:
+                righe = [r for r in righe if r.negozio_partner in valori_negozio_partner]
 
             if filtro_data is not None:
                 righe = [
@@ -815,12 +829,19 @@ class GestoreLogistica:
             )
 
             ordini_righe = session.execute(
-                select(Ordine.id, Ordine.cliente, Ordine.indirizzo, Ordine.comune)
+                select(
+                    Ordine.id, Ordine.cliente, Ordine.indirizzo, Ordine.comune, Ordine.negozio_partner
+                )
                 .where(Ordine.viaggio_id == viaggio_id)
                 .order_by(Ordine.id)
             ).all()
             ordini = [
-                OrdineDiViaggioVista(id=r[0], cliente=r[1], indirizzo=f"{r[2]}, {r[3]}")
+                OrdineDiViaggioVista(
+                    id=r[0],
+                    cliente=r[1],
+                    indirizzo=f"{r[2]}, {r[3]}",
+                    negozio_partner=r[4] or "Non specificato",
+                )
                 for r in ordini_righe
             ]
 

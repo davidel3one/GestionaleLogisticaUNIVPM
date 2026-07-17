@@ -29,8 +29,8 @@ from gestionale_logistica.gui.components import (
     load_lucide_icon,
 )
 from gestionale_logistica.gui.components.toast import ToastManager
-from gestionale_logistica.gui.dashboard.components import ActivityRow, KpiCard, PlanningDayCard
-from gestionale_logistica.gui.dashboard.dashboard_data import (
+from gestionale_logistica.gui.pages.dashboard.components import ActivityRow, KpiCard, PlanningDayCard
+from gestionale_logistica.gui.pages.dashboard.dashboard_data import (
     carica_attivita_recente,
     carica_kpi_dashboard,
     carica_pianificazione_prossimi_giorni,
