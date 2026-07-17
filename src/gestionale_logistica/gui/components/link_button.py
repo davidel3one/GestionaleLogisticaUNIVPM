@@ -1,14 +1,15 @@
 """Componente LinkButton: testo cliccabile in stile link (fonte: mockup Sketch, artboard
 "Conferma OTP" — "Non hai ricevuto il codice? Invia di nuovo"). Valori misurati: Inter 12px/
-Medium(500), colore #2563C9, nessuna icona.
+Medium(500), colore #2563C9. Icona opzionale (non nel mockup originale; aggiunta per il
+back-button icon-only della Conferma OTP, stile coerente con l'esistente).
 
 Stato hover non definito nel mockup (disegnato solo a riposo): derivato scurendo il colore del
 testo, stesso principio gia' usato in Button._darken."""
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QFont, QIcon
 from PySide6.QtWidgets import QPushButton, QSizePolicy, QWidget
 
 from gestionale_logistica.gui.components.button import _darken
@@ -22,10 +23,20 @@ class LinkButton(QPushButton):
     """Bottone testuale senza sfondo/bordo, colore accento blu. Usa il segnale `clicked'
     gia' fornito da QPushButton, nessun segnale custom necessario."""
 
-    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        text: str,
+        icon: QIcon | None = None,
+        icon_size: int = 13,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(text, parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+        if icon is not None:
+            self.setIcon(icon)
+            self.setIconSize(QSize(icon_size, icon_size))
 
         font = QFont(FONT_FAMILY)
         font.setWeight(QFont.Weight(500))

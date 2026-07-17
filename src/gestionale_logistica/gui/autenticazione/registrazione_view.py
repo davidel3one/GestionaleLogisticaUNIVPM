@@ -101,3 +101,6 @@ class RegistrazioneView(QWidget):
 
     def clear_error(self) -> None:
         self._error.hide()
+
+    def enable_submit(self) -> None:
+        self._button.setEnabled(True)

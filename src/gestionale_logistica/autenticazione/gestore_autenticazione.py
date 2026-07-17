@@ -1,4 +1,5 @@
 import secrets
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 import bcrypt
@@ -13,7 +14,7 @@ from gestionale_logistica.autenticazione.validazione import (
     valida_telefono,
 )
 from gestionale_logistica.database.enums import RuoloUtente
-from gestionale_logistica.database.models import CodiceConferma, Sessione, Utente
+from gestionale_logistica.database.models import Sessione, Utente
 
 
 
@@ -38,10 +39,29 @@ def _genera_codice_otp() -> str:
 _HASH = bcrypt.hashpw(secrets.token_bytes(64), bcrypt.gensalt()).decode()
 
 
+@dataclass
+class _RegistrazionePendente:
+    """Dati di una registrazione in attesa di conferma OTP, tenuti solo in memoria:
+    nessuna riga Utente viene creata finche' il codice non e' verificato con successo
+    (in precedenza un Utente non confermato restava "appeso" a DB se l'app si chiudeva
+    prima della conferma, bloccando per sempre esiste_almeno_un_utente() e il login)."""
+
+    nome: str
+    cognome: str
+    telefono: str
+    email: str
+    password_hash: str
+    codice: str
+    data_scadenza: datetime
+    data_creazione: datetime
+    tentativi_falliti: int = 0
+
+
 class GestoreAutenticazione:
     def __init__(self, session: Session, email_service: EmailService) -> None:
         self.session = session
         self.email_service = email_service
+        self._pending: _RegistrazionePendente | None = None
 
     def esiste_almeno_un_utente(self) -> bool:
         return self.session.scalar(select(Utente.id).limit(1)) is not None
@@ -54,7 +74,7 @@ class GestoreAutenticazione:
         email: str,
         password: str,
         conferma_password: str,
-    ) -> Utente:
+    ) -> None:
         email = email.strip().lower()
 
         if self.esiste_almeno_un_utente():
@@ -71,76 +91,66 @@ class GestoreAutenticazione:
 
         password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-        utente = Utente(
+        self._pending = _RegistrazionePendente(
             nome=nome,
             cognome=cognome,
             telefono=telefono,
             email=email,
             password_hash=password_hash,
+            codice="",
+            data_scadenza=datetime.now(),
+            data_creazione=datetime.now(),
+        )
+        self._genera_e_invia_codice()
+
+    def _genera_e_invia_codice(self) -> None:
+        assert self._pending is not None
+        codice = _genera_codice_otp()
+        ora = datetime.now()
+        self._pending.codice = codice
+        self._pending.data_scadenza = ora + DURATA_CODICE_CONFERMA
+        self._pending.data_creazione = ora
+        self._pending.tentativi_falliti = 0
+        self.email_service.invia_codice_conferma(self._pending.email, codice)
+
+    def verifica_codice(self, codice: str) -> bool:
+        pending = self._pending
+        if pending is None:
+            return False
+
+        if pending.tentativi_falliti >= MAX_TENTATIVI_FALLITI:
+            return False
+
+        if pending.data_scadenza < datetime.now():
+            return False
+
+        if pending.codice != codice:
+            pending.tentativi_falliti += 1
+            return False
+
+        utente = Utente(
+            nome=pending.nome,
+            cognome=pending.cognome,
+            telefono=pending.telefono,
+            email=pending.email,
+            password_hash=pending.password_hash,
             ruolo=RuoloUtente.ADMIN,
-            flg_confermata=False,
+            flg_confermata=True,
             data_registrazione=datetime.now(),
         )
         self.session.add(utente)
-        self.session.flush()
-
-        self._genera_e_invia_codice(utente)
         self.session.commit()
-        return utente
-
-    def _genera_e_invia_codice(self, utente: Utente) -> None:
-        codice = _genera_codice_otp()
-        self.session.add(
-            CodiceConferma(
-                utente_id=utente.id,
-                codice=codice,
-                data_scadenza=datetime.now() + DURATA_CODICE_CONFERMA,
-                tentativi_falliti=0,
-            )
-        )
-        self.email_service.invia_codice_conferma(utente.email, codice)
-
-    def _ultimo_codice(self, utente_id: int) -> CodiceConferma | None:
-        return self.session.scalar(
-            select(CodiceConferma)
-            .where(CodiceConferma.utente_id == utente_id)
-            .order_by(CodiceConferma.id.desc())
-        )
-
-    def verifica_codice(self, utente_id: int, codice: str) -> bool:
-        codice_conferma = self._ultimo_codice(utente_id)
-        if codice_conferma is None:
-            return False
-
-        if codice_conferma.tentativi_falliti >= MAX_TENTATIVI_FALLITI:
-            return False
-
-        if codice_conferma.data_scadenza < datetime.now():
-            return False
-
-        if codice_conferma.codice != codice:
-            codice_conferma.tentativi_falliti += 1
-            self.session.commit()
-            return False
-
-        utente = self.session.get(Utente, utente_id)
-        utente.flg_confermata = True
-        self.session.delete(codice_conferma)
-        self.session.commit()
+        self._pending = None
         return True
 
-    def rigenera_codice(self, utente_id: int) -> None:
-        codice_conferma = self._ultimo_codice(utente_id)
-        if codice_conferma is not None:
-            data_creazione = codice_conferma.data_scadenza - DURATA_CODICE_CONFERMA
-            if datetime.now() - data_creazione < COOLDOWN_RIGENERAZIONE_CODICE:
-                raise CooldownAttivoError("Attendere prima di richiedere un nuovo codice")
-            self.session.delete(codice_conferma)
-            self.session.flush()
+    def rigenera_codice(self) -> None:
+        if self._pending is None:
+            raise ValidazioneError("Nessuna registrazione in corso")
 
-        utente = self.session.get(Utente, utente_id)
-        self._genera_e_invia_codice(utente)
-        self.session.commit()
+        if datetime.now() - self._pending.data_creazione < COOLDOWN_RIGENERAZIONE_CODICE:
+            raise CooldownAttivoError("Attendere prima di richiedere un nuovo codice")
+
+        self._genera_e_invia_codice()
 
     def login(self, email: str, password: str) -> Sessione:
         email = email.strip().lower()

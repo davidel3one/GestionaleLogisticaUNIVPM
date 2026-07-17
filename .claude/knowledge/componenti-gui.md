@@ -431,21 +431,6 @@ ricerca.searchChanged.connect(lambda testo: ...)  # riquery/filtro lato chiamant
 
 **Valori esatti dal mockup**: contenitore sfondo `#FFFFFF`, bordo 1px `#E5EAF0`, radius 9px, altezza 34px, padding orizzontale 12px; testo/placeholder Inter 13px/Medium `#5B6472` (stesso trattamento `QPalette::PlaceholderText` di `TextField`, così il placeholder non viene schiarito da Qt); icona `search` **`#8A93A0`** (= `LABEL_COLOR`), 16×16, a sinistra con gap 8px dal testo.
 
-## LinkButton
-
-`LinkButton(text: str, icon_name: str, parent=None)` — sottoclasse di `QPushButton` in `gui/components/link_button.py`: icona Lucide + testo in stile link (nessuno sfondo/bordo), usato per "Ripristina filtri" nelle Filter Card.
-
-```python
-link = LinkButton("Ripristina filtri", "rotate-ccw")
-link.clicked.connect(self._ripristina_filtri)  # segnale nativo QPushButton, nessun segnale custom
-```
-
-**Verificato nel mockup**: presente identico (stesso font/colore) in più artboard con Filter Card, incluse "Camion", "Ordini", "Viaggi" e "Squadre" — non un elemento specifico di una sola pagina, lo stesso elemento ricorre ovunque c'è una lista filtrata. Da usare fin dall'inizio in ogni nuova pagina lista (non un workaround ad-hoc tipo opzione "Tutti" dentro le tendine).
-
-**Valori esatti dal mockup**: icona 13×13, gap 6px dal testo, testo Inter-Medium 13px, colore `#2563C9` (stesso blu di `Button` PRIMARY) sia per icona che testo. Icona usata: `rotate-ccw`.
-
-**Assunzione segnalata**: stato hover non disegnato nel mockup (solo a riposo) — derivato scurendo il colore del testo (stesso principio di `Button._darken`), non misurato.
-
 ## EmptyState
 
 `EmptyState(title: str, subtitle: str = "", icon_name: str = "inbox", parent=None)` — sottoclasse di `QWidget`: placeholder mostrato al posto di una lista/tabella quando non ci sono dati. Contenuto centrato orizzontalmente e verticalmente.
@@ -600,17 +585,23 @@ AuthLogo()
 
 ## LinkButton
 
-`LinkButton(text, parent=None)` — sottoclasse di `QPushButton`: testo cliccabile in stile link, nessuna icona (unica istanza nel mockup: "Non hai ricevuto il codice? Invia di nuovo" nella schermata Conferma OTP). Valori misurati: Inter 12px/Medium, colore `#2563C9`, nessuno sfondo/bordo.
+`LinkButton(text: str, icon: QIcon | None = None, icon_size: int = 13, parent=None)` — sottoclasse di `QPushButton` in `gui/components/link_button.py`: testo cliccabile in stile link (nessuno sfondo/bordo), icona opzionale. Valori misurati: Inter 12px/Medium, colore `#2563C9`, nessuno sfondo/bordo.
 
 ```python
-from gestionale_logistica.gui.components import LinkButton
+from gestionale_logistica.gui.components import LinkButton, load_lucide_icon
 resend = LinkButton("Non hai ricevuto il codice? Invia di nuovo")
 resend.clicked.connect(...)
+
+# icon-only (testo vuoto)
+back = LinkButton("", icon=load_lucide_icon("chevron-left", "#2563C9", 16), icon_size=16)
+back.clicked.connect(...)
 ```
 
+**Istanze reali**: "Non hai ricevuto il codice? Invia di nuovo" (testo senza icona, Conferma OTP — unica istanza presente nel mockup), "Ripristina filtri" (testo senza icona, Filter Card di Camion/Ordini/Viaggi/Squadre/Dipendenti), freccetta "torna indietro" verso Registrazione (icon-only, `chevron-left`, Conferma OTP — non presente nel mockup, aggiunta oltre il design esistente riusando lo stile già verificato del link "Invia di nuovo" sulla stessa schermata).
+
 - Usa il segnale `clicked` nativo di `QPushButton`, nessun segnale custom.
-- **Stato hover** (non nel mockup): colore scurito (`_darken`, stesso helper di `Button`).
-- **Nota**: solo la variante testo-senza-icona è implementata, perché è l'unica istanza usata finora. Se in futuro serve una variante con icona, va aggiunta come parametro opzionale ispezionando prima il mockup per quell'istanza specifica — non forzare/estrapolare da questa.
+- **Stato hover** (non nel mockup): solo il testo si scurisce (`_darken`, stesso helper di `Button`) — l'icona, quando presente, non cambia colore all'hover (scelta dichiarata per restare semplici, non un'omissione).
+- **Nota**: il parametro `icon` va usato con misure prese dal mockup quando l'istanza è presente nel mockup (es. eventuali icone di Filter Card); per elementi assenti dal mockup si riusa lo stile esistente (icona 13×13 default, coerente con le altre istanze).
 
 ## OtpInput
 

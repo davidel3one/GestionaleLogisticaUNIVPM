@@ -4,7 +4,7 @@ registrazione, per confermare il codice a 6 cifre inviato via email."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QVBoxLayout, QWidget
 
 from gestionale_logistica.gui.autenticazione._shared import (
     CONTENT_WIDTH,
@@ -19,6 +19,7 @@ from gestionale_logistica.gui.components import (
     ButtonVariant,
     LinkButton,
     OtpInput,
+    load_lucide_icon,
 )
 
 
@@ -27,6 +28,7 @@ class ConfermaOtpView(QWidget):
 
     submitted = Signal(str)
     resendRequested = Signal()
+    backRequested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -37,8 +39,19 @@ class ConfermaOtpView(QWidget):
         self._otp = OtpInput(length=6)
         self._button = Button(ButtonVariant.PRIMARY_LARGE, "Conferma")
         self._resend = LinkButton("Non hai ricevuto il codice? Invia di nuovo")
+        self._back = LinkButton("", icon=load_lucide_icon("chevron-left", "#2563C9", 16), icon_size=16)
         self._error = hint_label("", color=ERROR_COLOR)
         self._error.hide()
+
+        titolo = title_label("Conferma la tua email")
+        titolo.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        header_row = QGridLayout()
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.addWidget(
+            self._back, 0, 0, alignment=Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        header_row.addWidget(titolo, 0, 0)
 
         column = QWidget()
         column.setFixedWidth(CONTENT_WIDTH)
@@ -47,7 +60,7 @@ class ConfermaOtpView(QWidget):
         content.setSpacing(0)
         content.addWidget(AuthLogo(), 0)
         content.addSpacing(28)
-        content.addWidget(title_label("Conferma la tua email"))
+        content.addLayout(header_row)
         content.addSpacing(12)
         content.addWidget(self._subtitle)
         content.addSpacing(48)
@@ -65,6 +78,7 @@ class ConfermaOtpView(QWidget):
 
         self._button.clicked.connect(self._on_submit)
         self._resend.clicked.connect(self.resendRequested)
+        self._back.clicked.connect(self.backRequested)
 
     def set_email(self, email: str) -> None:
         self._subtitle.setText(f"Abbiamo inviato un codice a {email}")

@@ -8,7 +8,7 @@ from gestionale_logistica.autenticazione.gestore_autenticazione import (
     GestoreAutenticazione,
 )
 from gestionale_logistica.autenticazione.validazione import ValidazioneError
-from gestionale_logistica.database.models import CodiceConferma, Sessione, Utente
+from gestionale_logistica.database.models import Sessione, Utente
 
 DATI_VALIDI = {
     "nome": "Mario",
@@ -39,19 +39,20 @@ def test_registrazione_con_dati_validi(session_factory):
         email_service = EmailServiceFinto()
         gestore = GestoreAutenticazione(session, email_service)
 
-        utente = gestore.registra_utente(**DATI_VALIDI)
+        gestore.registra_utente(**DATI_VALIDI)
 
-        assert utente.id is not None
-        assert utente.flg_confermata is False
         assert email_service.ultimo_destinatario == DATI_VALIDI["email"]
         assert email_service.ultimo_codice is not None
-        assert len(session.query(CodiceConferma).all()) == 1
+        # Nessuna riga Utente va creata finche' il codice non e' verificato.
+        assert session.query(Utente).all() == []
 
 
 def test_registrazione_rifiutata_se_esiste_gia_un_utente(session_factory):
     with session_factory() as session:
-        gestore = _gestore(session)
+        email_service = EmailServiceFinto()
+        gestore = GestoreAutenticazione(session, email_service)
         gestore.registra_utente(**DATI_VALIDI)
+        gestore.verifica_codice(email_service.ultimo_codice)
 
         with pytest.raises(ValidazioneError):
             gestore.registra_utente(
@@ -104,87 +105,84 @@ def test_verifica_codice_corretto_conferma_email(session_factory):
     with session_factory() as session:
         email_service = EmailServiceFinto()
         gestore = GestoreAutenticazione(session, email_service)
-        utente = gestore.registra_utente(**DATI_VALIDI)
+        gestore.registra_utente(**DATI_VALIDI)
 
-        risultato = gestore.verifica_codice(utente.id, email_service.ultimo_codice)
+        risultato = gestore.verifica_codice(email_service.ultimo_codice)
 
         assert risultato is True
-        assert session.get(Utente, utente.id).flg_confermata is True
-        assert session.query(CodiceConferma).all() == []
+        utente = session.query(Utente).one()
+        assert utente.email == DATI_VALIDI["email"]
+        assert utente.flg_confermata is True
 
 
 def test_verifica_codice_errato_non_conferma(session_factory):
     with session_factory() as session:
         gestore = _gestore(session)
-        utente = gestore.registra_utente(**DATI_VALIDI)
+        gestore.registra_utente(**DATI_VALIDI)
 
-        risultato = gestore.verifica_codice(utente.id, "000000")
+        risultato = gestore.verifica_codice("000000")
 
         assert risultato is False
-        assert session.get(Utente, utente.id).flg_confermata is False
+        assert session.query(Utente).all() == []
 
 
 def test_verifica_codice_scaduto_non_conferma(session_factory):
     with session_factory() as session:
         email_service = EmailServiceFinto()
         gestore = GestoreAutenticazione(session, email_service)
-        utente = gestore.registra_utente(**DATI_VALIDI)
+        gestore.registra_utente(**DATI_VALIDI)
 
-        codice_conferma = session.query(CodiceConferma).one()
-        codice_conferma.data_scadenza = datetime.now() - timedelta(minutes=1)
-        session.commit()
+        gestore._pending.data_scadenza = datetime.now() - timedelta(minutes=1)
 
-        risultato = gestore.verifica_codice(utente.id, email_service.ultimo_codice)
+        risultato = gestore.verifica_codice(email_service.ultimo_codice)
 
         assert risultato is False
-        assert session.get(Utente, utente.id).flg_confermata is False
+        assert session.query(Utente).all() == []
 
 
 def test_cinque_tentativi_falliti_invalidano_il_codice(session_factory):
     with session_factory() as session:
         email_service = EmailServiceFinto()
         gestore = GestoreAutenticazione(session, email_service)
-        utente = gestore.registra_utente(**DATI_VALIDI)
+        gestore.registra_utente(**DATI_VALIDI)
 
         for _ in range(5):
-            assert gestore.verifica_codice(utente.id, "000000") is False
+            assert gestore.verifica_codice("000000") is False
 
-        risultato = gestore.verifica_codice(utente.id, email_service.ultimo_codice)
+        risultato = gestore.verifica_codice(email_service.ultimo_codice)
 
         assert risultato is False
-        assert session.get(Utente, utente.id).flg_confermata is False
+        assert session.query(Utente).all() == []
 
 
 def test_rigenera_codice_prima_del_cooldown_solleva_errore(session_factory):
     with session_factory() as session:
         gestore = _gestore(session)
-        utente = gestore.registra_utente(**DATI_VALIDI)
+        gestore.registra_utente(**DATI_VALIDI)
 
         with pytest.raises(CooldownAttivoError):
-            gestore.rigenera_codice(utente.id)
+            gestore.rigenera_codice()
 
 
 def test_rigenera_codice_dopo_il_cooldown_invia_nuovo_codice(session_factory):
     with session_factory() as session:
         email_service = EmailServiceFinto()
         gestore = GestoreAutenticazione(session, email_service)
-        utente = gestore.registra_utente(**DATI_VALIDI)
-
-        codice_conferma = session.query(CodiceConferma).one()
-        codice_conferma.data_scadenza = datetime.now() + timedelta(minutes=8)
-        session.commit()
+        gestore.registra_utente(**DATI_VALIDI)
         vecchio_codice = email_service.ultimo_codice
 
-        gestore.rigenera_codice(utente.id)
+        # Simula il trascorrere del cooldown spostando indietro la data di creazione
+        # del codice pending (tenuta solo in memoria, non c'e' piu' una riga a DB).
+        gestore._pending.data_creazione = datetime.now() - timedelta(minutes=2)
 
-        assert len(session.query(CodiceConferma).all()) == 1
+        gestore.rigenera_codice()
+
         assert email_service.ultimo_codice != vecchio_codice
 
 
 def _registra_e_conferma(gestore, email_service):
-    utente = gestore.registra_utente(**DATI_VALIDI)
-    gestore.verifica_codice(utente.id, email_service.ultimo_codice)
-    return utente
+    gestore.registra_utente(**DATI_VALIDI)
+    gestore.verifica_codice(email_service.ultimo_codice)
 
 
 def test_login_con_credenziali_corrette_crea_sessione(session_factory):
@@ -260,3 +258,24 @@ def test_logout_elimina_la_sessione(session_factory):
         gestore.logout(sessione.token)
 
         assert session.query(Sessione).all() == []
+
+
+def test_chiusura_app_prima_della_conferma_non_lascia_utente_appeso(session_factory):
+    """Regressione: prima del fix, registra_utente() committava subito una riga Utente
+    con flg_confermata=False. Se l'app si chiudeva prima di verifica_codice(), quella
+    riga restava a DB per sempre: esiste_almeno_un_utente() tornava True e bloccava ogni
+    nuova registrazione, mentre login() rifiutava perche' l'utente non era confermato -
+    account irrecuperabile. Ora i dati della registrazione vivono solo in memoria finche'
+    il codice non e' verificato, quindi la chiusura dell'app non lascia nulla a DB."""
+    with session_factory() as session:
+        email_service = EmailServiceFinto()
+        gestore = GestoreAutenticazione(session, email_service)
+        gestore.registra_utente(**DATI_VALIDI)
+
+        assert gestore.esiste_almeno_un_utente() is False
+
+        # Simula il riavvio dell'app dopo una chiusura a meta' flusso: nuova istanza di
+        # GestoreAutenticazione (stato pending in memoria perso) sulla stessa sessione/DB.
+        nuovo_gestore = GestoreAutenticazione(session, email_service)
+
+        nuovo_gestore.registra_utente(**DATI_VALIDI)

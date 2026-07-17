@@ -59,8 +59,10 @@ def test_routing_iniziale_su_registrazione_se_nessun_utente(app, session_factory
 
 def test_routing_iniziale_su_login_se_utente_esiste(app, session_factory):
     with session_factory() as session:
-        gestore = GestoreAutenticazione(session, EmailServiceFinto())
+        email_service = EmailServiceFinto()
+        gestore = GestoreAutenticazione(session, email_service)
         gestore.registra_utente(**DATI_VALIDI)
+        gestore.verifica_codice(email_service.ultimo_codice)
 
         pagina = AutenticazionePage(gestore)
 
@@ -116,8 +118,8 @@ def test_login_corretto_autentica(app, session_factory):
     with session_factory() as session:
         email_service = EmailServiceFinto()
         gestore = GestoreAutenticazione(session, email_service)
-        utente = gestore.registra_utente(**DATI_VALIDI)
-        gestore.verifica_codice(utente.id, email_service.ultimo_codice)
+        gestore.registra_utente(**DATI_VALIDI)
+        gestore.verifica_codice(email_service.ultimo_codice)
         pagina = AutenticazionePage(gestore)
         token_ricevuto = []
         pagina.authenticated.connect(token_ricevuto.append)
@@ -158,3 +160,68 @@ def test_resend_in_cooldown_mostra_errore(app, session_factory):
         pagina._otp.resendRequested.emit()
 
         assert not pagina._otp._error.isHidden()
+
+
+def _compila_registrazione(registrazione, dati):
+    registrazione.nome.set_value(dati["nome"])
+    registrazione.cognome.set_value(dati["cognome"])
+    registrazione.telefono.set_value(dati["telefono"])
+    registrazione.email.set_value(dati["email"])
+    registrazione.password.set_value(dati["password"])
+    registrazione.conferma_password.set_value(dati["conferma_password"])
+
+
+def test_back_da_otp_torna_a_registrazione(app, session_factory):
+    with session_factory() as session:
+        pagina, gestore, _ = _pagina(session)
+        _compila_registrazione(pagina._registrazione, DATI_VALIDI)
+        pagina._registrazione._button.click()
+
+        pagina._otp.backRequested.emit()
+
+        assert pagina._stack.currentIndex() == _REGISTRAZIONE
+        assert pagina._registrazione._button.isEnabled()
+        assert pagina._registrazione.email.value() == DATI_VALIDI["email"]
+        assert gestore.esiste_almeno_un_utente() is False
+
+
+def test_back_da_otp_permette_di_correggere_e_registrare_di_nuovo(app, session_factory):
+    with session_factory() as session:
+        pagina, _, email_service = _pagina(session)
+        _compila_registrazione(pagina._registrazione, DATI_VALIDI)
+        pagina._registrazione._button.click()
+        pagina._otp.backRequested.emit()
+
+        dati_corretti = dict(DATI_VALIDI, email="corretta@example.com")
+        pagina._registrazione.email.set_value(dati_corretti["email"])
+        pagina._registrazione._button.click()
+
+        assert pagina._stack.currentIndex() == _CONFERMA_OTP
+        assert pagina._registrazione._error.isHidden()
+
+        token_ricevuto = []
+        pagina.authenticated.connect(token_ricevuto.append)
+        pagina._otp.submitted.emit(email_service.ultimo_codice)
+
+        assert len(token_ricevuto) == 1
+
+
+def test_freccetta_back_riceve_davvero_il_click_del_mouse(app, session_factory):
+    """Regressione: il titolo "Conferma la tua email" e la freccetta condividono la stessa
+    cella di QGridLayout; senza WA_TransparentForMouseEvents sul titolo, la QLabel (aggiunta
+    per ultima, quindi sopra nello z-order) intercetta il click reale prima che raggiunga il
+    bottone sottostante (bug riportato: "clicco sulla freccetta e non succede nulla").
+    `childAt()` replica esattamente l'hit-testing che Qt usa per instradare un click reale a
+    schermo — `.click()` programmatico da solo non lo avrebbe rilevato, perche' aggira quella
+    risoluzione per posizione."""
+    with session_factory() as session:
+        pagina, _, _ = _pagina(session)
+        _compila_registrazione(pagina._registrazione, DATI_VALIDI)
+        pagina._registrazione._button.click()
+        pagina.show()
+        app.processEvents()
+
+        back = pagina._otp._back
+        punto_click = back.geometry().center()
+
+        assert back.parentWidget().childAt(punto_click) is back

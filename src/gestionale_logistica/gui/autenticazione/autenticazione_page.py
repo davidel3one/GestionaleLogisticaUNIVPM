@@ -33,7 +33,6 @@ class AutenticazionePage(QWidget):
     def __init__(self, gestore: GestoreAutenticazione, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._gestore = gestore
-        self._pending_utente_id: int | None = None
         self._pending_credenziali: tuple[str, str] | None = None
 
         self._login = LoginView()
@@ -55,6 +54,7 @@ class AutenticazionePage(QWidget):
         self._registrazione.submitted.connect(self._on_registrazione)
         self._otp.submitted.connect(self._on_conferma)
         self._otp.resendRequested.connect(self._on_resend)
+        self._otp.backRequested.connect(self._on_back_to_registrazione)
 
         self._stack.setCurrentIndex(
             _LOGIN if gestore.esiste_almeno_un_utente() else _REGISTRAZIONE
@@ -81,15 +81,14 @@ class AutenticazionePage(QWidget):
     ) -> None:
         self._registrazione.clear_error()
         try:
-            utente = self._gestore.registra_utente(
+            self._gestore.registra_utente(
                 nome, cognome, telefono, email, password, conferma_password
             )
         except ValidazioneError as errore:
             self._registrazione.show_error(str(errore))
             return
-        self._pending_utente_id = utente.id
         self._pending_credenziali = (email, password)
-        self._otp.set_email(utente.email)
+        self._otp.set_email(email)
         self._otp.clear_code()
         self._otp.clear_error()
         self._stack.setCurrentIndex(_CONFERMA_OTP)
@@ -97,9 +96,9 @@ class AutenticazionePage(QWidget):
 
     def _on_conferma(self, codice: str) -> None:
         self._otp.clear_error()
-        if self._pending_utente_id is None or self._pending_credenziali is None:
+        if self._pending_credenziali is None:
             return
-        if not self._gestore.verifica_codice(self._pending_utente_id, codice):
+        if not self._gestore.verifica_codice(codice):
             self._otp.show_error("Codice non valido o scaduto")
             return
         email, password = self._pending_credenziali
@@ -112,9 +111,13 @@ class AutenticazionePage(QWidget):
         self._stack.setCurrentIndex(_LOGIN)
 
     def _on_resend(self) -> None:
-        if self._pending_utente_id is None:
-            return
         try:
-            self._gestore.rigenera_codice(self._pending_utente_id)
+            self._gestore.rigenera_codice()
         except CooldownAttivoError as errore:
             self._otp.show_error(str(errore))
+
+    def _on_back_to_registrazione(self) -> None:
+        """Torna alla Registrazione per correggere email/dettagli sbagliati, form
+        precompilato (i campi non vengono svuotati sul submit)."""
+        self._registrazione.enable_submit()
+        self._stack.setCurrentIndex(_REGISTRAZIONE)
